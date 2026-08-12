@@ -1,0 +1,134 @@
+/*
+ * Shared stylesheet for every authentication page (Login, Register, OTP,
+ * Forgot Password, Reset Password) — extracted out of guest-layout's old
+ * inline <style> block so it's ONE file linked once, not markup repeated
+ * per page. If a future auth page is added, linking this stylesheet is
+ * the only styling step it needs.
+ */
+
+/* No logged-in user exists on any auth page, so this is always the site
+   default — personalization only applies once authenticated, via
+   layouts/app.blade.php's per-user version of this same :root block. */
+:root {
+    --brand-1: #0C3B2E;
+    --brand-2: #6D9773;
+    --brand-1-dark: #092b21;
+    --brand-2-dark: #5c7d61;
+    --brand-1-tint-10: rgba(12, 59, 46, 0.1);
+    --brand-1-tint-20: rgba(12, 59, 46, 0.2);
+    --brand-2-tint-25: rgba(109, 151, 115, 0.25);
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible {
+    outline: 3px solid #FFBA00;
+    outline-offset: 2px;
+}
+
+/* Plain CSS rather than Tailwind's border-slate-300/shadow-sm utilities —
+   inputs were reported rendering with no visible border/background on
+   some pages before; a hand-written rule can't silently fail to apply
+   the way a utility class theoretically could. Used by x-text-input. */
+.pm-input {
+    display: block;
+    width: 100%;
+    border: 1px solid #94a3b8;
+    border-radius: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    background-color: #ffffff;
+    color: #1e293b;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pm-input::placeholder {
+    color: #94a3b8;
+}
+
+.pm-input:focus {
+    outline: none;
+    border-color: var(--brand-2);
+    box-shadow: 0 0 0 3px var(--brand-2-tint-25);
+}
+
+.pm-input[aria-invalid="true"] {
+    border-color: #e11d48;
+}
+
+.pm-input[aria-invalid="true"]:focus {
+    box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.15);
+}
+
+/* "Primary button, secondary color on hover" — not a gradient, not just
+   a darker shade of the same color: resting state is the brand primary,
+   hover swaps to the brand secondary outright. */
+.btn-primary {
+    background-color: var(--brand-1);
+}
+
+.btn-primary:hover {
+    background-color: var(--brand-2);
+}
+
+/* Every auth-page link (forgot password, sign up, already registered,
+   privacy policy, etc.) uses this instead of Tailwind's `underline`
+   utility — no underline at rest, a simple color shift on hover, nothing
+   else animating. Kept as one class so "remove underlines from auth
+   links" is a single rule instead of an inline override on every <a>. */
+.auth-link {
+    color: var(--brand-1);
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.auth-link:hover {
+    color: var(--brand-2);
+}
+
+.auth-link-muted {
+    color: #64748b;
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.auth-link-muted:hover {
+    color: #1e293b;
+}
+
+/* Small helper text under a field, distinct from an error message (which
+   uses x-input-error's rose color) — this is a HINT, always visible,
+   not a validation state. */
+.auth-hint {
+    font-size: 0.8125rem;
+    color: #94a3b8;
+    margin-top: 0.375rem;
+}
+
+/* The left-side marketing panel's background — a subtle diagonal brand
+   gradient plus a faint dot-grid texture (pure CSS, no image asset) so
+   it doesn't read as a flat, empty block of color. */
+.auth-marketing-panel {
+    background-image:
+        radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.08) 1px, transparent 0),
+        linear-gradient(135deg, var(--brand-1) 0%, var(--brand-1-dark) 60%, #071f18 100%);
+    background-size: 22px 22px, cover;
+}
+
+/* Logo inside the auth card — larger than before (was a flat h-14) but
+   still capped and responsive so it can't overwhelm a narrow phone
+   screen; grows a bit more once there's room at sm+. */
+.auth-logo {
+    height: 4.5rem;
+    width: auto;
+    max-width: 85%;
+}
+
+@media (min-width: 640px) {
+    .auth-logo {
+        height: 5.5rem;
+    }
+}
