@@ -86,8 +86,8 @@
         }
     </script>
 
-    <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto" role="region" aria-label="Payments table" tabindex="0">
-        <table class="min-w-full text-sm">
+    <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto pm-admin-table-scroll" role="region" aria-label="Payments table" tabindex="0">
+        <table class="min-w-full text-sm pm-admin-horizontal-table">
             <caption class="sr-only">Payment submissions with approve/reject actions for pending bank and mobile money payments.</caption>
             <thead class="bg-slate-50 text-left border-b border-slate-100">
                 <tr>
@@ -132,7 +132,7 @@
                         <td class="px-4 py-3 text-right whitespace-nowrap">
                             @if ($payment->status === 'pending' && $payment->method !== 'card')
                                 <form action="{{ route('admin.payments.approve', $payment->id) }}" method="POST" class="inline"
-                                      onsubmit="return confirm('Approve this payment and activate the subscription?');">
+                                      data-confirm="Approve this payment and activate the subscription?" data-confirm-title="Approve payment?" data-confirm-text="Approve" data-confirm-danger="false">
                                     @csrf
                                     <button type="submit" class="text-emerald-700 hover:underline mr-3">Approve</button>
                                 </form>

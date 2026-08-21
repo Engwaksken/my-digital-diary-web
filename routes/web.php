@@ -1,16 +1,18 @@
 <?php
 
 use App\Http\Controllers\AiPlanController;
+use App\Http\Controllers\Api\EngagementController;
 use App\Http\Controllers\ApiCredentialController;
 use App\Http\Controllers\BusinessCardController;
 use App\Http\Controllers\BudgetController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\DebtController;
 use App\Http\Controllers\DailyPlannerController;
 use App\Http\Controllers\FinancialPlannerController;
+use App\Http\Controllers\DebtController;
 use App\Http\Controllers\DietLogController;
 use App\Http\Controllers\ExerciseLogController;
 use App\Http\Controllers\EducationPlanController;
+use App\Http\Controllers\EngagementReviewController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\SignatureController;
@@ -21,6 +23,8 @@ use App\Http\Controllers\MeetingController;
 use App\Http\Controllers\MeetingConnectionController;
 use App\Http\Controllers\MeetingRecordingController;
 use App\Http\Controllers\NetworkContactController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\NoteController;
 use App\Http\Controllers\PersonalRelationshipController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\PrivacyController;
@@ -32,9 +36,16 @@ use App\Http\Controllers\ReminderController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SavingsContributionController;
 use App\Http\Controllers\SavingsGoalController;
+use App\Http\Controllers\SocialMediaAccountController;
 use App\Http\Controllers\SleepLogController;
+use App\Http\Controllers\SocialMediaPlannerController;
+use App\Http\Controllers\SocialMediaAnalyticsController;
+use App\Http\Controllers\SocialMediaReportController;
 use App\Http\Controllers\SpiritualPracticeController;
 use App\Http\Controllers\SubscriptionController;
+use App\Http\Controllers\SupportController;
+use App\Http\Controllers\SupportAttachmentController;
+use App\Http\Controllers\TermsOfUseController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -56,6 +67,7 @@ Route::get('/', function () {
 // Public — reachable without an account, since it's linked from the
 // registration consent checkbox.
 Route::get('/privacy-policy', [PrivacyPolicyController::class, 'show'])->name('privacy-policy');
+Route::get('/terms-of-use', [TermsOfUseController::class, 'show'])->name('terms-of-use');
 
 // Public — whoever scans a user's business-card QR code or opens their
 // shared link lands here with no account needed, same reasoning as
@@ -119,6 +131,9 @@ Route::post('/webhooks/{gatewayCode}', [\App\Http\Controllers\PaymentGatewayWebh
 // issue as the 'login' route fixed earlier. Skipping this reintroduces a
 // RouteNotFoundException the moment anything links to route('profile.edit').
 Route::middleware(['auth'])->group(function () {
+    Route::get('/support/attachments/{attachment}', [SupportAttachmentController::class, 'download'])
+        ->where('attachment', '[^/]+')
+        ->name('support.attachment.download');
     Route::get('/subscription', [SubscriptionController::class, 'show'])->name('subscription.show');
     Route::post('/subscription/subscribe', [SubscriptionController::class, 'subscribe'])->name('subscription.subscribe');
     Route::post('/subscription/cancel', [SubscriptionController::class, 'cancel'])->name('subscription.cancel');
@@ -126,17 +141,31 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/subscription/pay/mobile-money', [SubscriptionController::class, 'payWithMobileMoney'])->name('subscription.pay.mobile-money');
     Route::get('/subscription/receipt/{payment}', [SubscriptionController::class, 'downloadReceipt'])->name('subscription.receipt');
     Route::get('/subscription/invoice/{invoice}', [SubscriptionController::class, 'downloadInvoice'])->name('subscription.invoice');
-    Route::delete('/subscription/invoices/bulk-destroy', [SubscriptionController::class, 'bulkDestroyInvoices'])->name('subscription.invoices.bulk-destroy');
-    Route::delete('/subscription/receipts/bulk-destroy', [SubscriptionController::class, 'bulkDestroyReceipts'])->name('subscription.receipts.bulk-destroy');
     Route::post('/subscription/pay/manual', [SubscriptionController::class, 'submitManualPayment'])->name('subscription.pay.manual');
+    Route::post('/subscription/payment/{payment}/mobile-money', [SubscriptionController::class, 'retryPendingMobileMoney'])->name('subscription.payment.mobile-money');
+    Route::post('/subscription/payment/{payment}/bank', [SubscriptionController::class, 'submitPendingBankPayment'])->name('subscription.payment.bank');
 
     // Same reasoning: data export/deletion are rights a user should be
     // able to exercise even if their trial/subscription has lapsed.
     Route::get('/privacy', [PrivacyController::class, 'show'])->name('privacy.show');
     Route::get('/help', [\App\Http\Controllers\HelpController::class, 'show'])->name('help.show');
     Route::post('/privacy/export/request', [PrivacyController::class, 'requestExport'])->name('privacy.export.request');
-    Route::get('/privacy/export/download', [PrivacyController::class, 'downloadExport'])->name('privacy.export.download');
+    Route::get('/privacy/reports/{privacyReport}/download', [PrivacyController::class, 'downloadReport'])->name('privacy.report.download');
     Route::delete('/privacy/account', [PrivacyController::class, 'destroyAccount'])->name('privacy.destroy-account');
+    Route::post('/privacy/account/cancel-deletion', [PrivacyController::class, 'cancelDeletion'])->name('privacy.cancel-deletion');
+
+
+    // User support chat remains available even when subscription access is limited.
+    Route::get('/support', [SupportController::class, 'index'])->name('support.index');
+    Route::post('/support/send', [SupportController::class, 'send'])->name('support.send');
+    Route::post('/support/end', [SupportController::class, 'end'])->name('support.end');
+    Route::get('/support/widget/history', [SupportController::class, 'widgetHistory'])->name('support.widget.history');
+    Route::post('/support/widget/send', [SupportController::class, 'widgetSend'])->name('support.widget.send');
+
+    // Notification centre is available even if a subscription has expired.
+    Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -145,14 +174,148 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/profile/avatar', [ProfileController::class, 'updateAvatar'])->name('profile.avatar');
     Route::delete('/profile/avatar', [ProfileController::class, 'removeAvatar'])->name('profile.avatar.remove');
     Route::put('/profile/theme', [ProfileController::class, 'updateTheme'])->name('profile.theme');
+    Route::put('/profile/personalisation', [ProfileController::class, 'updatePersonalisation'])->name('profile.personalisation');
+
+    // Social media settings belong to the user's profile and remain available
+    // even if the subscription has expired.
+    Route::get('/profile/social-media', [SocialMediaAccountController::class, 'index'])
+        ->name('profile.social-media');
+    Route::post('/profile/social-media/accounts', [SocialMediaAccountController::class, 'store'])
+        ->name('profile.social-media.accounts.store');
+    Route::delete('/profile/social-media/accounts/{account}', [SocialMediaAccountController::class, 'destroy'])
+        ->whereNumber('account')
+        ->name('profile.social-media.accounts.destroy');
+    Route::put('/profile/social-media/whatsapp', [SocialMediaAccountController::class, 'updateWhatsApp'])
+        ->name('profile.social-media.whatsapp');
 });
 
 Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
+    Route::get('/getting-started', [\App\Http\Controllers\OnboardingController::class, 'show'])->name('onboarding.show');
+    Route::post('/getting-started', [\App\Http\Controllers\OnboardingController::class, 'store'])->name('onboarding.store');
     Route::get('/dashboard', DashboardController::class . '@index')->name('dashboard');
-    Route::get('/activity', fn () => redirect()->route('annual-plans.index'))->name('activity');
+    Route::get('/activity', DashboardController::class . '@activity')->name('activity');
+    Route::get('/monthly-review', \App\Http\Controllers\MonthlyReviewController::class)->name('monthly-review');
 
-    // Bulk-delete routes must be registered before Route::resource() so
-    // the literal "bulk-destroy" segment is never interpreted as a model ID.
+    /*
+    |--------------------------------------------------------------------------
+    | Social Media Planner
+    |--------------------------------------------------------------------------
+    |
+    | Registered directly in web.php so deployment does not depend on a
+    | separate routes/social_media_web.php file being present.
+    |
+    */
+    Route::prefix('social-media-planner')
+        ->name('social-media-planner.')
+        ->group(function () {
+            Route::get('/', [SocialMediaPlannerController::class, 'index'])
+                ->name('index');
+
+            Route::get('/reports', [SocialMediaReportController::class, 'index'])
+                ->name('reports.index');
+            Route::get('/reports/csv', [SocialMediaReportController::class, 'csv'])
+                ->name('reports.csv');
+
+            Route::get('/reports/pdf', [SocialMediaReportController::class, 'pdf'])
+                ->name('reports.pdf');
+
+            Route::get('/{socialMediaPost}/analytics', [SocialMediaAnalyticsController::class, 'show'])
+                ->whereNumber('socialMediaPost')->name('analytics.show');
+            Route::put('/{socialMediaPost}/analytics', [SocialMediaAnalyticsController::class, 'update'])
+                ->whereNumber('socialMediaPost')->name('analytics.update');
+
+            Route::post('/', [SocialMediaPlannerController::class, 'store'])
+                ->name('store');
+
+            // Literal routes must be before /{socialMediaPost}.
+            Route::delete('/bulk-destroy', [SocialMediaPlannerController::class, 'bulkDestroy'])
+                ->name('bulk-destroy');
+
+            Route::get('/ready-to-share/list', [SocialMediaPlannerController::class, 'readyToShare'])
+                ->name('ready-to-share');
+
+            Route::post('/{socialMediaPost}/post-now', [SocialMediaPlannerController::class, 'postNow'])
+                ->whereNumber('socialMediaPost')
+                ->name('post-now');
+
+            Route::patch('/{socialMediaPost}/mark-published', [SocialMediaPlannerController::class, 'markPublished'])
+                ->whereNumber('socialMediaPost')
+                ->name('mark-published');
+
+            Route::put('/{socialMediaPost}', [SocialMediaPlannerController::class, 'update'])
+                ->whereNumber('socialMediaPost')
+                ->name('update');
+
+            Route::delete('/{socialMediaPost}', [SocialMediaPlannerController::class, 'destroy'])
+                ->whereNumber('socialMediaPost')
+                ->name('destroy');
+        });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Daily Engagement / Retention — Web Session Routes
+    |--------------------------------------------------------------------------
+    |
+    | These routes are intentionally registered in web.php so the Laravel
+    | browser dashboard can use the authenticated web session + CSRF token.
+    | Flutter continues using the separate /api/engagement/* Sanctum routes.
+    |
+    */
+    Route::prefix('engagement')->name('engagement.')->group(function () {
+        Route::get('/today', [EngagementController::class, 'today'])
+            ->name('today');
+
+        Route::post('/checkin/{type}', [EngagementController::class, 'checkin'])
+            ->whereIn('type', ['start-day', 'close-day'])
+            ->name('checkin');
+
+        Route::post('/meaningful-action', [EngagementController::class, 'meaningfulAction'])
+            ->name('meaningful-action');
+
+        Route::get('/review/week', [EngagementReviewController::class, 'week'])
+            ->name('review.week');
+
+        Route::get('/review/month', [EngagementReviewController::class, 'month'])
+            ->name('review.month');
+
+        Route::get('/share-card/{period}', [EngagementController::class, 'shareCard'])
+            ->whereIn('period', ['week', 'month'])
+            ->name('share-card');
+    });
+    Route::get('/goals-next-actions', \App\Http\Controllers\GoalIntelligenceController::class)->name('goal-intelligence');
+    Route::get('/personal-goals/{goal}/progress', [\App\Http\Controllers\GoalProgressController::class, 'show'])->name('personal-goals.progress');
+    Route::post('/personal-goals/{goal}/milestones', [\App\Http\Controllers\GoalProgressController::class, 'storeMilestone'])->name('personal-goals.milestones.store');
+    Route::patch('/personal-goals/{goal}/milestones/{milestone}/toggle', [\App\Http\Controllers\GoalProgressController::class, 'toggleMilestone'])->name('personal-goals.milestones.toggle');
+    Route::delete('/personal-goals/{goal}/milestones/{milestone}', [\App\Http\Controllers\GoalProgressController::class, 'destroyMilestone'])->name('personal-goals.milestones.destroy');
+    Route::patch('/personal-goals/{goal}/milestones/{milestone}/reschedule', [\App\Http\Controllers\GoalProgressController::class, 'rescheduleMilestone'])->name('personal-goals.milestones.reschedule');
+    Route::post('/personal-goals/{goal}/check-in', [\App\Http\Controllers\GoalProgressController::class, 'storeCheckin'])->name('personal-goals.checkin.store');
+    Route::post('/personal-goals/{goal}/reflections', [\App\Http\Controllers\GoalProgressController::class, 'storeReflection'])->name('personal-goals.reflections.store');
+    Route::delete('/personal-goals/{goal}/reflections/{reflection}', [\App\Http\Controllers\GoalProgressController::class, 'destroyReflection'])->name('personal-goals.reflections.destroy');
+
+    // Planner modules. The old Plans module was replaced by Annual Plans.
+    Route::get('plans', fn () => redirect()->route('annual-plans.index'))->name('plans.index');
+
+    Route::get('financial-planner', [FinancialPlannerController::class, 'index'])->name('financial-planner.index');
+    Route::put('financial-planner', [FinancialPlannerController::class, 'update'])->name('financial-planner.update');
+
+    Route::get('daily-planner', [DailyPlannerController::class, 'index'])->name('daily-planner.index');
+    Route::put('daily-planner', [DailyPlannerController::class, 'updatePlan'])->name('daily-planner.update');
+    Route::post('daily-planner/items', [DailyPlannerController::class, 'storeItem'])->name('daily-planner.items.store');
+    Route::patch('daily-planner/items/bulk-move', [DailyPlannerController::class, 'bulkMove'])->name('daily-planner.items.bulk-move');
+    Route::delete('daily-planner/items/bulk-destroy', [DailyPlannerController::class, 'bulkDestroy'])->name('daily-planner.items.bulk-destroy');
+    Route::patch('daily-planner/items/{item}/move', [DailyPlannerController::class, 'moveItem'])->name('daily-planner.items.move');
+    Route::patch('daily-planner/items/{item}/toggle', [DailyPlannerController::class, 'toggle'])->name('daily-planner.items.toggle');
+    Route::put('daily-planner/items/{item}', [DailyPlannerController::class, 'updateItem'])->name('daily-planner.items.update');
+    Route::delete('daily-planner/items/{item}', [DailyPlannerController::class, 'destroyItem'])->name('daily-planner.items.destroy');
+
+    Route::get('annual-plans', [PlanController::class, 'index'])->name('annual-plans.index');
+    Route::post('annual-plans', [PlanController::class, 'store'])->name('annual-plans.store');
+    Route::put('annual-plans/{annualPlan}', [PlanController::class, 'update'])->name('annual-plans.update');
+    Route::patch('annual-plans/{annualPlan}/toggle', [PlanController::class, 'toggle'])->name('annual-plans.toggle');
+    Route::delete('annual-plans/bulk-destroy', [PlanController::class, 'bulkDestroy'])->name('annual-plans.bulk-destroy');
+    Route::delete('annual-plans/{annualPlan}', [PlanController::class, 'destroy'])->name('annual-plans.destroy');
+    // Bulk-delete routes must be declared BEFORE resource routes so the literal
+    // `bulk-destroy` segment is never interpreted as a model ID.
     Route::delete('incomes/bulk-destroy', [IncomeController::class, 'bulkDestroy'])->name('incomes.bulk-destroy');
     Route::delete('budgets/bulk-destroy', [BudgetController::class, 'bulkDestroy'])->name('budgets.bulk-destroy');
     Route::delete('expenses/bulk-destroy', [ExpenseController::class, 'bulkDestroy'])->name('expenses.bulk-destroy');
@@ -169,29 +332,11 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
     Route::delete('reminders/bulk-destroy', [ReminderController::class, 'bulkDestroy'])->name('reminders.bulk-destroy');
     Route::delete('spiritual-practices/bulk-destroy', [SpiritualPracticeController::class, 'bulkDestroy'])->name('spiritual-practices.bulk-destroy');
     Route::delete('education-plans/bulk-destroy', [EducationPlanController::class, 'bulkDestroy'])->name('education-plans.bulk-destroy');
+    Route::delete('notes/bulk-destroy', [NoteController::class, 'bulkDestroy'])->name('notes.bulk-destroy');
     Route::delete('network-contacts/bulk-destroy', [NetworkContactController::class, 'bulkDestroy'])->name('network-contacts.bulk-destroy');
     Route::delete('relationships/bulk-destroy', [PersonalRelationshipController::class, 'bulkDestroy'])->name('relationships.bulk-destroy');
     Route::delete('feedback/bulk-destroy', [FeedbackController::class, 'bulkDestroy'])->name('feedback.bulk-destroy');
 
-    Route::get('financial-planner', [FinancialPlannerController::class, 'index'])->name('financial-planner.index');
-    Route::put('financial-planner', [FinancialPlannerController::class, 'update'])->name('financial-planner.update');
-    Route::get('daily-planner', [DailyPlannerController::class, 'index'])->name('daily-planner.index');
-    Route::put('daily-planner', [DailyPlannerController::class, 'updatePlan'])->name('daily-planner.update');
-    Route::post('daily-planner/items', [DailyPlannerController::class, 'storeItem'])->name('daily-planner.items.store');
-    Route::patch('daily-planner/items/{item}/toggle', [DailyPlannerController::class, 'toggle'])->name('daily-planner.items.toggle');
-    Route::put('daily-planner/items/{item}', [DailyPlannerController::class, 'updateItem'])->name('daily-planner.items.update');
-    Route::delete('daily-planner/items/bulk-destroy', [DailyPlannerController::class, 'bulkDestroy'])->name('daily-planner.items.bulk-destroy');
-    Route::delete('daily-planner/items/{item}', [DailyPlannerController::class, 'destroyItem'])->name('daily-planner.items.destroy');
-
-    // Legacy Plans page was replaced by Daily Planner. Keep only a safe redirect for old bookmarks.
-    Route::get('plans', fn () => redirect()->route('annual-plans.index'))->name('plans.index');
-
-    Route::get('annual-plans', [PlanController::class, 'index'])->name('annual-plans.index');
-    Route::post('annual-plans', [PlanController::class, 'store'])->name('annual-plans.store');
-    Route::put('annual-plans/{annualPlan}', [PlanController::class, 'update'])->name('annual-plans.update');
-    Route::patch('annual-plans/{annualPlan}/toggle', [PlanController::class, 'toggle'])->name('annual-plans.toggle');
-    Route::delete('annual-plans/bulk-destroy', [PlanController::class, 'bulkDestroy'])->name('annual-plans.bulk-destroy');
-    Route::delete('annual-plans/{annualPlan}', [PlanController::class, 'destroy'])->name('annual-plans.destroy');
     Route::resource('incomes', IncomeController::class);
     Route::resource('budgets', BudgetController::class);
     Route::resource('expenses', ExpenseController::class);
@@ -216,9 +361,10 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
     Route::patch('meeting-recordings/{recording}/status', [MeetingRecordingController::class, 'updateStatus'])->name('meeting-recordings.status');
     Route::post('meeting-recordings/{recording}/stop', [MeetingRecordingController::class, 'stop'])->name('meeting-recordings.stop');
     Route::post('meeting-recordings/{recording}/transcribe', [MeetingRecordingController::class, 'transcribe'])->name('meeting-recordings.transcribe');
+    Route::post('meeting-recordings/{recording}/process', [MeetingRecordingController::class, 'transcribeAndSummarize'])->name('meeting-recordings.process');
     Route::put('meeting-recordings/{recording}/transcript', [MeetingRecordingController::class, 'updateTranscript'])->name('meeting-recordings.transcript.update');
     Route::post('meeting-recordings/{recording}/summarize', [MeetingRecordingController::class, 'generateSummary'])->name('meeting-recordings.summarize');
-    Route::post('meeting-recordings/{recording}/process', [MeetingRecordingController::class, 'transcribeAndSummarize'])->name('meeting-recordings.process');
+    Route::get('meeting-recordings/{recording}/audio/stream', [MeetingRecordingController::class, 'streamAudio'])->name('meeting-recordings.audio.stream');
     Route::get('meeting-recordings/{recording}/audio', [MeetingRecordingController::class, 'downloadAudio'])->name('meeting-recordings.audio');
     Route::get('meeting-recordings/{recording}/transcript-download', [MeetingRecordingController::class, 'downloadTranscript'])->name('meeting-recordings.transcript.download');
     Route::get('meeting-recordings/{recording}/summary-download', [MeetingRecordingController::class, 'downloadSummary'])->name('meeting-recordings.summary.download');
@@ -241,6 +387,11 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
     Route::resource('network-contacts', NetworkContactController::class);
     Route::resource('relationships', PersonalRelationshipController::class);
     Route::resource('spiritual-practices', SpiritualPracticeController::class);
+    Route::delete('personal-goals/bulk-destroy', [\App\Http\Controllers\PersonalGoalController::class, 'bulkDestroy'])->name('personal-goals.bulk-destroy');
+    Route::resource('personal-goals', \App\Http\Controllers\PersonalGoalController::class)->except(['create','edit','show']);
+    Route::delete('wellbeing/bulk-destroy', [\App\Http\Controllers\DailyWellbeingLogController::class, 'bulkDestroy'])->name('wellbeing.bulk-destroy');
+    Route::resource('wellbeing', \App\Http\Controllers\DailyWellbeingLogController::class)->except(['create','edit','show']);
+    Route::resource('notes', NoteController::class);
     Route::resource('feedback', FeedbackController::class);
     Route::get('tips', [TipsController::class, 'index'])->name('tips');
     Route::get('signature', [SignatureController::class, 'show'])->name('signature.show');
@@ -276,11 +427,15 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
 
     Route::get('ai-plans', [AiPlanController::class, 'index'])->name('ai-plans.index');
     Route::post('ai-plans', [AiPlanController::class, 'store'])->name('ai-plans.store');
+    Route::get('ai-plans/{aiPlan}/preview', [AiPlanController::class, 'previewPdf'])->name('ai-plans.preview');
     Route::get('ai-plans/{aiPlan}/pdf', [AiPlanController::class, 'downloadPdf'])->name('ai-plans.pdf');
+    Route::delete('ai-plans/bulk-destroy', [AiPlanController::class, 'bulkDestroy'])->name('ai-plans.bulk-destroy');
     Route::delete('ai-plans/{aiPlan}', [AiPlanController::class, 'destroy'])->name('ai-plans.destroy');
 
     // Full cross-module "Personal Report" as a downloadable PDF (DomPDF).
     Route::get('report/pdf', [ReportController::class, 'download'])->name('report.download');
+    
+    
 });
 
 // Loads Breeze's login/register/password-reset/email-verification routes

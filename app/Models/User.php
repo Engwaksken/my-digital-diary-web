@@ -72,6 +72,10 @@ class User extends Authenticatable implements MustVerifyEmail
         'subscription_plan_id',
         'subscription_expires_at',
         'last_expiry_reminder_days',
+        'last_expiry_reminder_at',
+        'preferred_currency_code',
+        'deletion_reason', 'deletion_requested_at', 'scheduled_deletion_at', 'timezone',
+        'ai_data_permissions', 'onboarding_focuses', 'onboarding_completed_at', 'engagement_notification_preferences',
     ];
 
     protected $hidden = [
@@ -92,6 +96,13 @@ class User extends Authenticatable implements MustVerifyEmail
             'daily_digest_enabled' => 'boolean',
             'hydration_reminders_enabled' => 'boolean',
             'subscription_expires_at' => 'datetime',
+            'deletion_requested_at' => 'datetime',
+            'scheduled_deletion_at' => 'datetime',
+            'last_expiry_reminder_at' => 'datetime',
+            'ai_data_permissions' => 'array',
+            'onboarding_focuses' => 'array',
+            'onboarding_completed_at' => 'datetime',
+            'engagement_notification_preferences' => 'array',
         ];
     }
 
@@ -226,6 +237,26 @@ class User extends Authenticatable implements MustVerifyEmail
         }
 
         return null;
+    }
+
+    public function engagementNotificationPreferences(): array
+    {
+        $defaults = [
+            'goal_progress' => true,
+            'monthly_review' => true,
+            'finance_insights' => true,
+            'productivity_nudges' => true,
+            'spiritual_insights' => true,
+            'subscription_reminders' => true,
+            'daily_affirmations' => true,
+        ];
+
+        return array_replace($defaults, is_array($this->engagement_notification_preferences) ? $this->engagement_notification_preferences : []);
+    }
+
+    public function engagementNotificationEnabled(string $key): bool
+    {
+        return (bool) ($this->engagementNotificationPreferences()[$key] ?? false);
     }
 
     public function apiCredentials()
@@ -385,36 +416,6 @@ class User extends Authenticatable implements MustVerifyEmail
             : null;
     }
 
-    /**
-     * Inline avatar source used by the Laravel web UI.
-     *
-     * Mobile/API responses continue using avatarUrl(); the web interface
-     * uses this data URI so a broken public /storage symlink does not hide
-     * an avatar that was successfully saved to storage/app/public.
-     */
-    public function avatarDataUri(): ?string
-    {
-        if (! $this->avatar_path) {
-            return null;
-        }
-
-        try {
-            $disk = \Illuminate\Support\Facades\Storage::disk('public');
-
-            if (! $disk->exists($this->avatar_path)) {
-                return null;
-            }
-
-            $contents = $disk->get($this->avatar_path);
-            $mime = $disk->mimeType($this->avatar_path) ?: 'image/jpeg';
-
-            return 'data:' . $mime . ';base64,' . base64_encode($contents);
-        } catch (\Throwable $e) {
-            report($e);
-            return null;
-        }
-    }
-
     public function signatures()
     {
         return $this->hasMany(Signature::class);
@@ -425,4 +426,28 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return mb_strtoupper(mb_substr($this->name, 0, 1));
     }
+
+    /** Preferred display currency; falls back to the site's base currency. */
+    public function preferredCurrencyCode(): string
+    {
+        return strtoupper(
+            $this->preferred_currency_code
+            ?: SiteSetting::current()->default_currency_code
+            ?: 'UGX'
+        );
+    }
+
+    public function aiDataPermissions(): array
+    {
+        $defaults = ['planning','finance','goals','health','wellbeing','spiritual','notes','meetings','network','education','relationships'];
+        $stored = $this->ai_data_permissions;
+
+        return is_array($stored) ? array_values(array_intersect($defaults, $stored)) : $defaults;
+    }
+
+    public function aiAllows(string $module): bool
+    {
+        return in_array($module, $this->aiDataPermissions(), true);
+    }
+
 }

@@ -102,15 +102,44 @@ class DashboardController extends Controller
 
         // --- Productivity tab ---------------------------------------------------
 
+        // Use the user's local day. Server/UTC date differences previously made
+        // Daily Planner tasks disappear from Today's Focus on Web/Mobile.
+        $dashboardTimezone = $request->user()->timezone ?: 'Africa/Kampala';
+        $localToday = Carbon::now($dashboardTimezone);
+        $localDate = $localToday->toDateString();
+
         $todayPlan = DailyPlan::where('user_id', $userId)
-            ->whereDate('plan_date', now()->toDateString())
+            ->whereDate('plan_date', $localDate)
             ->first();
 
         $todaysPlanItems = $todayPlan
-            ? $todayPlan->items()->where('is_completed', false)->limit(5)->get()
+            ? $todayPlan->items()
+                ->where('is_completed', false)
+                ->orderByRaw("
+                    CASE priority
+                        WHEN 'high' THEN 1
+                        WHEN 'medium' THEN 2
+                        ELSE 3
+                    END
+                ")
+                ->orderByRaw('CASE WHEN start_time IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('start_time')
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->limit(6)
+                ->get()
             : collect();
 
-        $todayPlanProgress = $todayPlan ? $todayPlan->progressPercent() : 0;
+        // Final fallback reads the same source used by Week/Month Review.
+        if ($todaysPlanItems->isEmpty()) {
+            $todaysPlanItems = app(
+                \App\Services\PeriodReviewMetricsService::class
+            )->todayFocus($request->user(), 6);
+        }
+
+        $todayPlanProgress = $todayPlan
+            ? $todayPlan->progressPercent()
+            : 0;
 
         $activeProjectsList = Project::where('user_id', $userId)
             ->whereIn('status', ['planned', 'in_progress'])
@@ -118,23 +147,31 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
+        // Dashboard activity is intentionally limited to the user's current local day.
+        // The full historical activity remains available from View All Activity.
+        $dayStartUtc = $localToday->copy()->startOfDay()->utc();
+        $dayEndUtc = $localToday->copy()->endOfDay()->utc();
+
         $upcomingTasks = ProjectTask::where('user_id', $userId)
             ->whereIn('status', ['todo', 'in_progress'])
+            ->whereDate('due_date', $localDate)
+            ->orderBy('due_date')
             ->orderByDesc('id')
-            ->limit(5)
+            ->limit(12)
             ->get();
 
         $upcomingReminders = Reminder::where('user_id', $userId)
             ->where('is_active', true)
+            ->whereBetween('next_run_at', [$dayStartUtc, $dayEndUtc])
             ->orderBy('next_run_at')
-            ->limit(5)
+            ->limit(12)
             ->get();
 
         $upcomingMeetings = Meeting::where('user_id', $userId)
             ->where('status', 'scheduled')
-            ->where('start_at', '>=', now())
+            ->whereBetween('start_at', [$dayStartUtc, $dayEndUtc])
             ->orderBy('start_at')
-            ->limit(5)
+            ->limit(12)
             ->get();
 
         // --- Health & Wellness tab ----------------------------------------------
@@ -176,10 +213,6 @@ class DashboardController extends Controller
             ->orderBy('next_planned_interaction')
             ->limit(5)
             ->get();
-
-        $spiritualPracticesThisWeek = SpiritualPractice::where('user_id', $userId)
-            ->where('practiced_at', '>=', now()->startOfWeek())
-            ->count();
 
         // --- AI Planner widget (latest plan preview + quick-generate) --------
 
@@ -234,6 +267,12 @@ class DashboardController extends Controller
             ->map(fn ($feature, $key) => array_merge($feature, ['key' => $key]))
             ->values();
 
+        $dailyInsight = app(\App\Services\DailyInsightService::class)->current($request->user());
+        $dailyInsight['route'] = route($dailyInsight['route_name']);
+        $personalProgress = app(\App\Services\PersonalProgressService::class)->summary($request->user());
+        $goalIntelligence = app(\App\Services\GoalIntelligenceService::class)->build($request->user());
+        $notificationCenter = app(\App\Services\NotificationCenterService::class)->forUser($request->user(), 12);
+
         return view('dashboard', compact(
             'monthlyIncome',
             'monthlyExpenses',
@@ -258,7 +297,6 @@ class DashboardController extends Controller
             'inProgressEducation',
             'upcomingNetworkFollowUps',
             'upcomingRelationshipCheckins',
-            'spiritualPracticesThisWeek',
             'annualPlans',
             'annualPlanTotal',
             'annualPlanCompleted',
@@ -267,7 +305,11 @@ class DashboardController extends Controller
             'hasAiAccess',
             'expiryNotification',
             'highlights',
-            'ownedOrganization'
+            'ownedOrganization',
+            'dailyInsight',
+            'personalProgress',
+            'goalIntelligence',
+            'notificationCenter'
         ));
     }
 
@@ -286,6 +328,7 @@ class DashboardController extends Controller
         $perPage = 20;
         $page = (int) $request->input('page', 1);
         $search = $request->query('q');
+        $type = $request->query('type');
 
         $all = $this->buildRecentActivity($userId, 30, 300);
 
@@ -301,6 +344,10 @@ class DashboardController extends Controller
 
         if ($search) {
             $all = $all->filter(fn ($item) => str_contains(strtolower($item['text']), strtolower($search)))->values();
+        }
+
+        if ($type) {
+            $all = $all->filter(fn ($item) => ($item['type'] ?? null) === $type)->values();
         }
 
         // Period filter — same daily/weekly/monthly/range vocabulary as
@@ -336,6 +383,7 @@ class DashboardController extends Controller
             'activity' => $paginator,
             'stats' => $stats,
             'search' => $search,
+            'type' => $type,
             'period' => $period,
             'from' => $from,
             'to' => $to,
@@ -363,16 +411,17 @@ class DashboardController extends Controller
         $items = collect();
 
         Expense::where('user_id', $userId)->latest()->limit($perModelLimit)->get()->each(function ($e) use (&$items) {
-            $items->push(['icon' => 'fa-solid fa-receipt', 'color' => 'rose', 'text' => "Logged expense: {$e->category} — " . format_money($e->amount), 'time' => $e->created_at]);
+            $items->push(['type' => 'expense', 'icon' => 'fa-solid fa-receipt', 'color' => 'rose', 'text' => "Logged expense: {$e->category} — " . format_money($e->amount), 'time' => $e->created_at]);
         });
 
         Income::where('user_id', $userId)->latest()->limit($perModelLimit)->get()->each(function ($i) use (&$items) {
-            $items->push(['icon' => 'fa-solid fa-money-bill-trend-up', 'color' => 'emerald', 'text' => "Logged income: " . format_money($i->amount), 'time' => $i->created_at]);
+            $items->push(['type' => 'income', 'icon' => 'fa-solid fa-money-bill-trend-up', 'color' => 'emerald', 'text' => "Logged income: " . format_money($i->amount), 'time' => $i->created_at]);
         });
 
         BusinessCard::where('user_id', $userId)->latest('updated_at')->limit($perModelLimit)->get()->each(function ($card) use (&$items) {
             $created = $card->created_at && $card->updated_at && $card->created_at->equalTo($card->updated_at);
             $items->push([
+                'type' => 'business_card',
                 'icon' => 'fa-solid fa-id-card',
                 'color' => 'teal',
                 'text' => ($created ? 'Created business card: ' : 'Updated business card: ') . $card->name,
@@ -383,6 +432,7 @@ class DashboardController extends Controller
         \App\Models\SignedDocument::where('user_id', $userId)->latest('signed_at')->limit($perModelLimit)->get()->each(function ($d) use (&$items) {
             $positionLabel = $d->position ? str_replace('-', ' ', $d->position) : 'no position';
             $items->push([
+                'type' => 'signature',
                 'icon' => 'fa-solid fa-file-signature',
                 'color' => 'indigo',
                 'text' => $d->was_stamped
@@ -394,28 +444,28 @@ class DashboardController extends Controller
 
         DailyPlan::where('user_id', $userId)->latest()->limit($perModelLimit)->get()->each(function ($plan) use (&$items) {
             $date = optional($plan->plan_date)->format('d M Y') ?? 'daily plan';
-            $items->push(['icon' => 'fa-solid fa-calendar-check', 'color' => 'indigo', 'text' => "Updated daily planner: {$date}", 'time' => $plan->updated_at ?? $plan->created_at]);
+            $items->push(['type' => 'planner', 'icon' => 'fa-solid fa-calendar-check', 'color' => 'indigo', 'text' => "Updated daily planner: {$date}", 'time' => $plan->updated_at ?? $plan->created_at]);
         });
 
         ProjectTask::where('user_id', $userId)->where('status', 'done')->latest()->limit($perModelLimit)->get()->each(function ($t) use (&$items) {
-            $items->push(['icon' => 'fa-solid fa-clipboard-check', 'color' => 'cyan', 'text' => "Completed task: {$t->title}", 'time' => $t->updated_at]);
+            $items->push(['type' => 'task', 'icon' => 'fa-solid fa-clipboard-check', 'color' => 'cyan', 'text' => "Completed task: {$t->title}", 'time' => $t->updated_at]);
         });
 
         Meeting::where('user_id', $userId)->latest()->limit($perModelLimit)->get()->each(function ($m) use (&$items) {
-            $items->push(['icon' => 'fa-solid fa-calendar-days', 'color' => 'blue', 'text' => "Scheduled meeting: {$m->title}", 'time' => $m->created_at]);
+            $items->push(['type' => 'meeting', 'icon' => 'fa-solid fa-calendar-days', 'color' => 'blue', 'text' => "Scheduled meeting: {$m->title}", 'time' => $m->created_at]);
         });
 
         SleepLog::where('user_id', $userId)->latest()->limit($perModelLimit)->get()->each(function ($s) use (&$items) {
             $hours = round($s->duration_minutes / 60, 1);
-            $items->push(['icon' => 'fa-solid fa-bed', 'color' => 'violet', 'text' => "Logged sleep: {$hours} hrs", 'time' => $s->created_at]);
+            $items->push(['type' => 'sleep', 'icon' => 'fa-solid fa-bed', 'color' => 'violet', 'text' => "Logged sleep: {$hours} hrs", 'time' => $s->created_at]);
         });
 
         DietLog::where('user_id', $userId)->latest()->limit($perModelLimit)->get()->each(function ($d) use (&$items) {
-            $items->push(['icon' => 'fa-solid fa-utensils', 'color' => 'orange', 'text' => "Logged meal: {$d->meal_type} ({$d->calories} cal)", 'time' => $d->created_at]);
+            $items->push(['type' => 'diet', 'icon' => 'fa-solid fa-utensils', 'color' => 'orange', 'text' => "Logged meal: {$d->meal_type} ({$d->calories} cal)", 'time' => $d->created_at]);
         });
 
         Reminder::where('user_id', $userId)->latest()->limit($perModelLimit)->get()->each(function ($r) use (&$items) {
-            $items->push(['icon' => 'fa-solid fa-bell', 'color' => 'yellow', 'text' => "Created reminder: {$r->title}", 'time' => $r->created_at]);
+            $items->push(['type' => 'reminder', 'icon' => 'fa-solid fa-bell', 'color' => 'yellow', 'text' => "Created reminder: {$r->title}", 'time' => $r->created_at]);
         });
 
         return $items->sortByDesc('time')->take($take)->values();

@@ -76,8 +76,8 @@
         }
     </script>
 
-    <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto" role="region" aria-label="Payment gateways table" tabindex="0">
-        <table class="min-w-full text-sm">
+    <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto pm-admin-table-scroll" role="region" aria-label="Payment gateways table" tabindex="0">
+        <table class="min-w-full text-sm pm-admin-horizontal-table">
             <caption class="sr-only">Configured payment gateways, with enable/disable and edit actions.</caption>
             <thead class="bg-slate-50 text-left border-b border-slate-100">
                 <tr>
@@ -139,7 +139,7 @@
                             </form>
                             <button type="button" onclick="document.getElementById('gateway-edit-modal-{{ $gateway->id }}').showModal()" class="text-[var(--brand-1)] hover:underline mr-3">Edit</button>
                             <form action="{{ route('admin.payment-gateways.destroy', $gateway->id) }}" method="POST" class="inline"
-                                  onsubmit="return confirm('Remove this payment gateway?');">
+                                  data-confirm="Remove this payment gateway?" data-confirm-title="Delete payment gateway?" data-confirm-text="Delete">
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" class="text-rose-600 hover:underline">Delete</button>

@@ -4,8 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\DailyPlan;
 use App\Models\DailyPlanItem;
+use App\Models\PersonalGoal;
+use App\Models\Reminder;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class DailyPlannerController extends Controller
 {
@@ -125,6 +128,8 @@ class DailyPlannerController extends Controller
             ? 'history'
             : 'tasks';
 
+        $goalOptions = PersonalGoal::where('user_id', $request->user()->id)->where('is_archived', false)->whereIn('status',['not_started','in_progress'])->orderBy('title')->pluck('title','id');
+
         return view('daily-planner.index', compact(
             'plan',
             'date',
@@ -139,7 +144,8 @@ class DailyPlannerController extends Controller
             'historyFrom',
             'historyTo',
             'historyPerPage',
-            'activeTab'
+            'activeTab',
+            'goalOptions'
         ));
     }
 
@@ -149,6 +155,8 @@ class DailyPlannerController extends Controller
             'plan_date' => 'required|date',
             'title'     => 'required|string|max:255',
             'notes'     => 'nullable|string',
+            'achievements' => 'nullable|string',
+            'challenges' => 'nullable|string',
         ]);
 
         DailyPlan::updateOrCreate(
@@ -159,6 +167,8 @@ class DailyPlannerController extends Controller
             [
                 'title' => $data['title'],
                 'notes' => $data['notes'] ?? null,
+                'achievements' => $data['achievements'] ?? null,
+                'challenges' => $data['challenges'] ?? null,
             ]
         );
 
@@ -170,7 +180,10 @@ class DailyPlannerController extends Controller
         $data = $request->validate([
             'plan_date'   => 'required|date',
             'title'       => 'required|string|max:255',
+            'personal_goal_id' => 'nullable|integer|exists:personal_goals,id',
             'description' => 'nullable|string',
+            'achievements' => 'nullable|string',
+            'challenges' => 'nullable|string',
             'priority'    => 'required|in:low,medium,high',
             'start_time'  => 'nullable|date_format:H:i',
             'end_time'    => 'nullable|date_format:H:i|after:start_time',
@@ -220,16 +233,131 @@ class DailyPlannerController extends Controller
         $this->owned($request, $item);
 
         $data = $request->validate([
+            'plan_date'   => 'nullable|date',
             'title'       => 'required|string|max:255',
+            'personal_goal_id' => 'nullable|integer|exists:personal_goals,id',
             'description' => 'nullable|string',
+            'achievements' => 'nullable|string',
+            'challenges' => 'nullable|string',
             'priority'    => 'required|in:low,medium,high',
             'start_time'  => 'nullable|date_format:H:i',
             'end_time'    => 'nullable|date_format:H:i|after:start_time',
         ]);
 
+        $oldDate = $item->plan->plan_date->toDateString();
+        $targetDate = isset($data['plan_date']) ? Carbon::parse($data['plan_date'])->toDateString() : null;
+        unset($data['plan_date']);
+        if ($targetDate && $targetDate !== $oldDate) {
+            if ($item->is_completed) {
+                return back()->with('error', 'Completed tasks stay on their original date. Reopen the task first if it needs rescheduling.');
+            }
+            $targetPlan = DailyPlan::firstOrCreate(['user_id' => $request->user()->id, 'plan_date' => $targetDate], ['title' => 'My Daily Plan']);
+            $data['daily_plan_id'] = $targetPlan->id;
+            $data['sort_order'] = ($targetPlan->items()->max('sort_order') ?? 0) + 1;
+        }
         $item->update($data);
+        if ($targetDate && $targetDate !== $oldDate) {
+            $this->rescheduleLinkedReminders($request, $item, $targetDate);
+        }
 
-        return back()->with('success', 'Task updated successfully.');
+        return redirect()->route('daily-planner.index', ['date' => $targetDate ?: $oldDate])->with('success', 'Task updated successfully.');
+    }
+
+    public function moveItem(Request $request, DailyPlanItem $item)
+    {
+        $this->owned($request, $item);
+
+        if ($item->is_completed) {
+            return back()->with('error', 'Completed tasks stay on their original date so your history remains accurate.');
+        }
+
+        $data = $request->validate([
+            'target_date' => ['required', 'date'],
+        ]);
+
+        $oldDate = $item->plan->plan_date->toDateString();
+        $targetDate = Carbon::parse($data['target_date'])->toDateString();
+
+        if ($targetDate === $oldDate) {
+            return back()->with('success', 'Task is already scheduled for that date.');
+        }
+
+        $this->movePendingItemToDate($request, $item, $targetDate);
+
+        return redirect()
+            ->route('daily-planner.index', ['date' => $oldDate])
+            ->with('success', 'Task moved to '.Carbon::parse($targetDate)->format('d M Y').'.');
+    }
+
+    public function bulkMove(Request $request)
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+            'target_date' => ['required', 'date'],
+        ]);
+
+        $targetDate = Carbon::parse($data['target_date'])->toDateString();
+        $items = DailyPlanItem::query()
+            ->with('plan')
+            ->whereIn('id', $data['ids'])
+            ->whereHas('plan', fn ($q) => $q->where('user_id', $request->user()->id))
+            ->get();
+
+        $moved = 0;
+        $skipped = 0;
+        foreach ($items as $item) {
+            if ($item->is_completed) {
+                $skipped++;
+                continue;
+            }
+            if ($item->plan->plan_date->toDateString() === $targetDate) {
+                $skipped++;
+                continue;
+            }
+            $this->movePendingItemToDate($request, $item, $targetDate);
+            $moved++;
+        }
+
+        $message = $moved.' pending task'.($moved === 1 ? '' : 's').' moved to '.Carbon::parse($targetDate)->format('d M Y').'.';
+        if ($skipped > 0) {
+            $message .= ' '.$skipped.' completed/already scheduled task'.($skipped === 1 ? ' was' : 's were').' left unchanged.';
+        }
+
+        return back()->with($moved > 0 ? 'success' : 'error', $message);
+    }
+
+    private function movePendingItemToDate(Request $request, DailyPlanItem $item, string $targetDate): void
+    {
+        $targetPlan = DailyPlan::firstOrCreate(
+            ['user_id' => $request->user()->id, 'plan_date' => $targetDate],
+            ['title' => 'My Daily Plan']
+        );
+
+        $item->update([
+            'daily_plan_id' => $targetPlan->id,
+            'sort_order' => ($targetPlan->items()->max('sort_order') ?? 0) + 1,
+        ]);
+
+        $this->rescheduleLinkedReminders($request, $item, $targetDate);
+    }
+
+    private function rescheduleLinkedReminders(Request $request, DailyPlanItem $item, string $targetDate): void
+    {
+        if (!Schema::hasColumns('reminders', ['source_type', 'source_id'])) return;
+
+        Reminder::query()
+            ->where('user_id', $request->user()->id)
+            ->where('source_type', 'daily_plan_item')
+            ->where('source_id', $item->id)
+            ->where('is_active', true)
+            ->get()
+            ->each(function (Reminder $reminder) use ($targetDate) {
+                if (!$reminder->next_run_at) return;
+                $time = $reminder->next_run_at->format('H:i:s');
+                $reminder->next_run_at = Carbon::parse($targetDate.' '.$time);
+                $reminder->save();
+            });
     }
 
     public function destroyItem(Request $request, DailyPlanItem $item)

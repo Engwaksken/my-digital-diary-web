@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use App\Services\OfflineConflictGuard;
 
 /**
  * JSON equivalent of the web app's CrudController — every tracking module
@@ -31,14 +32,77 @@ abstract class ApiCrudController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $showArchived = $request->boolean('archived');
-
-        $items = $this->model::where('user_id', $request->user()->id)
-            ->where('is_archived', $showArchived)
-            ->orderByDesc('id')
-            ->paginate(20);
+        $query = $this->filteredIndexQuery($request);
+        $items = $query->orderByDesc('id')->paginate(20)->withQueryString();
 
         return response()->json($items);
+    }
+
+    protected function filteredIndexQuery(Request $request)
+    {
+        $showArchived = $request->boolean('archived');
+        $model = new $this->model;
+        $table = $model->getTable();
+        $query = $this->model::where('user_id', $request->user()->id)
+            ->where('is_archived', $showArchived);
+
+        $search = trim((string) $request->query('q', ''));
+        if ($search !== '') {
+            $searchable = collect($model->getFillable())
+                ->filter(fn ($column) => $column !== 'user_id' && Schema::hasColumn($table, $column))
+                ->filter(fn ($column) => ! in_array($column, ['amount','target_amount','duration_minutes','calories','progress_percent'], true))
+                ->values();
+            if ($searchable->isNotEmpty()) {
+                $query->where(function ($sub) use ($searchable, $search) {
+                    foreach ($searchable as $column) {
+                        $sub->orWhere($column, 'like', '%' . $search . '%');
+                    }
+                });
+            }
+        }
+
+        if ($dateColumn = $this->resolveDateColumn($table)) {
+            [$from, $to] = $this->resolvePeriodRange($request);
+            if ($from && $to) {
+                $query->whereBetween($dateColumn, [$from, $to]);
+            }
+        }
+
+        return $query;
+    }
+
+    protected function resolveDateColumn(string $table): ?string
+    {
+        foreach (['received_at','spent_at','contributed_at','date','target_date','due_date','logged_at','performed_at','sleep_date','checked_at','practiced_at','created_at'] as $column) {
+            if (Schema::hasColumn($table, $column)) return $column;
+        }
+        return null;
+    }
+
+    protected function resolvePeriodRange(Request $request): array
+    {
+        $period = (string) $request->query('period', '');
+        $now = now();
+        return match ($period) {
+            'today' => [$now->copy()->startOfDay(), $now->copy()->endOfDay()],
+            'week' => [$now->copy()->startOfWeek(), $now->copy()->endOfWeek()],
+            'month' => [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()],
+            'last_month' => [$now->copy()->subMonthNoOverflow()->startOfMonth(), $now->copy()->subMonthNoOverflow()->endOfMonth()],
+            'year' => [$now->copy()->startOfYear(), $now->copy()->endOfYear()],
+            'custom' => $this->customPeriodRange($request),
+            default => [null, null],
+        };
+    }
+
+    protected function customPeriodRange(Request $request): array
+    {
+        if (! $request->filled('from') || ! $request->filled('to')) return [null, null];
+        $from = \Illuminate\Support\Carbon::parse($request->query('from'))->startOfDay();
+        $to = \Illuminate\Support\Carbon::parse($request->query('to'))->endOfDay();
+        if ($from->gt($to)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['from' => 'The start date must be before or equal to the end date.']);
+        }
+        return [$from, $to];
     }
 
     public function show(Request $request, int $id): JsonResponse
@@ -61,6 +125,7 @@ abstract class ApiCrudController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $item = $this->model::where('user_id', $request->user()->id)->findOrFail($id);
+        if ($conflict = OfflineConflictGuard::check($request, $item)) return $conflict;
 
         $data = $request->validate($this->rules);
         $item->update($data);
@@ -71,9 +136,18 @@ abstract class ApiCrudController extends Controller
     public function destroy(Request $request, int $id): JsonResponse
     {
         $item = $this->model::where('user_id', $request->user()->id)->findOrFail($id);
+        if ($conflict = OfflineConflictGuard::check($request, $item)) return $conflict;
         $item->delete();
 
         return response()->json(['message' => 'Deleted.']);
+    }
+
+
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $ids = $request->validate(['ids' => ['required','array','min:1'], 'ids.*' => ['integer']])['ids'];
+        $deleted = $this->model::where('user_id', $request->user()->id)->whereIn('id', $ids)->delete();
+        return response()->json(['message' => "{$deleted} item(s) deleted.", 'deleted' => $deleted]);
     }
 
     public function archive(Request $request, int $id): JsonResponse

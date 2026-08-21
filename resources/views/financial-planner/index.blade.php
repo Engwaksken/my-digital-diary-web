@@ -3,6 +3,16 @@
 @section('title', 'Financial Planner')
 
 @section('content')
+    <div class="mb-4 rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 flex items-center justify-between gap-3">
+        <div>
+            <p class="text-sm font-semibold text-slate-800">Goals aligned to this area</p>
+            <p class="text-xs text-slate-500 mt-0.5">Connect your plans and daily actions to a clear outcome.</p>
+        </div>
+        <a href="{{ route('personal-goals.index', ['module' => 'finance']) }}" class="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-violet-200 text-violet-700 text-sm font-semibold hover:bg-violet-100">
+            <i class="fa-solid fa-bullseye"></i> Goals
+        </a>
+    </div>
+
 <div class="space-y-6">
     <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
@@ -32,20 +42,23 @@
 
     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         @foreach([
-            ['Income', $metrics['income'], 'fa-money-bill-trend-up'],
-            ['Expenses', $metrics['expenses'], 'fa-receipt'],
-            ['Savings', $metrics['saved'], 'fa-piggy-bank'],
-            ['Outstanding debt', $metrics['outstandingDebt'], 'fa-hand-holding-dollar'],
-            ['Monthly income', $metrics['monthlyIncome'], 'fa-calendar-plus'],
-            ['Monthly expenses', $metrics['monthlyExpense'], 'fa-calendar-minus'],
-            ['Monthly budget', $metrics['monthlyBudget'], 'fa-wallet'],
-            ['Monthly surplus', $metrics['monthlySurplus'], 'fa-scale-balanced'],
+            ['Income', $metrics['income'], 'fa-money-bill-trend-up', '#047857', '#ecfdf5'],
+            ['Expenses', $metrics['expenses'], 'fa-receipt', '#be123c', '#fff1f2'],
+            ['Savings', $metrics['saved'], 'fa-piggy-bank', '#6d28d9', '#f5f3ff'],
+            ['Outstanding debt', $metrics['outstandingDebt'], 'fa-hand-holding-dollar', '#c2410c', '#fff7ed'],
+            ['Monthly income', $metrics['monthlyIncome'], 'fa-calendar-plus', '#0f766e', '#f0fdfa'],
+            ['Monthly expenses', $metrics['monthlyExpense'], 'fa-calendar-minus', '#e11d48', '#fff1f2'],
+            ['Monthly budget', $metrics['monthlyBudget'], 'fa-wallet', '#1d4ed8', '#eff6ff'],
+            ['Monthly surplus', $metrics['monthlySurplus'], 'fa-scale-balanced', '#0e7490', '#ecfeff'],
         ] as $card)
-            <div class="pm-card-bg border border-slate-200 rounded-xl p-4 shadow-sm">
-                <div class="text-xs text-slate-500">
-                    <i class="fa-solid {{ $card[2] }} mr-1" style="color:var(--brand-1)"></i>{{ $card[0] }}
+            <div class="pm-card-bg border border-slate-200 border-l-4 rounded-xl p-3 shadow-sm flex items-center gap-3 min-w-0" style="border-left-color:{{ $card[3] }}">
+                <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style="background:{{ $card[4] }};color:{{ $card[3] }}">
+                    <i class="fa-solid {{ $card[2] }}"></i>
                 </div>
-                <div class="mt-1 font-bold text-lg text-slate-900">{{ format_money($card[1]) }}</div>
+                <div class="min-w-0">
+                    <div class="text-[11px] uppercase tracking-wide text-slate-500 truncate">{{ $card[0] }}</div>
+                    <div class="mt-0.5 font-bold text-base text-slate-900 truncate">{{ format_money($card[1]) }}</div>
+                </div>
             </div>
         @endforeach
     </div>

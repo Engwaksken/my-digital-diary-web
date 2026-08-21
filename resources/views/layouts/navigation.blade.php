@@ -1,35 +1,47 @@
-<nav x-data="{ open: false }" class="bg-white border-b border-gray-100">
-    <!-- Primary Navigation Menu -->
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between h-16">
-            <div class="flex">
-                <!-- Logo -->
-                <div class="shrink-0 flex items-center">
-                    <a href="{{ route('dashboard') }}">
-                        <x-application-logo class="block h-9 w-auto fill-current text-gray-800" />
-                    </a>
-                </div>
+<nav x-data="{ open: false }" class="pm-topnav" aria-label="Primary navigation">
+    <style>
+        .pm-topnav { position: sticky; top: 0; z-index: 50; background: rgba(255,255,255,.92); border-bottom: 1px solid rgba(15,23,42,.08); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+        .pm-topnav-inner { max-width: 80rem; margin: 0 auto; padding: 0 1rem; }
+        .pm-topnav-row { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .pm-topnav-left, .pm-topnav-user { display: flex; align-items: center; min-width: 0; }
+        .pm-topnav-logo { display: inline-flex; align-items: center; text-decoration: none; }
+        .pm-topnav-links { display: none; align-items: stretch; margin-left: 30px; min-height: 68px; }
+        .pm-user-trigger { display: inline-flex; align-items: center; gap: 10px; min-height: 42px; padding: 7px 12px; border: 1px solid rgba(15,23,42,.08); border-radius: 13px; background: #fff; color: #475467; font-size: .86rem; font-weight: 600; box-shadow: 0 4px 14px rgba(15,23,42,.04); transition: .18s ease; }
+        .pm-user-trigger:hover { border-color: rgba(0,137,123,.25); color: #172033; box-shadow: 0 8px 20px rgba(15,23,42,.07); }
+        .pm-mobile-toggle { display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; border: 1px solid rgba(15,23,42,.08); background: #fff; color: #475467; }
+        .pm-mobile-panel { border-top: 1px solid rgba(15,23,42,.07); background: rgba(255,255,255,.98); box-shadow: 0 18px 28px rgba(15,23,42,.06); }
+        .pm-mobile-profile { padding: 16px; border-top: 1px solid rgba(15,23,42,.07); }
+        .pm-mobile-name { color: #172033; font-weight: 700; }
+        .pm-mobile-email { margin-top: 2px; color: #7a8696; font-size: .78rem; overflow-wrap: anywhere; }
+        @media (min-width: 640px) {
+            .pm-topnav-inner { padding: 0 1.5rem; }
+            .pm-topnav-links { display: flex; }
+            .pm-topnav-user { display: flex; }
+            .pm-mobile-toggle, .pm-mobile-panel { display: none !important; }
+        }
+        @media (max-width: 639.98px) { .pm-topnav-user { display: none; } }
+    </style>
 
-                <!-- Navigation Links -->
-                <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
+    <div class="pm-topnav-inner">
+        <div class="pm-topnav-row">
+            <div class="pm-topnav-left">
+                <a href="{{ route('dashboard') }}" class="pm-topnav-logo" aria-label="Dashboard">
+                    <x-application-logo class="block h-9 w-auto fill-current text-[var(--brand-1)]" />
+                </a>
+
+                <div class="pm-topnav-links">
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                         {{ __('Dashboard') }}
                     </x-nav-link>
                 </div>
             </div>
 
-            <!-- Settings Dropdown -->
-            <div class="hidden sm:flex sm:items-center sm:ms-6">
+            <div class="pm-topnav-user">
                 <x-dropdown align="right" width="48">
                     <x-slot name="trigger">
-                        <button class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none transition ease-in-out duration-150">
-                            <div>{{ Auth::user()->name }}</div>
-
-                            <div class="ms-1">
-                                <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                </svg>
-                            </div>
+                        <button type="button" class="pm-user-trigger">
+                            <span class="truncate max-w-[180px]">{{ Auth::user()->name }}</span>
+                            <i class="fa-solid fa-chevron-down text-xs" aria-hidden="true"></i>
                         </button>
                     </x-slot>
 
@@ -38,13 +50,9 @@
                             {{ __('Profile') }}
                         </x-dropdown-link>
 
-                        <!-- Authentication -->
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf
-
-                            <x-dropdown-link :href="route('logout')"
-                                    onclick="event.preventDefault();
-                                                this.closest('form').submit();">
+                            <x-dropdown-link :href="route('logout')" onclick="event.preventDefault(); this.closest('form').submit();">
                                 {{ __('Log Out') }}
                             </x-dropdown-link>
                         </form>
@@ -52,45 +60,32 @@
                 </x-dropdown>
             </div>
 
-            <!-- Hamburger -->
-            <div class="-me-2 flex items-center sm:hidden">
-                <button @click="open = ! open" class="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:bg-gray-100 focus:text-gray-500 transition duration-150 ease-in-out">
-                    <svg class="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                        <path :class="{'hidden': open, 'inline-flex': ! open }" class="inline-flex" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-                        <path :class="{'hidden': ! open, 'inline-flex': open }" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
+            <button type="button" @click="open = ! open" class="pm-mobile-toggle" :aria-expanded="open.toString()" aria-controls="mobile-navigation">
+                <span class="sr-only">Toggle navigation</span>
+                <i class="fa-solid" :class="open ? 'fa-xmark' : 'fa-bars'" aria-hidden="true"></i>
+            </button>
         </div>
     </div>
 
-    <!-- Responsive Navigation Menu -->
-    <div :class="{'block': open, 'hidden': ! open}" class="hidden sm:hidden">
+    <div id="mobile-navigation" x-cloak x-show="open" x-transition class="pm-mobile-panel sm:hidden">
         <div class="pt-2 pb-3 space-y-1">
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 {{ __('Dashboard') }}
             </x-responsive-nav-link>
         </div>
 
-        <!-- Responsive Settings Options -->
-        <div class="pt-4 pb-1 border-t border-gray-200">
-            <div class="px-4">
-                <div class="font-medium text-base text-gray-800">{{ Auth::user()->name }}</div>
-                <div class="font-medium text-sm text-gray-500">{{ Auth::user()->email }}</div>
-            </div>
+        <div class="pm-mobile-profile">
+            <div class="pm-mobile-name">{{ Auth::user()->name }}</div>
+            <div class="pm-mobile-email">{{ Auth::user()->email }}</div>
 
             <div class="mt-3 space-y-1">
                 <x-responsive-nav-link :href="route('profile.edit')">
                     {{ __('Profile') }}
                 </x-responsive-nav-link>
 
-                <!-- Authentication -->
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
-
-                    <x-responsive-nav-link :href="route('logout')"
-                            onclick="event.preventDefault();
-                                        this.closest('form').submit();">
+                    <x-responsive-nav-link :href="route('logout')" onclick="event.preventDefault(); this.closest('form').submit();">
                         {{ __('Log Out') }}
                     </x-responsive-nav-link>
                 </form>

@@ -31,6 +31,9 @@
         <tr><td>Receipt #</td><td>{{ $payment->receipt_number ?? $payment->id }}</td></tr>
         <tr><td>Date</td><td>{{ $payment->created_at->format('F j, Y g:i A') }}</td></tr>
         <tr><td>Billed To</td><td>{{ $payment->user->name }} ({{ $payment->user->email }})</td></tr>
+        @if ($payment->paymentContactPhone())
+            <tr><td>Contact / Phone</td><td>{{ $payment->paymentContactPhone() }}</td></tr>
+        @endif
         <tr><td>Plan</td><td>{{ $payment->plan?->name ?? '—' }}</td></tr>
         @if ($payment->invoice?->billing_period_start && $payment->invoice?->billing_period_end)
             <tr><td>Subscription Period</td><td>{{ $payment->invoice->billing_period_start->format('M j, Y') }} – {{ $payment->invoice->billing_period_end->format('M j, Y') }}</td></tr>

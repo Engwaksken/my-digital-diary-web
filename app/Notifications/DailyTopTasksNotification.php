@@ -3,53 +3,46 @@
 namespace App\Notifications;
 
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-/**
- * Sent daily at 8am (see SendDailyTopTasksDigest) with up to 3 of a user's
- * highest-priority open items for the day, pulled from Plans and Project
- * Tasks combined.
- */
-class DailyTopTasksNotification extends Notification implements ShouldQueue
+class DailyTopTasksNotification extends Notification
 {
     use Queueable;
 
-    /**
-     * @param array<int, array{title: string, source: string}> $tasks
-     */
+    /** @param array<int, array{title:string,source:string}> $tasks */
     public function __construct(public array $tasks)
     {
     }
 
     public function via(object $notifiable): array
     {
-        // 'database' added alongside 'mail' for the same reason as
-        // ReminderNotification::via() — otherwise this never shows up
-        // in the mobile app's Notifications tab (or any future web
-        // equivalent) at all, only in an email that's easy to miss.
         return ['mail', 'database'];
     }
 
     public function toMail(object $notifiable): MailMessage
     {
         $mail = (new MailMessage)
-            ->subject('Your top ' . count($this->tasks) . ' for today')
-            ->greeting('Good morning, ' . $notifiable->name . '!')
-            ->line("Here's what's most worth your attention today:");
+            ->subject('My Digital Diary — Your Top '.count($this->tasks).' for today')
+            ->greeting('Good morning, '.$notifiable->name.'!')
+            ->line('Here are your highest-priority items for today:');
 
         foreach ($this->tasks as $i => $task) {
-            $mail->line(($i + 1) . '. ' . $task['title'] . ' (' . $task['source'] . ')');
+            $mail->line(($i + 1).'. '.$task['title'].' — '.$task['source']);
         }
 
         return $mail
-            ->action('Open Dashboard', url('/dashboard'))
-            ->line("You're receiving this because daily task digests are on — see Reminders to adjust.");
+            ->action('Open My Digital Diary', url('/dashboard'))
+            ->line('This daily Top 3 reminder is scheduled for 8:00 AM.');
     }
 
     public function toArray(object $notifiable): array
     {
-        return ['tasks' => $this->tasks];
+        return [
+            'type' => 'daily_top_tasks',
+            'title' => 'Your Top '.count($this->tasks).' for today',
+            'tasks' => $this->tasks,
+            'date' => today()->toDateString(),
+        ];
     }
 }

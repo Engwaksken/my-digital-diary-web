@@ -25,6 +25,7 @@ class AiPlanController extends Controller
         return response()->json(['data' => $plans->map(fn ($plan) => [
             'id' => $plan->id,
             'content' => $plan->content,
+            'custom_prompt' => $plan->custom_prompt,
             'provider' => $plan->provider,
             'used_shared_key' => (bool) $plan->used_shared_key,
             'created_at' => $plan->created_at->toIso8601String(),
@@ -34,6 +35,8 @@ class AiPlanController extends Controller
 
     public function store(Request $request, AiPlannerService $planner): JsonResponse
     {
+        $validated = $request->validate(['custom_prompt' => ['nullable','string','max:3000']]);
+        $customPrompt = trim((string) ($validated['custom_prompt'] ?? ''));
         // Optional — the mobile app sends its own local ISO8601
         // datetime here (see AiPlanService.generate() on the Flutter
         // side) so the plan's "next 7 days" reasoning uses the
@@ -51,7 +54,7 @@ class AiPlanController extends Controller
         }
 
         try {
-            $result = $planner->generate($request->user(), $clientTime);
+            $result = $planner->generate($request->user(), $clientTime, $customPrompt);
         } catch (Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -60,6 +63,7 @@ class AiPlanController extends Controller
 
         $plan = $request->user()->aiPlans()->create([
             'content' => $result['content'],
+            'custom_prompt' => $customPrompt !== '' ? $customPrompt : null,
             'provider' => $credential?->provider ?? SiteSetting::current()->default_ai_provider,
             'used_shared_key' => $result['used_shared_key'],
         ]);
@@ -67,6 +71,7 @@ class AiPlanController extends Controller
         return response()->json(['data' => [
             'id' => $plan->id,
             'content' => $plan->content,
+            'custom_prompt' => $plan->custom_prompt,
             'provider' => $plan->provider,
             'used_shared_key' => (bool) $plan->used_shared_key,
             'created_at' => $plan->created_at->toIso8601String(),

@@ -31,7 +31,25 @@
         <div class="content">{{ $meeting->notes }}</div>
     @endif
 
-    @foreach ($recordings as $recording)
+
+    @php
+        // Some Meeting PDF controller paths do not pass $recordings.
+        // Load them from the meeting relation as a safe fallback so the PDF
+        // still includes transcripts/summaries without throwing an exception.
+        if (isset($recordings)) {
+            if ($recordings instanceof \Illuminate\Contracts\Pagination\Paginator) {
+                $pdfRecordings = collect($recordings->items());
+            } elseif ($recordings instanceof \Illuminate\Support\Collection) {
+                $pdfRecordings = $recordings;
+            } else {
+                $pdfRecordings = collect($recordings);
+            }
+        } else {
+            $pdfRecordings = $meeting->recordings()->orderBy('id')->get();
+        }
+    @endphp
+
+    @foreach ($pdfRecordings as $recording)
         @php
             $summary = $recording->summary;
             if (is_string($summary)) {

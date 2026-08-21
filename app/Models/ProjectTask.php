@@ -9,11 +9,13 @@ class ProjectTask extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id', 'project_id', 'title', 'status', 'due_date', 'is_archived',];
+    protected $fillable = ['user_id', 'project_id', 'personal_goal_id', 'title', 'status', 'due_date', 'is_archived',];
 
     protected $casts = [
         'due_date' => 'date',
     ];
+
+    public function personalGoal() { return $this->belongsTo(PersonalGoal::class, 'personal_goal_id'); }
 
     public function user()
     {

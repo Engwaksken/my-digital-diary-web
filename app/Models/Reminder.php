@@ -43,31 +43,49 @@ class Reminder extends Model
      */
     public function scheduleNext(): void
     {
-        switch ($this->frequency) {
-            case 'every_n_minutes':
-                $this->next_run_at = $this->next_run_at->copy()->addMinutes(max(1, $this->interval_minutes ?: 15));
-                break;
-            case 'hourly':
-                $this->next_run_at = $this->next_run_at->copy()->addHour();
-                break;
-            case 'daily':
-                $this->next_run_at = $this->next_run_at->copy()->addDay();
-                break;
-            case 'weekly':
-                $this->next_run_at = $this->next_run_at->copy()->addWeek();
-                break;
-            case 'monthly':
-                $this->next_run_at = $this->next_run_at->copy()->addMonthNoOverflow();
-                break;
-            case 'annually':
-                $this->next_run_at = $this->next_run_at->copy()->addYearNoOverflow();
-                break;
-            case 'once':
-            default:
-                $this->is_active = false;
-                break;
+        // One-off reminders are finished after their occurrence is processed.
+        if ($this->frequency === 'once') {
+            $this->is_active = false;
+            $this->save();
+            return;
         }
 
+        $next = $this->next_run_at?->copy() ?? now();
+        $now = now();
+        $guard = 0;
+
+        // Advance past every missed occurrence in one pass. This prevents a
+        // reminder that was overdue while cron/server was unavailable from
+        // firing once per minute until it eventually catches up.
+        do {
+            switch ($this->frequency) {
+                case 'every_n_minutes':
+                    $next->addMinutes(max(1, $this->interval_minutes ?: 15));
+                    break;
+                case 'hourly':
+                    $next->addHour();
+                    break;
+                case 'daily':
+                    $next->addDay();
+                    break;
+                case 'weekly':
+                    $next->addWeek();
+                    break;
+                case 'monthly':
+                    $next->addMonthNoOverflow();
+                    break;
+                case 'annually':
+                    $next->addYearNoOverflow();
+                    break;
+                default:
+                    $this->is_active = false;
+                    $this->save();
+                    return;
+            }
+            $guard++;
+        } while ($next->lte($now) && $guard < 100000);
+
+        $this->next_run_at = $next;
         $this->save();
     }
 }

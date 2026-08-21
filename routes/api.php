@@ -1,6 +1,9 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\AdminSocialMediaController;
+use App\Http\Controllers\Api\EngagementReviewController;
+use App\Http\Controllers\Api\SocialMediaAccountController;
 use App\Http\Controllers\Api\BudgetController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DebtController;
@@ -22,7 +25,11 @@ use App\Http\Controllers\Api\ReminderController;
 use App\Http\Controllers\Api\SavingsContributionController;
 use App\Http\Controllers\Api\SavingsGoalController;
 use App\Http\Controllers\Api\SleepLogController;
+use App\Http\Controllers\Api\SocialMediaPlannerController;
+use App\Http\Controllers\Api\SocialMediaAnalyticsController;
+use App\Http\Controllers\Api\SocialMediaReportController;
 use App\Http\Controllers\Api\SpiritualPracticeController;
+use App\Http\Controllers\SupportAttachmentController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -64,8 +71,12 @@ Route::post('resend-otp', [AuthController::class, 'resendOtp']);
 // fixing that collision for all ~20 affected modules at once and
 // preventing it from ever recurring for any route added to this group
 // in the future.
-Route::middleware('auth:sanctum')->name('api.')->group(function () {
+Route::middleware(['auth:sanctum', 'mobile.idempotent'])->name('api.')->group(function () {
+    Route::get('support/attachments/{attachment}', [SupportAttachmentController::class, 'download'])
+        ->where('attachment', '[^/]+')
+        ->name('support.attachment.download');
     Route::get('me', [AuthController::class, 'me']);
+    Route::get('sync/status', [\App\Http\Controllers\Api\SyncStatusController::class, 'show']);
 
     Route::get('api-credentials', [\App\Http\Controllers\Api\ApiCredentialController::class, 'index']);
     Route::post('api-credentials', [\App\Http\Controllers\Api\ApiCredentialController::class, 'store']);
@@ -77,13 +88,131 @@ Route::middleware('auth:sanctum')->name('api.')->group(function () {
     Route::put('profile/password', [\App\Http\Controllers\Api\ProfileController::class, 'updatePassword']);
     Route::post('profile/avatar', [\App\Http\Controllers\Api\ProfileController::class, 'updateAvatar']);
     Route::get('profile/avatar/image', [\App\Http\Controllers\Api\ProfileController::class, 'avatarImage']);
+
+    // Social Media Settings under the authenticated user's Profile.
+    Route::get('profile/social-media', [SocialMediaAccountController::class, 'index'])
+        ->name('profile.social-media.index');
+    Route::put('profile/social-media/whatsapp', [SocialMediaAccountController::class, 'updateWhatsApp'])
+        ->name('profile.social-media.whatsapp');
+    Route::post('profile/social-media/accounts', [SocialMediaAccountController::class, 'store'])
+        ->name('profile.social-media.accounts.store');
+    Route::delete('profile/social-media/accounts/{account}', [SocialMediaAccountController::class, 'destroy'])
+        ->whereNumber('account')
+        ->name('profile.social-media.accounts.destroy');
+
+    // Admin/Super Admin Social Media management.
+    Route::get('admin/social-media', [AdminSocialMediaController::class, 'index'])
+        ->name('admin.social-media.index');
+    Route::put('admin/social-media/users/{user}/whatsapp', [AdminSocialMediaController::class, 'updateWhatsApp'])
+        ->whereNumber('user')
+        ->name('admin.social-media.users.whatsapp');
+    Route::delete('admin/social-media/users/{user}/accounts/{account}', [AdminSocialMediaController::class, 'destroyAccount'])
+        ->whereNumber('user')
+        ->whereNumber('account')
+        ->name('admin.social-media.accounts.destroy');
     Route::post('logout', [AuthController::class, 'logout']);
+    Route::get('privacy', [\App\Http\Controllers\Api\PrivacyController::class, 'index']);
+    Route::post('privacy/reports', [\App\Http\Controllers\Api\PrivacyController::class, 'requestReport']);
+    Route::delete('privacy/account', [\App\Http\Controllers\Api\PrivacyController::class, 'scheduleDeletion']);
+    Route::post('privacy/account/cancel-deletion', [\App\Http\Controllers\Api\PrivacyController::class, 'cancelDeletion']);
+
 
     Route::post('device-tokens', [DeviceTokenController::class, 'store']);
     Route::delete('device-tokens', [DeviceTokenController::class, 'destroy']);
 
     Route::get('dashboard', [DashboardController::class, 'index']);
+    Route::get('dashboard/today-focus', [DashboardController::class, 'todayFocus']);
+    Route::get('dashboard/today-insight', [DashboardController::class, 'todayInsight']);
+    Route::get('dashboard/finance-summary', [DashboardController::class, 'financeSummaryData']);
     Route::get('dashboard/recent-activity', [DashboardController::class, 'recentActivityFull']);
+    Route::get('monthly-review', [\App\Http\Controllers\Api\MonthlyReviewController::class, 'show']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Social Media Planner
+    |--------------------------------------------------------------------------
+    |
+    | Registered directly in api.php so Mobile does not depend on a separate
+    | routes/social_media_api.php file. These routes inherit auth:sanctum,
+    | mobile.idempotent and the api.* name prefix from the parent group.
+    |
+    | IMPORTANT: ready-to-share is declared before the {socialMediaPost}
+    | routes so literal path segments can never be interpreted as model IDs.
+    */
+    Route::get('social-media-planner/ready-to-share', [
+        SocialMediaPlannerController::class,
+        'readyToShare',
+    ])->name('social-media-planner.ready-to-share');
+
+    Route::get('social-media-planner/reports', [
+        SocialMediaReportController::class,
+        'index',
+    ])->name('social-media-planner.reports');
+
+    Route::post('social-media-planner/reports/sync', [
+        SocialMediaReportController::class,
+        'sync',
+    ])->name('social-media-planner.reports.sync');
+
+    Route::post('social-media-planner/{socialMediaPost}/analytics/sync', [SocialMediaAnalyticsController::class, 'sync'])
+        ->whereNumber('socialMediaPost')->name('social-media-planner.analytics.sync');
+    Route::get('social-media-planner/{socialMediaPost}/analytics', [SocialMediaAnalyticsController::class, 'show'])
+        ->whereNumber('socialMediaPost')->name('social-media-planner.analytics.show');
+    Route::put('social-media-planner/{socialMediaPost}/analytics', [SocialMediaAnalyticsController::class, 'update'])
+        ->whereNumber('socialMediaPost')->name('social-media-planner.analytics.update');
+
+    Route::get('social-media-planner', [
+        SocialMediaPlannerController::class,
+        'index',
+    ])->name('social-media-planner.index');
+
+    Route::post('social-media-planner', [
+        SocialMediaPlannerController::class,
+        'store',
+    ])->name('social-media-planner.store');
+
+    Route::post('social-media-planner/bulk-delete', [
+        SocialMediaPlannerController::class,
+        'bulkDestroy',
+    ])->name('social-media-planner.bulk-delete');
+
+    Route::post('social-media-planner/{socialMediaPost}/post-now', [
+        SocialMediaPlannerController::class,
+        'postNow',
+    ])->whereNumber('socialMediaPost')
+      ->name('social-media-planner.post-now');
+
+    Route::patch('social-media-planner/{socialMediaPost}/mark-published', [
+        SocialMediaPlannerController::class,
+        'markPublished',
+    ])->whereNumber('socialMediaPost')
+      ->name('social-media-planner.mark-published');
+
+    Route::put('social-media-planner/{socialMediaPost}', [
+        SocialMediaPlannerController::class,
+        'update',
+    ])->whereNumber('socialMediaPost')
+      ->name('social-media-planner.update');
+
+    Route::delete('social-media-planner/{socialMediaPost}', [
+        SocialMediaPlannerController::class,
+        'destroy',
+    ])->whereNumber('socialMediaPost')
+      ->name('social-media-planner.destroy');
+
+    Route::get('goal-intelligence', [\App\Http\Controllers\Api\GoalIntelligenceController::class, 'show']);
+    Route::get('personal-goals/{goal}/execution', [\App\Http\Controllers\Api\GoalExecutionController::class, 'show']);
+    Route::get('personal-goals/{goal}/progress', [\App\Http\Controllers\Api\GoalProgressController::class, 'show']);
+    Route::post('personal-goals/{goal}/milestones', [\App\Http\Controllers\Api\GoalProgressController::class, 'storeMilestone']);
+    Route::patch('personal-goals/{goal}/milestones/{milestone}/toggle', [\App\Http\Controllers\Api\GoalProgressController::class, 'toggleMilestone']);
+    Route::delete('personal-goals/{goal}/milestones/{milestone}', [\App\Http\Controllers\Api\GoalProgressController::class, 'destroyMilestone']);
+    Route::patch('personal-goals/{goal}/milestones/{milestone}/reschedule', [\App\Http\Controllers\Api\GoalProgressController::class, 'rescheduleMilestone']);
+    Route::post('personal-goals/{goal}/check-in', [\App\Http\Controllers\Api\GoalProgressController::class, 'storeCheckin']);
+    Route::post('personal-goals/{goal}/reflections', [\App\Http\Controllers\Api\GoalProgressController::class, 'storeReflection']);
+    Route::delete('personal-goals/{goal}/reflections/{reflection}', [\App\Http\Controllers\Api\GoalProgressController::class, 'destroyReflection']);
+    Route::get('personalisation', [\App\Http\Controllers\Api\PersonalisationController::class, 'show']);
+    Route::put('personalisation', [\App\Http\Controllers\Api\PersonalisationController::class, 'update']);
+
 
 
     // Financial Planner + Daily Planner mobile endpoints
@@ -95,6 +224,7 @@ Route::middleware('auth:sanctum')->name('api.')->group(function () {
     Route::post('daily-planner/items', [\App\Http\Controllers\Api\DailyPlannerController::class, 'storeItem']);
     Route::put('daily-planner/items/{item}', [\App\Http\Controllers\Api\DailyPlannerController::class, 'updateItem']);
     Route::patch('daily-planner/items/{item}/toggle', [\App\Http\Controllers\Api\DailyPlannerController::class, 'toggle']);
+    Route::post('daily-planner/items/bulk-delete', [\App\Http\Controllers\Api\DailyPlannerController::class, 'bulkDestroy']);
     Route::delete('daily-planner/items/{item}', [\App\Http\Controllers\Api\DailyPlannerController::class, 'destroyItem']);
 
 
@@ -103,6 +233,7 @@ Route::middleware('auth:sanctum')->name('api.')->group(function () {
     Route::post('annual-plans', [\App\Http\Controllers\Api\AnnualPlanController::class, 'store']);
     Route::put('annual-plans/{annualPlan}', [\App\Http\Controllers\Api\AnnualPlanController::class, 'update']);
     Route::patch('annual-plans/{annualPlan}/toggle', [\App\Http\Controllers\Api\AnnualPlanController::class, 'toggle']);
+    Route::post('annual-plans/bulk-delete', [\App\Http\Controllers\Api\AnnualPlanController::class, 'bulkDestroy']);
     Route::delete('annual-plans/{annualPlan}', [\App\Http\Controllers\Api\AnnualPlanController::class, 'destroy']);
 
     // Full module set — every web CRUD module now has a matching JSON
@@ -135,8 +266,12 @@ Route::middleware('auth:sanctum')->name('api.')->group(function () {
         'network-contacts' => NetworkContactController::class,
         'relationships' => RelationshipController::class,
         'spiritual-practices' => SpiritualPracticeController::class,
+        'notes' => \App\Http\Controllers\Api\NoteController::class,
+        'personal-goals' => \App\Http\Controllers\Api\PersonalGoalController::class,
+        'wellbeing' => \App\Http\Controllers\Api\DailyWellbeingLogController::class,
         'feedback' => FeedbackController::class,
     ] as $endpoint => $controller) {
+        Route::post("{$endpoint}/bulk-delete", [$controller, 'bulkDestroy']);
         Route::post("{$endpoint}/{id}/archive", [$controller, 'archive'])->where('id', '[0-9]+');
         Route::post("{$endpoint}/{id}/unarchive", [$controller, 'unarchive'])->where('id', '[0-9]+');
         Route::get("{$endpoint}/stats", [$controller, 'stats']);
@@ -153,12 +288,13 @@ Route::middleware('auth:sanctum')->name('api.')->group(function () {
 
     // Signatures — view/download only on mobile, no editor
     Route::get('signatures', [\App\Http\Controllers\Api\SignatureController::class, 'signatures']);
-    Route::post('signatures', [\App\Http\Controllers\Api\SignatureController::class, 'storeSignature']);
     Route::get('signatures/{signature}/image', [\App\Http\Controllers\Api\SignatureController::class, 'image']);
+    Route::post('signatures', [\App\Http\Controllers\Api\SignatureController::class, 'storeSignature']);
     Route::delete('signatures/{signature}', [\App\Http\Controllers\Api\SignatureController::class, 'destroySignature']);
     Route::get('signed-documents', [\App\Http\Controllers\Api\SignatureController::class, 'documents']);
     Route::delete('signed-documents/{signedDocument}', [\App\Http\Controllers\Api\SignatureController::class, 'destroyDocument']);
     Route::post('signed-documents/stamp-image', [\App\Http\Controllers\Api\SignatureController::class, 'stampImage']);
+    Route::post('signed-documents/bundle-pages', [\App\Http\Controllers\Api\SignatureController::class, 'bundlePages']);
     Route::post('signed-documents/bulk-delete', [\App\Http\Controllers\Api\SignatureController::class, 'bulkDestroyDocuments']);
 
     // Subscription / billing
@@ -169,6 +305,8 @@ Route::middleware('auth:sanctum')->name('api.')->group(function () {
     Route::post('subscription/pay/card', [\App\Http\Controllers\Api\SubscriptionController::class, 'payWithCard']);
     Route::post('subscription/pay/mobile-money', [\App\Http\Controllers\Api\SubscriptionController::class, 'payWithMobileMoney']);
     Route::post('subscription/pay/manual', [\App\Http\Controllers\Api\SubscriptionController::class, 'submitManualPayment']);
+    Route::post('subscription/payments/{payment}/mobile-money', [\App\Http\Controllers\Api\SubscriptionController::class, 'retryPendingMobileMoney']);
+    Route::post('subscription/payments/{payment}/bank', [\App\Http\Controllers\Api\SubscriptionController::class, 'submitPendingBankPayment']);
 
     // Meeting recordings
     Route::get('meetings/{meeting}/recordings', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'index']);
@@ -191,10 +329,50 @@ Route::middleware('auth:sanctum')->name('api.')->group(function () {
     // Notifications
     Route::get('notifications', [\App\Http\Controllers\Api\NotificationController::class, 'index']);
     Route::post('notifications/{id}/read', [\App\Http\Controllers\Api\NotificationController::class, 'markRead']);
+    Route::post('notifications/reminder/{reminderId}/read', [\App\Http\Controllers\Api\NotificationController::class, 'markReminderRead']);
     Route::post('notifications/read-all', [\App\Http\Controllers\Api\NotificationController::class, 'markAllRead']);
 
     // AI Planner
     Route::get('ai-plans', [\App\Http\Controllers\Api\AiPlanController::class, 'index']);
     Route::post('ai-plans', [\App\Http\Controllers\Api\AiPlanController::class, 'store']);
     Route::delete('ai-plans/{aiPlan}', [\App\Http\Controllers\Api\AiPlanController::class, 'destroy']);
+
+    // Daily Engagement / Retention
+    Route::get('engagement/today', [
+    \App\Http\Controllers\Api\EngagementController::class,
+    'today',
+]);
+
+    Route::post('engagement/checkin/{type}', [
+    \App\Http\Controllers\Api\EngagementController::class,
+    'checkin',
+])->whereIn('type', [
+    'start-day',
+    'close-day',
+]);
+
+    Route::post('engagement/meaningful-action', [
+    \App\Http\Controllers\Api\EngagementController::class,
+    'meaningfulAction',
+]);
+
+    Route::get('engagement/review/week', [
+        EngagementReviewController::class,
+        'week',
+    ])->name('engagement.review.week');
+
+    Route::get('engagement/review/month', [
+        EngagementReviewController::class,
+        'month',
+    ])->name('engagement.review.month');
+
+    Route::get('engagement/share-card/{period}', [
+    \App\Http\Controllers\Api\EngagementController::class,
+    'shareCard',
+])->whereIn('period', [
+    'week',
+    'month',
+]);
+
+
 });

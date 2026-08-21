@@ -139,7 +139,7 @@ class ReminderController extends ApiCrudController
             ->where('next_run_at', '<=', now()->addMinutes(30))
             ->orderBy('next_run_at')
             ->limit(5)
-            ->get(['id', 'title', 'message']);
+            ->get(['id', 'title', 'message', 'next_run_at']);
 
         return response()->json($reminders);
     }

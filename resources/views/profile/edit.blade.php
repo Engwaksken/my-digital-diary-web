@@ -3,6 +3,25 @@
 @section('title', 'My Profile')
 
 @section('content')
+<div class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+            <h2 class="font-bold text-slate-800">
+                <i class="fa-solid fa-share-nodes mr-2 text-teal-600"></i>
+                Social Media Settings
+            </h2>
+            <p class="mt-1 text-sm text-slate-500">
+                Manage WhatsApp Status/Channel details and your Instagram,
+                Facebook, TikTok and LinkedIn accounts.
+            </p>
+        </div>
+
+        <a href="{{ route('profile.social-media') }}"
+           class="btn-primary rounded-xl px-4 py-2 text-sm font-bold text-white">
+            Manage Social Media
+        </a>
+    </div>
+</div>
     @php
         // Which tab should be open on page load: whichever one has a
         // validation error takes priority (so a failed submission reopens
@@ -23,20 +42,20 @@
             $activeTab = 'password';
         } elseif (session('profile_status') === 'theme-updated') {
             $activeTab = 'colors';
+        } elseif (session('profile_status') === 'personalisation-updated' || $errors->hasAny(['ai_data_permissions','onboarding_focuses'])) {
+            $activeTab = 'personalisation';
         }
-
-        // Read the avatar directly from storage for the web preview so the
-        // page does not depend on a working public /storage symlink.
-        $avatarPreview = $user->avatarDataUri();
 
         $tabs = [
             'photo' => ['label' => 'Profile Photo', 'icon' => 'fa-solid fa-image'],
             'info' => ['label' => 'Profile Information', 'icon' => 'fa-solid fa-id-card'],
             'password' => ['label' => 'Password', 'icon' => 'fa-solid fa-lock'],
             'colors' => ['label' => 'Colors', 'icon' => 'fa-solid fa-palette'],
+            'personalisation' => ['label' => 'Personalisation & AI', 'icon' => 'fa-solid fa-sliders'],
+            'data' => ['label' => 'Backup & Usage', 'icon' => 'fa-solid fa-database'],
         ];
 
-        // Classic sticky-note colors — saturated enough to still read
+        // Classic sticky-note colors  saturated enough to still read
         // clearly with white text (used across buttons/badges), rather
         // than the pale pastel versions real sticky notes often are,
         // which would look washed out there.
@@ -78,9 +97,9 @@
                 Password updated.
             </div>
         @elseif (session('profile_status') === 'theme-updated')
-            <div role="status" class="rounded-md bg-emerald-100 text-emerald-800 px-4 py-3 text-sm mb-4">
-                Accent color updated.
-            </div>
+            <div role="status" class="rounded-md bg-emerald-100 text-emerald-800 px-4 py-3 text-sm mb-4">Accent colour updated.</div>
+        @elseif (session('profile_status') === 'personalisation-updated')
+            <div role="status" class="rounded-md bg-emerald-100 text-emerald-800 px-4 py-3 text-sm mb-4">Your personalisation and AI privacy choices were saved.</div>
         @endif
 
         {{-- Tab list --}}
@@ -111,8 +130,8 @@
         <div role="tabpanel" id="panel-photo" aria-labelledby="tab-photo" tabindex="0"
              class="pm-profile-panel pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6" @if ($activeTab !== 'photo') hidden @endif>
             <div class="flex items-center gap-4 mb-4">
-                @if ($avatarPreview)
-                    <img src="{{ $avatarPreview }}" alt="Your profile photo"
+                @if ($user->avatarUrl())
+                    <img src="{{ $user->avatarUrl() }}" alt="Your profile photo"
                          class="w-16 h-16 rounded-full object-cover border border-slate-200"
                          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                     <div class="w-16 h-16 rounded-full bg-gradient-to-br from-[var(--brand-1)] to-[var(--brand-2)] text-white items-center justify-center text-xl font-bold hidden"
@@ -148,7 +167,7 @@
                 </button>
             </form>
 
-            @if ($user->avatar_path)
+            @if ($user->avatarUrl())
                 <form method="POST" action="{{ route('profile.avatar.remove') }}" class="mt-3">
                     @csrf
                     @method('DELETE')
@@ -238,7 +257,7 @@
         <div role="tabpanel" id="panel-colors" aria-labelledby="tab-colors" tabindex="0"
              class="pm-profile-panel pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6" @if ($activeTab !== 'colors') hidden @endif>
             <p class="text-sm text-slate-500 mb-4">
-                Pick both gradient colors for your sidebar, buttons, and highlights — everyone else's app keeps
+                Pick both gradient colors for your sidebar, buttons, and highlights  everyone else's app keeps
                 using the site default; this only changes what you see. Leave the second one blank to have it
                 follow the first automatically.
             </p>
@@ -359,10 +378,91 @@
             </form>
         </div>
 
+        <section id="panel-personalisation" role="tabpanel" aria-labelledby="tab-personalisation" tabindex="0" data-panel="personalisation" class="pm-profile-panel" @if ($activeTab !== 'personalisation') hidden @endif>
+            @php
+                $selectedAi = old('ai_data_permissions', $user->aiDataPermissions());
+                $selectedFocus = old('onboarding_focuses', $user->onboarding_focuses ?? []);
+                $aiOptions = [
+                    'planning' => ['Planning & tasks','fa-list-check'], 'finance' => ['Finance','fa-wallet'], 'goals' => ['Goals','fa-bullseye'],
+                    'health' => ['Health','fa-heart-pulse'], 'wellbeing' => ['Exercise, diet & sleep','fa-person-running'], 'spiritual' => ['Spiritual Growth','fa-hands-praying'],
+                    'notes' => ['Personal Notes','fa-note-sticky'], 'meetings' => ['Meetings','fa-video'], 'network' => ['Network Contacts','fa-address-book'],
+                    'education' => ['Education','fa-graduation-cap'], 'relationships' => ['Relationships','fa-people-group'],
+                ];
+                $focusOptions = ['money'=>'Manage my money','day'=>'Organise my day','goals'=>'Reach my goals','health'=>'Improve my health','work'=>'Manage work/business','growth'=>'Personal growth','everything'=>'Everything'];
+            @endphp
+            <form method="POST" action="{{ route('profile.personalisation') }}" class="space-y-6">
+                @csrf @method('PUT')
+                <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6">
+                    <div class="flex items-start gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+                        <div><h2 class="font-bold text-slate-900">What may AI Planner use?</h2><p class="text-sm text-slate-500 mt-1">You stay in control. Untick any part of your diary you do not want included in AI context.</p></div>
+                    </div>
+                    <div class="grid sm:grid-cols-2 gap-3">
+                        @foreach($aiOptions as $key => [$label,$icon])
+                            <label class="flex items-center gap-3 rounded-xl border border-slate-200 p-3 hover:border-[var(--brand-1)] cursor-pointer">
+                                <input type="checkbox" name="ai_data_permissions[]" value="{{ $key }}" class="rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-1)]" @checked(in_array($key, $selectedAi))>
+                                <i class="fa-solid {{ $icon }} text-slate-400 w-5 text-center"></i><span class="text-sm font-medium text-slate-700">{{ $label }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
+
+                <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6">
+                    <h2 class="font-bold text-slate-900">What should My Digital Diary help you with most?</h2>
+                    <p class="text-sm text-slate-500 mt-1 mb-4">These choices help us prioritise shortcuts, onboarding and guidance. You can change them any time.</p>
+                    <div class="flex flex-wrap gap-2">
+                        @foreach($focusOptions as $key => $label)
+                            <label class="cursor-pointer">
+                                <input type="checkbox" name="onboarding_focuses[]" value="{{ $key }}" class="peer sr-only" @checked(in_array($key, $selectedFocus))>
+                                <span class="inline-flex px-3 py-2 rounded-full border border-slate-200 text-sm text-slate-600 peer-checked:bg-[var(--brand-1)] peer-checked:border-[var(--brand-1)] peer-checked:text-white">{{ $label }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
+                @php
+                    $notifyPrefs = old('engagement_notification_preferences', $user->engagementNotificationPreferences());
+                    $notifyOptions = [
+                        'goal_progress' => ['Goal progress alerts','When important plans, savings goals or projects need attention.','fa-bullseye'],
+                        'monthly_review' => ['Monthly review ready','A reminder when your new Month in Review is ready.','fa-calendar-check'],
+                        'finance_insights' => ['Finance insights','Useful financial-health and spending/saving nudges.','fa-chart-line'],
+                        'productivity_nudges' => ['Productivity nudges','Occasional next-best-action reminders when something is genuinely due.','fa-list-check'],
+                        'spiritual_insights' => ['Spiritual Growth insights','Allow spiritual reflection prompts to appear in personalised insights.','fa-hands-praying'],
+                        'daily_affirmations' => ['Daily affirmations','Show a fresh motivational affirmation in Today’s Insight rotation.','fa-sparkles'],
+                        'subscription_reminders' => ['Subscription reminders','Keep important expiry and renewal reminders enabled.','fa-credit-card'],
+                    ];
+                @endphp
+                <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6">
+                    <h2 class="font-bold text-slate-900">Smart notification preferences</h2>
+                    <p class="text-sm text-slate-500 mt-1 mb-4">Choose the helpful nudges you want. Essential security and account messages are not controlled here.</p>
+                    <div class="grid sm:grid-cols-2 gap-3">
+                        @foreach($notifyOptions as $key => [$label,$help,$icon])
+                            <label class="flex items-start gap-3 rounded-xl border border-slate-200 p-3 hover:border-[var(--brand-1)] cursor-pointer">
+                                <input type="hidden" name="engagement_notification_preferences[{{ $key }}]" value="0">
+                                <input type="checkbox" name="engagement_notification_preferences[{{ $key }}]" value="1" class="mt-1 rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-1)]" @checked((bool)($notifyPrefs[$key] ?? true))>
+                                <i class="fa-solid {{ $icon }} text-slate-400 w-5 text-center mt-1"></i>
+                                <span><span class="block text-sm font-semibold text-slate-700">{{ $label }}</span><span class="block text-xs text-slate-500 mt-0.5">{{ $help }}</span></span>
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold">Save personalisation</button>
+            </form>
+        </section>
+
         <div class="bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-600 mt-6">
             Want to export or permanently delete your account instead?
             Head to <a href="{{ route('privacy.show') }}" class="text-[var(--brand-1)] hover:underline font-medium">Privacy &amp; Data</a>.
         </div>
+        <section id="panel-data" role="tabpanel" aria-labelledby="tab-data" tabindex="0" data-panel="data" class="pm-profile-panel" @if ($activeTab !== 'data') hidden @endif>
+            <div class="apple-surface">
+                <div class="flex items-start gap-4">
+                    <div class="apple-icon-chip light"><i class="fa-solid fa-database"></i></div>
+                    <div class="flex-1"><h2 class="text-lg font-bold text-slate-900">Your data & activity</h2><p class="text-sm text-slate-500 mt-1">Review activity, download a private backup, see usage progress, and restore recently deleted records.</p>
+                    <div class="grid sm:grid-cols-2 gap-3 mt-5"><a href="{{ route('activity') }}" class="apple-btn justify-start"><i class="fa-solid fa-clock-rotate-left"></i> Activity log</a><a href="{{ route('account-data.index') }}" class="apple-btn apple-btn-primary justify-start"><i class="fa-solid fa-cloud-arrow-down"></i> Backup, Trash & Usage</a></div></div>
+                </div>
+            </div>
+        </section>
     </div>
 
     <script>
@@ -374,7 +474,7 @@
             preview.style.background = 'linear-gradient(135deg, ' + primary + ', ' + secondary + ')';
         }
 
-        // Client-side approximation only, purely for the live preview —
+        // Client-side approximation only, purely for the live preview 
         // the REAL derived color (if the user leaves the secondary field
         // blank) is computed server-side by User::themeColorLight() when
         // the form is actually saved. This just avoids the preview
@@ -405,7 +505,7 @@
 
         // Typing a hex code directly: only commit it (updating the picker,
         // hidden field, and swatch highlight) once it's a complete, valid
-        // #RRGGBB — otherwise the user couldn't type past the 2nd
+        // #RRGGBB  otherwise the user couldn't type past the 2nd
         // character without every other control fighting an incomplete value.
         function pmHandleThemeHexInput(value) {
             var hexField = document.getElementById('theme_color_hex_input');
@@ -446,7 +546,7 @@
         function pmHandleThemeSecondaryHexInput(value) {
             var hexField = document.getElementById('theme_color_secondary_hex_input');
 
-            // Blank is valid here — it means "follow the primary color".
+            // Blank is valid here  it means "follow the primary color".
             if (value === '') {
                 hexField.setCustomValidity('');
                 document.getElementById('theme_color_secondary_input').value = '';
@@ -486,7 +586,10 @@
                 if (isSelected) { btn.focus(); }
             });
             document.querySelectorAll('.pm-profile-panel').forEach(function (panel) {
-                panel.hidden = panel.id !== 'panel-' + key;
+                var shouldHide = panel.id !== 'panel-' + key;
+                panel.hidden = shouldHide;
+                panel.classList.remove('hidden');
+                panel.setAttribute('aria-hidden', shouldHide ? 'true' : 'false');
             });
         }
 

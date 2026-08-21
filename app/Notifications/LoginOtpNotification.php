@@ -2,15 +2,12 @@
 
 namespace App\Notifications;
 
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
+use App\Models\SiteSetting;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class LoginOtpNotification extends Notification implements ShouldQueue
+class LoginOtpNotification extends Notification
 {
-    use Queueable;
-
     public function __construct(public string $code)
     {
     }
@@ -22,12 +19,24 @@ class LoginOtpNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
+        $site = SiteSetting::current();
+        $siteName = trim((string) ($site->site_name ?: 'My Digital Diary'));
+        $primaryColor = method_exists($notifiable, 'themeColor')
+            ? (string) $notifiable->themeColor()
+            : '#00897B';
+
+        if (! preg_match('/^#[0-9A-Fa-f]{6}$/', $primaryColor)) {
+            $primaryColor = '#00897B';
+        }
+
         return (new MailMessage)
-            ->subject('Your login verification code')
-            ->greeting('Hi ' . $notifiable->name . ',')
-            ->line('Your one-time login code is:')
-            ->line('**' . $this->code . '**')
-            ->line('This code expires in 10 minutes.')
-            ->line('If you did not try to log in, you can safely ignore this email.');
+            ->subject("Your {$siteName} verification code")
+            ->view('emails.login-verification-code', [
+                'siteName' => $siteName,
+                'logoUrl' => $site->logoUrl(),
+                'primaryColor' => $primaryColor,
+                'recipientName' => trim((string) ($notifiable->name ?? '')),
+                'code' => $this->code,
+            ]);
     }
 }

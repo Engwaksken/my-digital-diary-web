@@ -1,0 +1,104 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+
+class SocialMediaAccountController extends Controller
+{
+    public function index(Request $request)
+    {
+        return view('profile.social-media', [
+            'accounts' => DB::table('social_media_accounts')
+                ->select([
+                    'id', 'platform', 'account_name', 'username', 'external_account_id',
+                    'automation_provider', 'automation_endpoint',
+                    'is_active', 'auto_publish_enabled', 'oauth_expires_at',
+                    DB::raw("CASE WHEN oauth_access_token IS NULL THEN 0 ELSE 1 END AS is_connected"),
+                ])
+                ->where('user_id', $request->user()->id)
+                ->orderBy('platform')
+                ->get(),
+        ]);
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'platform' => ['required', Rule::in(['instagram','facebook','x','tiktok','linkedin','whatsapp_status','whatsapp_channel'])],
+            'account_name' => ['required','string','max:120'],
+            'username' => ['nullable','string','max:180'],
+        ]);
+
+        DB::table('social_media_accounts')->insert([
+            'user_id' => $request->user()->id,
+            'platform' => $data['platform'],
+            'account_name' => $data['account_name'],
+            'username' => $data['username'] ?? null,
+            'is_active' => true,
+            'auto_publish_enabled' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return back()->with('success', 'Social media account added. Connect its API authorisation before enabling automatic posting.');
+    }
+
+    public function updateAutomaticPublishing(Request $request, int $account)
+    {
+        $data = $request->validate([
+            'enabled' => ['required','boolean'],
+            'external_account_id' => ['nullable','string','max:255'],
+            'access_token' => ['nullable','string','max:10000'],
+            'automation_provider' => ['nullable','string','max:100'],
+            'automation_endpoint' => ['nullable','url','max:2000'],
+            'automation_secret' => ['nullable','string','max:10000'],
+        ]);
+
+        $row = DB::table('social_media_accounts')->where('id', $account)->where('user_id', $request->user()->id)->first();
+        abort_unless($row, 404);
+
+        $update = [
+            'auto_publish_enabled' => (bool) $data['enabled'],
+            'updated_at' => now(),
+        ];
+        if (array_key_exists('external_account_id', $data)) {
+            $update['external_account_id'] = trim((string) $data['external_account_id']) ?: null;
+        }
+        if (! empty($data['access_token'])) {
+            $update['oauth_access_token'] = Crypt::encryptString($data['access_token']);
+        }
+        if (array_key_exists('automation_provider', $data)) {
+            $update['automation_provider'] = trim((string) $data['automation_provider']) ?: null;
+        }
+        if (array_key_exists('automation_endpoint', $data)) {
+            $update['automation_endpoint'] = trim((string) $data['automation_endpoint']) ?: null;
+        }
+        if (! empty($data['automation_secret'])) {
+            $update['automation_secret'] = Crypt::encryptString($data['automation_secret']);
+        }
+
+        DB::table('social_media_accounts')->where('id', $account)->where('user_id', $request->user()->id)->update($update);
+        return back()->with('success', 'Automatic publishing settings updated.');
+    }
+
+    public function updateWhatsApp(Request $request)
+    {
+        $data = $request->validate([
+            'whatsapp_number' => ['nullable','string','max:30'],
+            'whatsapp_channel_name' => ['nullable','string','max:180'],
+            'whatsapp_channel_url' => ['nullable','url','max:500'],
+        ]);
+        $request->user()->forceFill($data)->save();
+        return back()->with('success', 'WhatsApp settings updated.');
+    }
+
+    public function destroy(Request $request, int $account)
+    {
+        DB::table('social_media_accounts')->where('id', $account)->where('user_id', $request->user()->id)->delete();
+        return back()->with('success', 'Social media account removed.');
+    }
+}

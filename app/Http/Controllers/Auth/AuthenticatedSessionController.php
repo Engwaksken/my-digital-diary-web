@@ -91,17 +91,28 @@ class AuthenticatedSessionController extends Controller
         // this catches it and shows a clear error instead, keeping the
         // pending-login session state intact so they can just retry
         // rather than re-entering their password too.
-        try {
-            LoginOtp::createFor($user);
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Could not send login OTP email.', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage(),
-            ]);
+        // Prevent a rapid double-submit (double-click, browser retry, slow network)
+        // from generating and emailing two different OTPs for the same login.
+        $otpSendKey = 'otp-login-send:' . $user->id;
 
-            throw ValidationException::withMessages([
-                'email' => 'We could not send your login code right now. Please try again in a moment, or contact support if this keeps happening.',
-            ]);
+        if (! RateLimiter::tooManyAttempts($otpSendKey, 1)) {
+            RateLimiter::hit($otpSendKey, 15);
+
+            try {
+                LoginOtp::createFor($user);
+            } catch (\Throwable $e) {
+                // A failed delivery must not lock the user out of retrying.
+                RateLimiter::clear($otpSendKey);
+
+                \Illuminate\Support\Facades\Log::warning('Could not send login OTP email.', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                throw ValidationException::withMessages([
+                    'email' => 'We could not send your login code right now. Please try again in a moment, or contact support if this keeps happening.',
+                ]);
+            }
         }
 
         return redirect()->route('otp.verify');

@@ -8,6 +8,8 @@ use App\Http\Controllers\Admin\AdminSettingsController;
 use App\Http\Controllers\Admin\AdminStatisticsController;
 use App\Http\Controllers\Admin\AdminSubscriptionPlanController;
 use App\Http\Controllers\Admin\AdminUserController;
+use App\Http\Controllers\Admin\AdminBackupController;
+use App\Http\Controllers\Admin\SupportController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -25,6 +27,15 @@ use Illuminate\Support\Facades\Route;
 | to audit in one place.
 */
 
+
+Route::middleware(['auth', 'support.staff'])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('support', [SupportController::class, 'index'])->name('support.index');
+    Route::get('support/{conversation}', [SupportController::class, 'show'])->name('support.show');
+    Route::patch('support/{conversation}/assign', [SupportController::class, 'assign'])->name('support.assign');
+    Route::patch('support/{conversation}/unassign', [SupportController::class, 'unassign'])->name('support.unassign');
+    Route::post('support/{conversation}/reply', [SupportController::class, 'reply'])->name('support.reply');
+});
+
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('users', [AdminUserController::class, 'index'])->name('users.index');
     Route::get('users/create', [AdminUserController::class, 'create'])->name('users.create');
@@ -41,6 +52,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
     Route::get('settings', [AdminSettingsController::class, 'edit'])->name('settings.edit');
     Route::post('settings', [AdminSettingsController::class, 'update'])->name('settings.update');
+    Route::post('settings/privacy', [AdminSettingsController::class, 'updatePrivacy'])->name('settings.privacy.update');
+    Route::post('settings/terms', [AdminSettingsController::class, 'updateTerms'])->name('settings.terms.update');
+    Route::post('settings/backups', [AdminBackupController::class, 'update'])->name('backups.update');
+    Route::post('settings/backups/run', [AdminBackupController::class, 'run'])->name('backups.run');
     Route::post('meeting-platforms/{meetingPlatformConfig}', [\App\Http\Controllers\Admin\AdminMeetingPlatformController::class, 'update'])->name('meeting-platforms.update');
     Route::post('ai-providers', [AdminAiProviderController::class, 'store'])->name('ai-providers.store');
     Route::put('ai-providers/{aiProvider}', [AdminAiProviderController::class, 'update'])->name('ai-providers.update');

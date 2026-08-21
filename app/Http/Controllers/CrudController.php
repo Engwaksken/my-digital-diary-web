@@ -119,6 +119,25 @@ abstract class CrudController extends Controller
 
         $items = $query->paginate($perPage)->withQueryString();
 
+        $goalModuleMap = [
+            'incomes'=>'finance','budgets'=>'finance','expenses'=>'finance','debts'=>'finance','savings-contributions'=>'savings','savings-goals'=>'savings',
+            'diet-logs'=>'diet','exercise-logs'=>'exercise','sleep-logs'=>'health','health-checkups'=>'health','wellbeing'=>'health',
+            'projects'=>'projects','project-tasks'=>'productivity','education-plans'=>'education','spiritual-practices'=>'spiritual','notes'=>'productivity',
+        ];
+        $goalModule = $goalModuleMap[$this->routeName] ?? null;
+        $moduleGoalSummary = null;
+        if ($goalModule && \Illuminate\Support\Facades\Schema::hasTable('personal_goals')) {
+            $goalQuery = \App\Models\PersonalGoal::where('user_id', $request->user()->id)
+                ->where('module', $goalModule)->where('is_archived', false);
+            $moduleGoalSummary = [
+                'module' => $goalModule,
+                'active' => (clone $goalQuery)->whereIn('status', ['not_started','in_progress'])->count(),
+                'completed' => (clone $goalQuery)->where('status', 'completed')->count(),
+                'average' => (int) round((clone $goalQuery)->avg('progress_percent') ?? 0),
+                'latest' => (clone $goalQuery)->whereIn('status', ['not_started','in_progress'])->orderByRaw("CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END")->orderBy('target_date')->first(),
+            ];
+        }
+
         return view('crud.index', array_merge([
             'items' => $items,
             'fields' => $this->fields,
@@ -134,6 +153,7 @@ abstract class CrudController extends Controller
             'to' => $to,
             'calendar' => $this->calendarMonth($request),
             'dateFieldName' => $this->editableDateFieldName(),
+            'moduleGoalSummary' => $moduleGoalSummary,
         ], $extra));
     }
 

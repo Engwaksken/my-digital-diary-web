@@ -35,6 +35,25 @@ class NotificationController extends Controller
         return response()->json(['message' => 'Marked as read.']);
     }
 
+
+    public function markReminderRead(Request $request, int $reminderId): JsonResponse
+    {
+        $notifications = $request->user()->unreadNotifications()
+            ->where('type', \App\Notifications\ReminderNotification::class)
+            ->latest('created_at')
+            ->limit(50)
+            ->get();
+
+        foreach ($notifications as $notification) {
+            $data = is_array($notification->data) ? $notification->data : [];
+            if ((int) ($data['reminder_id'] ?? 0) === $reminderId) {
+                $notification->markAsRead();
+            }
+        }
+
+        return response()->json(['message' => 'Reminder notification marked as read.']);
+    }
+
     public function markAllRead(Request $request): JsonResponse
     {
         $request->user()->unreadNotifications->markAsRead();

@@ -62,8 +62,8 @@
         @endif
     </form>
 
-    <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto">
-        <table class="min-w-full text-sm">
+    <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto pm-admin-table-scroll">
+        <table class="min-w-full text-sm pm-admin-horizontal-table">
             <caption class="sr-only">Billing-related events — invoices, receipts, reminders, and payment status changes.</caption>
             <thead class="bg-slate-50 text-left border-b border-slate-100">
                 <tr>

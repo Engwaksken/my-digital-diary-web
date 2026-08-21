@@ -4,7 +4,7 @@
 
 @section('content')
     {{--
-        PDF.js — renders every page of an uploaded PDF client-side for the
+        PDF.js  renders every page of an uploaded PDF client-side for the
         signature-placement editor below. Picked a widely-used, stable
         version; if this exact version ever 404s on cdnjs (library
         versions do get pruned occasionally), bump the version number in
@@ -12,8 +12,29 @@
     --}}
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
-        if (typeof pdfjsLib !== 'undefined') {
+        function pmConfigurePdfJs() {
+            if (typeof pdfjsLib === 'undefined') return false;
             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            return true;
+        }
+        pmConfigurePdfJs();
+
+        function pmEnsurePdfJs() {
+            if (pmConfigurePdfJs()) return Promise.resolve(true);
+            return new Promise(function (resolve, reject) {
+                var existing = document.getElementById('pm-pdfjs-fallback');
+                if (existing) {
+                    existing.addEventListener('load', function () { resolve(pmConfigurePdfJs()); }, { once: true });
+                    existing.addEventListener('error', function () { reject(new Error('PDF preview library could not be loaded.')); }, { once: true });
+                    return;
+                }
+                var script = document.createElement('script');
+                script.id = 'pm-pdfjs-fallback';
+                script.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+                script.onload = function () { pmConfigurePdfJs() ? resolve(true) : reject(new Error('PDF preview library did not initialise.')); };
+                script.onerror = function () { reject(new Error('PDF preview library could not be loaded.')); };
+                document.head.appendChild(script);
+            });
         }
     </script>
 
@@ -53,12 +74,12 @@
         <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6">
             <h2 class="font-semibold text-slate-800 mb-1">Your Signatures</h2>
             <p class="text-sm text-slate-500 mb-4">
-                Keep as many as you need — a full signature, initials, whatever you use. You'll pick
+                Keep as many as you need  a full signature, initials, whatever you use. You'll pick
                 one when signing a document.
             </p>
 
             @if ($signatures->isEmpty())
-                <p class="text-sm text-slate-400 mb-4">No signatures saved yet — add one below.</p>
+                <p class="text-sm text-slate-400 mb-4">No signatures saved yet  add one below.</p>
             @else
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                     @foreach ($signatures as $signature)
@@ -67,7 +88,7 @@
                                  class="h-16 w-full object-contain bg-white">
                             <p class="text-sm font-medium text-slate-700 truncate w-full text-center">{{ $signature->displayLabel() }}</p>
                             <form method="POST" action="{{ route('signature.signatures.destroy', $signature->id) }}"
-                                  onsubmit="return confirm('Remove this signature?');">
+                                  data-confirm="Remove this signature? This action cannot be undone." data-confirm-title="Delete signature?" data-confirm-text="Delete">
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" class="text-xs text-rose-500 hover:underline">
@@ -111,14 +132,14 @@
             <div class="max-w-3xl pm-card-bg shadow-sm border-2 border-[var(--brand-2)] rounded-xl p-6">
                 <h2 class="font-semibold text-slate-800 mb-1 flex items-center gap-2">
                     <i class="fa-solid fa-eye text-[var(--brand-1)]" aria-hidden="true"></i>
-                    Preview — not saved yet
+                    Preview  not saved yet
                 </h2>
                 <p class="text-sm text-slate-500 mb-4">
                     "{{ $pendingPreview['original_filename'] }}"
                     @if ($pendingPreview['was_stamped'])
                         with {{ count($pendingPreview['placements']) }} signature{{ count($pendingPreview['placements']) === 1 ? '' : 's' }} placed.
                     @else
-                        — the signatures could not be inserted automatically; the file is shown as uploaded.
+                         the signatures could not be inserted automatically; the file is shown as uploaded.
                     @endif
                 </p>
 
@@ -172,10 +193,10 @@
                         <p class="font-medium mb-1"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Limited on this server right now</p>
                         <ul class="list-disc list-inside">
                             @if (! $gdAvailable)
-                                <li>Image stamping is unavailable — the GD PHP extension isn't enabled.</li>
+                                <li>Image stamping is unavailable  the GD PHP extension isn't enabled.</li>
                             @endif
                             @if (! $fpdiAvailable)
-                                <li>PDF stamping is unavailable — run <code class="bg-amber-100 px-1 rounded">composer require setasign/fpdi setasign/fpdf</code> on the server.</li>
+                                <li>PDF stamping is unavailable  run <code class="bg-amber-100 px-1 rounded">composer require setasign/fpdi setasign/fpdf</code> on the server.</li>
                             @endif
                         </ul>
                     </div>
@@ -185,11 +206,41 @@
                     @csrf
 
                     <div id="pm-sign-step-upload" class="max-w-3xl pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6">
-                        <label for="document" class="block text-sm font-medium text-slate-700 mb-1">Upload the document</label>
-                        <input type="file" id="document" name="document" accept="image/*,application/pdf" class="block w-full text-sm mb-1" onchange="pmLoadDocumentForEditing(this)">
-                        <p class="text-xs text-slate-400">Max 10MB. Every page of a PDF is shown below — drop a signature onto any of them.</p>
-                        <div id="pm-sign-loading" class="hidden text-sm text-slate-500 mt-3">
-                            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Loading document...
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Add the document</label>
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <label for="document" class="flex min-h-[72px] cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 hover:border-[var(--brand-1)]">
+                                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600"><i class="fa-solid fa-cloud-arrow-up"></i></span>
+                                <span><strong class="block text-sm text-slate-800">Upload document</strong><span class="text-xs text-slate-500">PDF or image from this device</span></span>
+                            </label>
+                            <button type="button" onclick="pmOpenDocumentScanner()" class="flex min-h-[72px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-[var(--brand-1)]">
+                                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600"><i class="fa-solid fa-camera"></i></span>
+                                <span><strong class="block text-sm text-slate-800">Scan document</strong><span class="text-xs text-slate-500">Use your phone/tablet camera</span></span>
+                            </button>
+                        </div>
+                        <input type="file" id="document" name="document" accept="image/*,application/pdf" class="sr-only" onchange="pmLoadDocumentForEditing(this)">
+                        <input type="file" id="pm-scan-document" accept="image/*" capture="environment" class="sr-only" onchange="pmUseScannedDocument(this)">
+                        <p id="pm-document-name" class="mt-2 text-xs font-medium text-slate-600"></p>
+                        <p class="text-xs text-slate-400">Max 10MB. PDF pages are rendered below; scanned images open directly in the placement editor.</p>
+                        <div id="pm-sign-loading" class="hidden mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                            <i class="fa-solid fa-spinner fa-spin mr-1" aria-hidden="true"></i>
+                            <span id="pm-sign-loading-text">Loading document preview...</span>
+                        </div>
+
+                        {{-- Always-visible local preview fallback. PDF.js renders editable pages below,
+                             but this area makes the selected file visible immediately even when the
+                             PDF worker/CDN is unavailable on a phone or restricted network. --}}
+                        <div id="pm-local-document-preview" class="hidden mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                            <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-2">
+                                <div class="min-w-0">
+                                    <p class="text-xs font-semibold text-slate-700">Document preview</p>
+                                    <p id="pm-local-preview-name" class="truncate text-[11px] text-slate-500"></p>
+                                </div>
+                                <button type="button" onclick="pmClearDocumentSelection()" class="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
+                                    <i class="fa-solid fa-xmark mr-1" aria-hidden="true"></i> Remove
+                                </button>
+                            </div>
+                            <div id="pm-local-preview-body" class="flex min-h-[260px] max-h-[62vh] items-center justify-center overflow-auto bg-slate-100 p-2"></div>
+                            <p id="pm-local-preview-note" class="hidden border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"></p>
                         </div>
                         @error('document')
                             <p role="alert" class="text-sm text-rose-600 mt-3">{{ $message }}</p>
@@ -199,12 +250,12 @@
                         @enderror
                     </div>
 
-                    {{-- Everything below only appears once a document is loaded — see pmLoadDocumentForEditing(). --}}
+                    {{-- Everything below only appears once a document is loaded  see pmLoadDocumentForEditing(). --}}
                     <div id="pm-sign-editor" class="hidden mt-4">
                         <div class="lg:flex lg:gap-6 lg:items-start">
-                            {{-- Signature palette — drag any of these onto a page. On touch
+                            {{-- Signature palette  drag any of these onto a page. On touch
                                  devices (no real drag-and-drop), tapping one arms it, then
-                                 tapping a page drops it there — see pmHandlePageTap(). --}}
+                                 tapping a page drops it there  see pmHandlePageTap(). --}}
                             <div class="lg:w-56 lg:shrink-0 mb-4 lg:mb-0 lg:sticky lg:top-4">
                                 <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-4">
                                     <h2 class="text-sm font-semibold text-slate-700 mb-3">Your Signatures</h2>
@@ -231,7 +282,7 @@
                                 <p id="pm-placement-count" class="text-xs text-slate-400 text-center mt-2">No signatures placed yet.</p>
                             </div>
 
-                            {{-- Pages render here — one .pm-page-container per page, each
+                            {{-- Pages render here  one .pm-page-container per page, each
                                  holding a canvas/img and any placements dropped onto it. --}}
                             <div id="pm-pages-container" class="flex-1 space-y-4 max-w-full overflow-x-auto"></div>
                         </div>
@@ -308,7 +359,7 @@
                 if (wrapper) { wrapper.style.display = select.value === 'range' ? 'flex' : 'none'; }
             }
             // Filtering re-submits the whole page (GET), which would
-            // otherwise dump the user back on "My Signatures" — this
+            // otherwise dump the user back on "My Signatures"  this
             // keeps them on the Documents tab across that reload.
             function pmSubmitDocFilterForm() {
                 sessionStorage.setItem('pmSigActiveTab', 'documents');
@@ -325,7 +376,7 @@
                 <i class="fa-brands fa-whatsapp" aria-hidden="true"></i> WhatsApp
             </button>
             <form method="POST" action="{{ route('signature.documents.bulk-destroy') }}" id="pm-sig-bulk-delete-form"
-                  onsubmit="return confirm('Remove all selected documents? This cannot be undone.');">
+                  data-confirm="Remove all selected documents? This action cannot be undone." data-confirm-title="Delete selected documents?" data-confirm-text="Delete selected">
                 @csrf
                 <button type="submit" class="text-rose-300 hover:text-rose-100">
                     <i class="fa-solid fa-trash-can" aria-hidden="true"></i> Delete Selected
@@ -371,7 +422,7 @@
                                 @endif
                             </td>
                             <td class="px-4 py-3">{{ $doc->placements->count() }}</td>
-                            <td class="px-4 py-3">{{ $doc->placements->pluck('page_number')->unique()->sort()->implode(', ') ?: '—' }}</td>
+                            <td class="px-4 py-3">{{ $doc->placements->pluck('page_number')->unique()->sort()->implode(', ') ?: '' }}</td>
                             <td class="px-4 py-3">{{ $doc->signed_at?->format('Y-m-d H:i') ?? $doc->created_at->format('Y-m-d H:i') }}</td>
                             <td class="px-4 py-3 text-right whitespace-nowrap">
                                 <a href="{{ route('signature.documents.download', $doc->id) }}" class="text-[var(--brand-1)] hover:underline mr-3">
@@ -383,7 +434,7 @@
                                 <a href="https://wa.me/?text={{ urlencode($doc->original_filename . ': ' . \Illuminate\Support\Facades\URL::temporarySignedRoute('signature.documents.shared', now()->addDays(30), ['signedDocument' => $doc->id])) }}" target="_blank" rel="noopener noreferrer" class="text-[var(--brand-1)] hover:underline mr-3">
                                     <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
                                 </a>
-                                <form action="{{ route('signature.documents.destroy', $doc->id) }}" method="POST" class="inline" onsubmit="return confirm('Remove this document?');">
+                                <form action="{{ route('signature.documents.destroy', $doc->id) }}" method="POST" class="inline" data-confirm="Remove this signed document? This action cannot be undone." data-confirm-title="Delete document?" data-confirm-text="Delete">
                                     @csrf
                                     @method('DELETE')
                                     <button type="submit" class="text-rose-600 hover:underline">Remove</button>
@@ -461,8 +512,8 @@
             selectAll.checked = allCheckboxes.length > 0 && selected.length === allCheckboxes.length;
         }
 
-        // Bulk share can't actually attach files — mailto:/wa.me only
-        // carry text — so this builds one message listing every selected
+        // Bulk share can't actually attach files  mailto:/wa.me only
+        // carry text  so this builds one message listing every selected
         // document's name and link, same idea as the single-document
         // share buttons just combined into one message.
         function pmShareSelectedDocuments(channel) {
@@ -484,7 +535,7 @@
     <script>
         // ===== Multi-page signature placement editor =====
         // Renders every page of the uploaded document (PDF via PDF.js,
-        // reading the file straight from the browser's memory — no
+        // reading the file straight from the browser's memory  no
         // upload round-trip needed just to preview it; a single image
         // is treated as one "page"). Signatures are dragged from the
         // palette (or tap-to-arm/tap-to-place on touch devices, since
@@ -496,77 +547,212 @@
         var pmPlacementCounter = 0;
         var pmActiveInteraction = null; // { el, mode: 'move'|'resize', ... }
 
+        var pmLocalDocumentObjectUrl = null;
+
+        function pmSetSignLoading(show, message) {
+            var loading = document.getElementById('pm-sign-loading');
+            var text = document.getElementById('pm-sign-loading-text');
+            if (!loading) { return; }
+            if (text && message) { text.textContent = message; }
+            loading.classList.toggle('hidden', !show);
+        }
+
+        function pmRevokeLocalDocumentUrl() {
+            if (pmLocalDocumentObjectUrl) {
+                try { URL.revokeObjectURL(pmLocalDocumentObjectUrl); } catch (e) {}
+                pmLocalDocumentObjectUrl = null;
+            }
+        }
+
+        function pmShowImmediateLocalPreview(file) {
+            var wrapper = document.getElementById('pm-local-document-preview');
+            var body = document.getElementById('pm-local-preview-body');
+            var name = document.getElementById('pm-local-preview-name');
+            var note = document.getElementById('pm-local-preview-note');
+            if (!wrapper || !body) { return; }
+
+            pmRevokeLocalDocumentUrl();
+            body.innerHTML = '';
+            if (name) { name.textContent = file.name || 'Selected document'; }
+            if (note) {
+                note.textContent = '';
+                note.classList.add('hidden');
+            }
+
+            pmLocalDocumentObjectUrl = URL.createObjectURL(file);
+
+            if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) {
+                body.innerHTML = '<div class="p-6 text-center text-slate-500"><i class="fa-solid fa-file-pdf text-3xl mb-2 text-rose-500"></i><p class="text-sm font-semibold text-slate-700">PDF selected</p><p class="mt-1 text-xs">Rendering editable pages below…</p></div>';
+            } else if ((file.type || '').indexOf('image/') === 0) {
+                var img = document.createElement('img');
+                img.src = pmLocalDocumentObjectUrl;
+                img.alt = 'Selected document preview';
+                img.className = 'block max-h-[60vh] max-w-full object-contain rounded-lg bg-white';
+                img.onerror = function () {
+                    body.innerHTML = '<p class="p-4 text-sm text-rose-600">This image could not be previewed. Please choose another image.</p>';
+                };
+                body.appendChild(img);
+            } else {
+                body.innerHTML = '<div class="p-6 text-center text-slate-500"><i class="fa-solid fa-file text-3xl mb-2"></i><p class="text-sm">Preview is not available for this file type.</p></div>';
+            }
+
+            wrapper.classList.remove('hidden');
+        }
+
+        function pmShowPreviewNotice(message) {
+            var note = document.getElementById('pm-local-preview-note');
+            if (!note) { return; }
+            note.textContent = message;
+            note.classList.remove('hidden');
+        }
+
+        function pmClearDocumentSelection() {
+            var documentInput = document.getElementById('document');
+            var scannerInput = document.getElementById('pm-scan-document');
+            var name = document.getElementById('pm-document-name');
+            var wrapper = document.getElementById('pm-local-document-preview');
+            var body = document.getElementById('pm-local-preview-body');
+            var editor = document.getElementById('pm-sign-editor');
+            var pagesContainer = document.getElementById('pm-pages-container');
+
+            if (documentInput) {
+                documentInput.value = '';
+                if (!documentInput.getAttribute('name')) { documentInput.setAttribute('name', 'document'); }
+            }
+            if (scannerInput) {
+                scannerInput.value = '';
+                scannerInput.removeAttribute('name');
+            }
+            if (name) { name.textContent = ''; }
+            if (body) { body.innerHTML = ''; }
+            if (wrapper) { wrapper.classList.add('hidden'); }
+            if (pagesContainer) { pagesContainer.innerHTML = ''; }
+            if (editor) { editor.classList.add('hidden'); }
+            pmSetSignLoading(false);
+            pmRevokeLocalDocumentUrl();
+            pmArmedSignature = null;
+            pmUpdatePlacementCount();
+        }
+
+        function pmRenderPdfFallbackMessage(error) {
+            pmSetSignLoading(false);
+            var message = 'The PDF is visible above, but editable page rendering could not start.';
+            if (error && error.message) { message += ' ' + error.message; }
+            pmShowPreviewNotice(message + ' Check the PDF.js CDN/network connection, then reload or choose the file again.');
+        }
+
         function pmLoadDocumentForEditing(input) {
-            var file = input.files && input.files[0];
+            var file = input && input.files && input.files[0];
             var pagesContainer = document.getElementById('pm-pages-container');
             var editor = document.getElementById('pm-sign-editor');
-            var loading = document.getElementById('pm-sign-loading');
-            if (!file) { return; }
+            var name = document.getElementById('pm-document-name');
+            if (!file || !pagesContainer || !editor) { return; }
 
+            if (name) { name.textContent = 'Selected: ' + file.name; }
+            pmShowImmediateLocalPreview(file);
             pagesContainer.innerHTML = '';
-            loading.classList.remove('hidden');
+            editor.classList.add('hidden');
+            pmSetSignLoading(true, 'Preparing editable document pages...');
 
-            if (file.type === 'application/pdf') {
+            var isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+
+            if (isPdf) {
                 var reader = new FileReader();
+                reader.onerror = function () {
+                    pmRenderPdfFallbackMessage(new Error('The browser could not read this PDF.'));
+                };
                 reader.onload = function () {
-                    if (typeof pdfjsLib === 'undefined') {
-                        loading.classList.add('hidden');
-                        alert('The PDF preview library did not load — check your internet connection and try again.');
-                        return;
-                    }
-                    pdfjsLib.getDocument({ data: reader.result }).promise.then(function (pdf) {
-                        var pageNumbers = [];
-                        for (var i = 1; i <= pdf.numPages; i++) { pageNumbers.push(i); }
+                    pmEnsurePdfJs().then(function () {
+                        var bytes = new Uint8Array(reader.result);
+                        return pdfjsLib.getDocument({ data: bytes }).promise;
+                    }).then(function (pdf) {
+                        editor.classList.remove('hidden');
+                        pagesContainer.innerHTML = '';
+                        pmSetSignLoading(true, 'Rendering page 1 of ' + pdf.numPages + '...');
 
-                        var renderNext = function () {
-                            if (pageNumbers.length === 0) {
-                                loading.classList.add('hidden');
-                                editor.classList.remove('hidden');
-                                return;
+                        var renderPage = function (pageNum) {
+                            if (pageNum > pdf.numPages) {
+                                pmSetSignLoading(false);
+                                var local = document.getElementById('pm-local-document-preview');
+                                if (local) local.classList.add('hidden');
+                                return Promise.resolve();
                             }
-                            var pageNum = pageNumbers.shift();
-                            pdf.getPage(pageNum).then(function (page) {
-                                var viewport = page.getViewport({ scale: 1.3 });
-                                var canvas = document.createElement('canvas');
-                                canvas.width = viewport.width;
-                                canvas.height = viewport.height;
-                                canvas.style.width = '100%';
-                                canvas.style.height = 'auto';
-                                canvas.style.display = 'block';
 
-                                var container = pmCreatePageContainer(pageNum, viewport.width, viewport.height);
+                            pmSetSignLoading(true, 'Rendering page ' + pageNum + ' of ' + pdf.numPages + '...');
+                            return pdf.getPage(pageNum).then(function (page) {
+                                var baseViewport = page.getViewport({ scale: 1 });
+                                var editorWidth = pagesContainer.clientWidth || Math.max(320, window.innerWidth - 64);
+                                var targetCssWidth = Math.min(650, Math.max(280, editorWidth - 8));
+                                var cssScale = targetCssWidth / baseViewport.width;
+                                var pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+                                var renderViewport = page.getViewport({ scale: cssScale * pixelRatio });
+                                var cssViewport = page.getViewport({ scale: cssScale });
+
+                                var container = pmCreatePageContainer(pageNum, cssViewport.width, cssViewport.height);
+                                container.style.width = Math.ceil(cssViewport.width) + 'px';
+                                container.style.height = Math.ceil(cssViewport.height) + 'px';
+
+                                var canvas = document.createElement('canvas');
+                                canvas.width = Math.ceil(renderViewport.width);
+                                canvas.height = Math.ceil(renderViewport.height);
+                                canvas.style.width = '100%';
+                                canvas.style.height = '100%';
+                                canvas.style.display = 'block';
+                                canvas.style.background = '#ffffff';
+                                canvas.setAttribute('aria-label', 'PDF page ' + pageNum);
                                 container.appendChild(canvas);
                                 pagesContainer.appendChild(container);
 
-                                page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise.then(renderNext);
+                                var context = canvas.getContext('2d', { alpha: false });
+                                if (!context) throw new Error('Your browser could not create the PDF preview canvas.');
+
+                                context.save();
+                                context.fillStyle = '#ffffff';
+                                context.fillRect(0, 0, canvas.width, canvas.height);
+                                context.restore();
+
+                                return page.render({ canvasContext: context, viewport: renderViewport }).promise
+                                    .then(function () { return renderPage(pageNum + 1); });
                             });
                         };
-                        renderNext();
+
+                        return renderPage(1);
                     }).catch(function (err) {
-                        loading.classList.add('hidden');
-                        alert('Could not read this PDF (' + err.message + '). Try a different file.');
+                        pagesContainer.innerHTML = '';
+                        editor.classList.add('hidden');
+                        pmRenderPdfFallbackMessage(err);
                     });
                 };
                 reader.readAsArrayBuffer(file);
-            } else if (file.type.indexOf('image/') === 0) {
+                return;
+            }
+
+            if ((file.type || '').indexOf('image/') === 0) {
                 var img = new Image();
                 img.onload = function () {
-                    var container = pmCreatePageContainer(1, img.naturalWidth, img.naturalHeight);
+                    var width = img.naturalWidth || img.width || 1000;
+                    var height = img.naturalHeight || img.height || 1400;
+                    var container = pmCreatePageContainer(1, width, height);
                     var displayImg = document.createElement('img');
                     displayImg.src = img.src;
-                    displayImg.className = 'block w-full h-full';
+                    displayImg.alt = 'Document page 1';
+                    displayImg.className = 'block w-full h-full object-contain bg-white';
                     container.appendChild(displayImg);
                     pagesContainer.appendChild(container);
 
-                    loading.classList.add('hidden');
                     editor.classList.remove('hidden');
+                    pmSetSignLoading(false);
                 };
-                img.src = URL.createObjectURL(file);
-            } else {
-                loading.classList.add('hidden');
-                alert('Only images and PDFs can be edited here — other file types will still upload, but without a preview.');
-                editor.classList.remove('hidden');
+                img.onerror = function () {
+                    pmSetSignLoading(false);
+                    pmShowPreviewNotice('The image was selected but could not be decoded by this browser. Try JPG, PNG or WebP.');
+                };
+                img.src = pmLocalDocumentObjectUrl || URL.createObjectURL(file);
+                return;
             }
+
+            pmSetSignLoading(false);
+            pmShowPreviewNotice('This file type can be uploaded, but signature placement preview supports PDF and image files only.');
         }
 
         function pmCreatePageContainer(pageNumber, naturalWidth, naturalHeight) {
@@ -574,9 +760,10 @@
             wrapper.className = 'pm-page-container relative border border-slate-200 rounded-lg overflow-hidden bg-white mx-auto';
             wrapper.dataset.pageNumber = pageNumber;
             // Cap the rendered width so a huge page doesn't overflow the
-            // editor — everything downstream works in percentages of
+            // editor  everything downstream works in percentages of
             // THIS rendered size, so scaling it down doesn't affect the
             // final stamped position/size at all.
+            wrapper.style.width = 'min(100%, 650px)';
             wrapper.style.maxWidth = '650px';
             wrapper.style.aspectRatio = naturalWidth + ' / ' + naturalHeight;
             wrapper.style.touchAction = 'none';
@@ -617,7 +804,7 @@
 
         function pmHandlePageTap(event, container) {
             // Ignore taps on an existing placement (its own handlers deal
-            // with those) — only bare page taps place a new signature.
+            // with those)  only bare page taps place a new signature.
             if (event.target.closest('.pm-placement')) { return; }
             if (!pmArmedSignature) { return; }
 
@@ -716,7 +903,7 @@
                 state.el.style.left = newLeft + 'px';
                 state.el.style.top = newTop + 'px';
             } else {
-                // Resize keeps the signature's aspect ratio locked —
+                // Resize keeps the signature's aspect ratio locked 
                 // free-distort resize would make signatures look warped,
                 // which nobody actually wants for something meant to
                 // look like handwriting.
@@ -796,4 +983,41 @@
             @endif
         });
     </script>
+
+<script>
+function pmOpenDocumentScanner() {
+    const scanner = document.getElementById('pm-scan-document');
+    if (scanner) scanner.click();
+}
+function pmUseScannedDocument(scannerInput) {
+    if (!scannerInput || !scannerInput.files || !scannerInput.files.length) return;
+    const documentInput = document.getElementById('document');
+    if (!documentInput) return;
+
+    documentInput.setAttribute('name', 'document');
+    scannerInput.removeAttribute('name');
+
+    try {
+        const transfer = new DataTransfer();
+        transfer.items.add(scannerInput.files[0]);
+        documentInput.files = transfer.files;
+        pmLoadDocumentForEditing(documentInput);
+    } catch (error) {
+        // Safari/older mobile browsers can make FileList read-only. Submit the
+        // scanner input itself in that case, but use the same preview function.
+        documentInput.removeAttribute('name');
+        scannerInput.setAttribute('name', 'document');
+        pmLoadDocumentForEditing(scannerInput);
+    }
+
+    const name = document.getElementById('pm-document-name');
+    if (name) name.textContent = 'Scanned: ' + (scannerInput.files[0].name || 'camera image');
+}
+document.addEventListener('change', function (event) {
+    if (event.target && event.target.id === 'document' && event.target.files && event.target.files[0]) {
+        const name = document.getElementById('pm-document-name');
+        if (name) name.textContent = 'Selected: ' + event.target.files[0].name;
+    }
+});
+</script>
 @endsection

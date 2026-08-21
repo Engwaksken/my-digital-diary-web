@@ -1,0 +1,86 @@
+/* =========================================================
+   MY DIGITAL DIARY — GLOBAL 12-HOUR TIME CONTROLS
+   ========================================================= */
+.pm-time12-source {
+    display: none !important;
+}
+
+.pm-time12-control {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: .5rem;
+    width: 100%;
+    min-width: 0;
+}
+
+.pm-time12-control.pm-time12-datetime {
+    grid-template-columns: minmax(150px, 1.35fr) minmax(0, 1fr);
+    align-items: stretch;
+}
+
+.pm-time12-clock {
+    display: grid;
+    grid-template-columns: minmax(68px, .8fr) auto minmax(72px, .85fr) minmax(76px, .8fr);
+    align-items: center;
+    gap: .4rem;
+    min-width: 0;
+}
+
+.pm-time12-separator {
+    font-weight: 800;
+    color: #64748b;
+    text-align: center;
+}
+
+.pm-time12-control select,
+.pm-time12-control input[type="date"] {
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #fff;
+    padding: .65rem .75rem;
+    color: #1e293b;
+    font: inherit;
+    font-size: 16px;
+    line-height: 1.2;
+    outline: none;
+    transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+.pm-time12-control select:focus,
+.pm-time12-control input[type="date"]:focus {
+    border-color: var(--brand-1, #009688);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-1, #009688) 16%, transparent);
+}
+
+.pm-time12-control select:disabled,
+.pm-time12-control input[type="date"]:disabled {
+    background: #f8fafc;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+.pm-time12-control[data-invalid="true"] select,
+.pm-time12-control[data-invalid="true"] input[type="date"] {
+    border-color: #fb7185;
+}
+
+@media (max-width: 640px) {
+    .pm-time12-control.pm-time12-datetime {
+        grid-template-columns: 1fr;
+    }
+
+    .pm-time12-clock {
+        grid-template-columns: minmax(62px, .85fr) auto minmax(68px, .9fr) minmax(72px, .8fr);
+        gap: .3rem;
+    }
+
+    .pm-time12-control select,
+    .pm-time12-control input[type="date"] {
+        min-height: 48px;
+        padding-left: .6rem;
+        padding-right: .6rem;
+    }
+}

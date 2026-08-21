@@ -2,7 +2,8 @@
 <!DOCTYPE html>
 <html lang="en">
 @php
-    $siteSettings = $siteSettings ?? new \App\Models\SiteSetting(['site_name' => 'My Digital Diary']);
+    $siteSettings = $siteSettings ?? \App\Models\SiteSetting::current();
+    $authLogo = $siteSettings->logoDataUri() ?: $siteSettings->logoUrl();
 @endphp
 <head>
     <meta charset="utf-8">
@@ -77,8 +78,8 @@
     <aside class="hidden lg:flex lg:w-2/5 auth-side text-white flex-col justify-center px-12 py-16">
         <div class="auth-side-inner">
             <div class="flex flex-col items-center gap-3 mb-10 text-center">
-                @if ($siteSettings->logoUrl())
-                    <div class="guest-logo-circle"><img src="{{ $siteSettings->logoUrl() }}" alt="{{ $siteSettings->site_name }} logo"></div>
+                @if ($authLogo)
+                    <div class="guest-logo-circle"><img src="{{ $authLogo }}" onerror="this.closest('.guest-logo-circle, .guest-logo-circle-sm')?.classList.add('logo-load-error'); this.style.display='none';" alt="{{ $siteSettings->site_name }} logo"></div>
                 @else
                     <div class="guest-logo-circle"><div class="guest-logo-fallback"><i class="fa-solid fa-chart-line"></i></div></div>
                 @endif
@@ -95,6 +96,11 @@
                 <li class="flex items-start gap-3"><span class="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center shrink-0"><i class="fa-solid fa-bell"></i></span><span class="pt-1">Receive timely reminders when something needs your attention.</span></li>
             </ul>
 
+            <div class="mt-7 rounded-xl border border-white/15 bg-white/10 px-4 py-3 text-xs text-white/80 leading-5">
+                <div class="font-semibold text-white mb-1"><i class="fa-solid fa-shield-halved mr-1"></i> Privacy-first by design</div>
+                Your diary entries are not shared with other users by default. We do not sell private diary data for advertising, and you control which areas AI features may use.
+            </div>
+
             <div class="auth-guide-callout">
                 <p class="text-white/65 text-xs mb-2">New to {{ $siteSettings->site_name }}?</p>
                 <a href="{{ route('user-guide') }}"><i class="fa-solid fa-book-open"></i> Open the User Guide <i class="fa-solid fa-arrow-right text-xs"></i></a>
@@ -106,8 +112,8 @@
         <div class="auth-card-wrapper">
             <div class="auth-card-header">
                 <a href="/" class="auth-brand-link" aria-label="{{ $siteSettings->site_name }}">
-                    @if ($siteSettings->logoUrl())
-                        <div class="guest-logo-circle-sm"><img src="{{ $siteSettings->logoUrl() }}" alt="{{ $siteSettings->site_name }} logo"></div>
+                    @if ($authLogo)
+                        <div class="guest-logo-circle-sm"><img src="{{ $authLogo }}" onerror="this.closest('.guest-logo-circle, .guest-logo-circle-sm')?.classList.add('logo-load-error'); this.style.display='none';" alt="{{ $siteSettings->site_name }} logo"></div>
                     @else
                         <div class="guest-logo-circle-sm"><div class="guest-logo-fallback"><i class="fa-solid fa-chart-line"></i></div></div>
                     @endif

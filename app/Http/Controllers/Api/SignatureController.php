@@ -248,6 +248,65 @@ class SignatureController extends Controller
         ]]);
     }
 
+
+    /** Combine several mobile-signed image pages into one previewable/downloadable PDF. */
+    public function bundlePages(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'document_ids' => ['required', 'array', 'min:1'],
+            'document_ids.*' => ['integer'],
+            'filename' => ['nullable', 'string', 'max:180'],
+        ]);
+
+        $documentsById = SignedDocument::where('user_id', $request->user()->id)
+            ->whereIn('id', $data['document_ids'])
+            ->get()->keyBy('id');
+        $documents = collect($data['document_ids'])->map(fn ($id) => $documentsById->get((int) $id))->filter()->values();
+        abort_if($documents->count() !== count($data['document_ids']), 422, 'One or more signed pages could not be found.');
+
+        $pages = [];
+        foreach ($documents as $document) {
+            abort_unless($document->was_stamped && $document->signed_file_path, 422, 'Every selected page must be signed first.');
+            $disk = Storage::disk('public');
+            abort_unless($disk->exists($document->signed_file_path), 422, 'A signed page file is missing.');
+            $mime = $disk->mimeType($document->signed_file_path) ?: 'image/png';
+            $pages[] = 'data:'.$mime.';base64,'.base64_encode($disk->get($document->signed_file_path));
+        }
+
+        $html = '<!doctype html><html><head><meta charset="utf-8"><style>@page{margin:0}body{margin:0}.page{page-break-after:always;width:100%;height:100vh;display:flex;align-items:center;justify-content:center}.page:last-child{page-break-after:auto}.page img{max-width:100%;max-height:100%;object-fit:contain}</style></head><body>';
+        foreach ($pages as $page) $html .= '<div class="page"><img src="'.$page.'"></div>';
+        $html .= '</body></html>';
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html)->setPaper('a4');
+        $pdfPath = 'signed-documents/signed/'.uniqid('signed_bundle_', true).'.pdf';
+        Storage::disk('public')->put($pdfPath, $pdf->output());
+
+        $filename = trim($data['filename'] ?? '') ?: 'signed-document.pdf';
+        if (! str_ends_with(strtolower($filename), '.pdf')) $filename .= '.pdf';
+        $bundle = SignedDocument::create([
+            'user_id' => $request->user()->id,
+            'signature_id' => $documents->first()->signature_id,
+            'original_filename' => $filename,
+            'original_file_path' => $pdfPath,
+            'signed_file_path' => $pdfPath,
+            'was_stamped' => true,
+            'signed_at' => now(),
+            'mime_type' => 'application/pdf',
+        ]);
+
+        // The bundle contains copies of every page, so remove temporary per-page rows/files.
+        foreach ($documents as $document) {
+            Storage::disk('public')->delete(array_filter([$document->original_file_path, $document->signed_file_path]));
+            $document->delete();
+        }
+
+        return response()->json(['data' => [
+            'id' => $bundle->id,
+            'was_stamped' => true,
+            'page_count' => count($pages),
+            'download_url' => \Illuminate\Support\Facades\URL::temporarySignedRoute('signature.documents.shared', now()->addDays(30), ['signedDocument' => $bundle->id]),
+        ]]);
+    }
+
     private function loadGdImage(string $path)
     {
         $info = @getimagesize($path);

@@ -35,12 +35,12 @@ class AiPlannerService
      *
      * @return array{content: string, used_shared_key: bool}
      */
-    public function generate(User $user, ?\Illuminate\Support\Carbon $now = null): array
+    public function generate(User $user, ?\Illuminate\Support\Carbon $now = null, ?string $customPrompt = null): array
     {
         $credential = $user->activeApiCredential();
 
         if ($credential) {
-            $prompt = $this->buildPrompt($user, $now);
+            $prompt = $this->buildPrompt($user, $now, $customPrompt);
 
             return [
                 'content' => $this->call($credential->provider, $credential->api_key, $prompt),
@@ -66,7 +66,7 @@ class AiPlannerService
             );
         }
 
-        $prompt = $this->buildPrompt($user, $now);
+        $prompt = $this->buildPrompt($user, $now, $customPrompt);
 
         return [
             'content' => $this->call($settings->default_ai_provider, $settings->default_ai_api_key, $prompt),
@@ -113,11 +113,15 @@ class AiPlannerService
         return (string) $response->json('choices.0.message.content', '');
     }
 
-    protected function buildPrompt(User $user, ?\Illuminate\Support\Carbon $now = null): string
+    protected function buildPrompt(User $user, ?\Illuminate\Support\Carbon $now = null, ?string $customPrompt = null): string
     {
         $now ??= \Illuminate\Support\Carbon::now();
         $snapshot = $this->snapshotService->build($user, $now);
         $today = $now->format('l, F j, Y');
+        $customInstruction = trim((string) $customPrompt);
+        $customInstruction = $customInstruction !== ''
+            ? "\nUSER REQUEST (follow this as the primary planning instruction while staying grounded in the snapshot):\n{$customInstruction}\n"
+            : '';
 
         return <<<PROMPT
 You are a supportive, practical personal-life coach. Today's date is
@@ -139,6 +143,10 @@ sections:
 
 Be specific, reference actual items from the data by name, and keep the
 whole response under 400 words. Do not invent data that isn't present.
+When the snapshot contains goal_learnings, use those reflections as practical
+memory: repeat strategies the user said worked, avoid or adjust patterns they
+said were difficult, and carry forward lessons they explicitly recorded. Never
+present a reflection as a fact beyond what the user wrote.
 
 Formatting: PLAIN TEXT ONLY. Do not use Markdown syntax of any kind — no
 "##" headings, no "**bold**", no "-" or "*" bullet markers. Write each
@@ -148,6 +156,7 @@ lines (e.g. "1. Finish the report"). This will be displayed as-is, with no
 Markdown renderer, so any Markdown symbols would show up literally as
 clutter rather than formatting.
 
+{$customInstruction}
 SNAPSHOT:
 {$this->snapshotService->toJson($snapshot)}
 PROMPT;

@@ -102,7 +102,7 @@ class MeetingRecordingController extends Controller
             'status' => 'completed',
             'consent_given_at' => now(),
             'audio_path' => $audioPath,
-            'duration_seconds' => $this->resolveDurationSeconds($audioPath, (int) ($data['duration_seconds'] ?? 0)),
+            'duration_seconds' => (int) ($data['duration_seconds'] ?? 0),
         ]);
 
         MeetingAuditLog::record($meeting->id, $request->user()->id, 'uploaded_recording', $request->file('audio')->getClientOriginalName());
@@ -146,7 +146,7 @@ class MeetingRecordingController extends Controller
         $recording->update([
             'status' => 'completed',
             'audio_path' => $audioPath,
-            'duration_seconds' => $this->resolveDurationSeconds($audioPath, (int) $data['duration_seconds']),
+            'duration_seconds' => $data['duration_seconds'],
         ]);
 
         MeetingAuditLog::record($recording->meeting_id, $request->user()->id, 'stopped_recording', "Duration: {$recording->formattedDuration()}");
@@ -162,21 +162,25 @@ class MeetingRecordingController extends Controller
             return back()->withErrors(['transcription' => 'No audio to transcribe yet.']);
         }
 
+        $data = $request->validate([
+            'transcription_language' => ['nullable', 'in:auto,en-GB,lg,sw'],
+        ]);
+        $language = $data['transcription_language'] ?? 'auto';
+
         $recording->update(['transcription_status' => 'processing', 'transcription_error' => null]);
 
         try {
-            $result = app(TranscriptionService::class)->transcribe($request->user(), $recording->audio_path);
+            $result = app(TranscriptionService::class)->transcribe($request->user(), $recording->audio_path, $language);
 
             $recording->update([
                 'transcript' => $result['transcript'],
                 'transcript_segments' => $result['segments'],
                 'transcription_status' => 'completed',
-                'duration_seconds' => $this->durationFromTranscriptOrExisting($recording, $result['segments'] ?? []),
             ]);
 
             MeetingAuditLog::record($recording->meeting_id, $request->user()->id, 'transcribed_recording');
 
-            return back()->with('success', 'Transcript ready.');
+            return back()->with('success', 'Transcript ready using ' . $this->transcriptionLanguageLabel($language) . '.');
         } catch (\Throwable $e) {
             $recording->update(['transcription_status' => 'failed', 'transcription_error' => $e->getMessage()]);
 
@@ -233,15 +237,19 @@ class MeetingRecordingController extends Controller
             return back()->withErrors(['processing' => 'Upload or record meeting audio first.']);
         }
 
+        $data = $request->validate([
+            'transcription_language' => ['nullable', 'in:auto,en-GB,lg,sw'],
+        ]);
+        $language = $data['transcription_language'] ?? 'auto';
+
         try {
             if (! $recording->transcript) {
                 $recording->update(['transcription_status' => 'processing', 'transcription_error' => null]);
-                $result = app(TranscriptionService::class)->transcribe($request->user(), $recording->audio_path);
+                $result = app(TranscriptionService::class)->transcribe($request->user(), $recording->audio_path, $language);
                 $recording->update([
                     'transcript' => $result['transcript'],
                     'transcript_segments' => $result['segments'],
                     'transcription_status' => 'completed',
-                    'duration_seconds' => $this->durationFromTranscriptOrExisting($recording, $result['segments'] ?? []),
                 ]);
                 MeetingAuditLog::record($recording->meeting_id, $request->user()->id, 'transcribed_recording');
             }
@@ -261,6 +269,71 @@ class MeetingRecordingController extends Controller
 
             return back()->withErrors(['processing' => $e->getMessage()]);
         }
+    }
+
+    private function transcriptionLanguageLabel(string $language): string
+    {
+        return match ($language) {
+            'en-GB' => 'UK English',
+            'lg' => 'Luganda',
+            'sw' => 'Kiswahili',
+            default => 'automatic language detection',
+        };
+    }
+
+    /**
+     * Stream recording audio/video inline for the HTML5 <audio> player.
+     *
+     * Do not expose the public-storage URL directly: on hosts where the
+     * /storage symlink is unavailable or protected, the browser receives an
+     * HTML/404 response and reports 0:00 / 0:00. BinaryFileResponse also
+     * supports HTTP Range requests, which browsers use for metadata, seeking
+     * and reliable playback of longer recordings.
+     */
+    public function streamAudio(Request $request, MeetingRecording $recording)
+    {
+        $this->authorizeRecording($request, $recording);
+        abort_unless($recording->audio_path, 404);
+
+        $disk = Storage::disk('public');
+        abort_unless($disk->exists($recording->audio_path), 404, 'Recording file not found.');
+
+        $absolutePath = $disk->path($recording->audio_path);
+        $extension = strtolower(pathinfo($recording->audio_path, PATHINFO_EXTENSION));
+
+        $mime = null;
+        try {
+            $mime = $disk->mimeType($recording->audio_path);
+        } catch (\Throwable $e) {
+            // Fall through to extension mapping below.
+        }
+
+        if (! is_string($mime) || $mime === '' || $mime === 'application/octet-stream') {
+            $mime = match ($extension) {
+                'mp3', 'mpga' => 'audio/mpeg',
+                'wav', 'wave' => 'audio/wav',
+                'm4a', 'mp4', 'm4v' => 'audio/mp4',
+                'webm', 'weba' => 'audio/webm',
+                'ogg', 'oga' => 'audio/ogg',
+                'opus' => 'audio/ogg; codecs=opus',
+                'aac' => 'audio/aac',
+                'flac' => 'audio/flac',
+                'aif', 'aiff', 'aifc' => 'audio/aiff',
+                '3gp', '3gpp' => 'audio/3gpp',
+                '3g2' => 'audio/3gpp2',
+                'mov' => 'video/quicktime',
+                'mpeg', 'mpg' => 'video/mpeg',
+                default => 'application/octet-stream',
+            };
+        }
+
+        return response()->file($absolutePath, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline; filename="meeting-recording-' . $recording->id . '.' . ($extension ?: 'audio') . '"',
+            'Accept-Ranges' => 'bytes',
+            'Cache-Control' => 'private, no-store, max-age=0',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function downloadAudio(Request $request, MeetingRecording $recording)
@@ -419,73 +492,6 @@ class MeetingRecordingController extends Controller
             && ! in_array($extension, $recordingExtensions, true)) {
             abort(422, 'The selected file is not a recognised audio or video recording.');
         }
-    }
-
-    /**
-     * Prefer the duration reported by the browser/app. When a device cannot
-     * read metadata (common with AMR/M4A/3GP uploads), ask ffprobe on the
-     * server after the file has been stored. This prevents valid uploads from
-     * being permanently displayed as 0:00.
-     */
-    private function resolveDurationSeconds(string $audioPath, int $clientDuration = 0): int
-    {
-        if ($clientDuration > 0) {
-            return $clientDuration;
-        }
-
-        if (! function_exists('shell_exec')) {
-            return 0;
-        }
-
-        try {
-            $binary = trim((string) @shell_exec('command -v ffprobe 2>/dev/null'));
-            if ($binary === '') {
-                return 0;
-            }
-
-            $absolutePath = Storage::disk('public')->path($audioPath);
-            if (! is_file($absolutePath)) {
-                return 0;
-            }
-
-            $command = escapeshellarg($binary)
-                . ' -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '
-                . escapeshellarg($absolutePath)
-                . ' 2>/dev/null';
-
-            $seconds = (float) trim((string) @shell_exec($command));
-            return $seconds > 0 ? (int) round($seconds) : 0;
-        } catch (\Throwable) {
-            return 0;
-        }
-    }
-
-    /**
-     * OpenAI segments provide an end time. If an older upload had no readable
-     * duration metadata, use the transcript's final segment as a reliable
-     * fallback as soon as transcription succeeds.
-     */
-    private function durationFromTranscriptOrExisting(MeetingRecording $recording, array $segments): int
-    {
-        if ((int) $recording->duration_seconds > 0) {
-            return (int) $recording->duration_seconds;
-        }
-
-        $max = 0.0;
-        foreach ($segments as $segment) {
-            $end = (float) ($segment['end_seconds'] ?? $segment['end'] ?? 0);
-            if ($end > $max) {
-                $max = $end;
-            }
-        }
-
-        if ($max > 0) {
-            return (int) ceil($max);
-        }
-
-        return $recording->audio_path
-            ? $this->resolveDurationSeconds($recording->audio_path, 0)
-            : 0;
     }
 
 }

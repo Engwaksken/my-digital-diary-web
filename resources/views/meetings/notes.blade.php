@@ -103,9 +103,9 @@
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="font-semibold text-slate-800">
                         <i class="fa-solid fa-waveform-lines text-slate-400" aria-hidden="true"></i>
-                        Recording — {{ $recording->created_at->copy()->timezone('Africa/Nairobi')->format('M j, Y g:i A') }} ({{ $recording->formattedDuration() }})
+                        Recording — {{ $recording->created_at->format('M j, Y g:i A') }} ({{ $recording->formattedDuration() }})
                     </h3>
-                    <form method="POST" action="{{ route('meeting-recordings.destroy', $recording->id) }}" onsubmit="return confirm('Delete this recording, its transcript, and its summary?');">
+                    <form method="POST" action="{{ route('meeting-recordings.destroy', $recording->id) }}" data-confirm="Delete this recording, its transcript, and its summary? This action cannot be undone." data-confirm-title="Delete recording?" data-confirm-text="Delete">
                         @csrf
                         @method('DELETE')
                         <button type="submit" class="text-xs text-rose-500 hover:underline">
@@ -114,21 +114,42 @@
                     </form>
                 </div>
 
-                @if ($recording->audioUrl())
-                    <audio controls src="{{ $recording->audioUrl() }}" class="w-full mb-3"></audio>
+                @if ($recording->audio_path)
+                    <audio
+                        controls
+                        preload="metadata"
+                        src="{{ route('meeting-recordings.audio.stream', $recording->id) }}"
+                        class="w-full mb-3"
+                        onerror="this.dataset.playbackError='1'; var msg=document.getElementById('audio-error-{{ $recording->id }}'); if(msg){msg.classList.remove('hidden');}"
+                    >
+                        Your browser cannot play this recording. Use the Download audio link below.
+                    </audio>
+                    <p id="audio-error-{{ $recording->id }}" class="hidden text-xs text-amber-700 mb-2">
+                        This browser could not decode the recording. Try downloading it, or upload MP3, M4A, WAV, WebM or OGG for in-browser playback.
+                    </p>
                     <a href="{{ route('meeting-recordings.audio', $recording->id) }}" class="text-xs text-[var(--brand-1)] hover:underline">
                         <i class="fa-solid fa-download" aria-hidden="true"></i> Download audio
                     </a>
                 @endif
 
                 @if ($recording->audio_path)
-                    <form method="POST" action="{{ route('meeting-recordings.process', $recording->id) }}" class="mt-3">
+                    <form method="POST" action="{{ route('meeting-recordings.process', $recording->id) }}" class="mt-3 flex flex-col sm:flex-row sm:items-end gap-2">
                         @csrf
-                        <button type="submit" class="inline-flex items-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
+                        <div>
+                            <label for="process-language-{{ $recording->id }}" class="block text-xs font-medium text-slate-600 mb-1">Transcription language</label>
+                            <select id="process-language-{{ $recording->id }}" name="transcription_language" class="pm-input text-sm min-w-44">
+                                <option value="auto">Auto detect</option>
+                                <option value="en-GB" selected>UK English</option>
+                                <option value="lg">Luganda</option>
+                                <option value="sw">Kiswahili</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="inline-flex items-center justify-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
                             <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
                             {{ $recording->transcript ? 'Refresh AI Summary' : 'Transcribe & AI Summarize' }}
                         </button>
                     </form>
+                    <p class="text-xs text-slate-500 mt-1">Choose the language actually spoken for better recognition of accents, names, numbers and local terms.</p>
                 @endif
                 @error('processing') <p role="alert" class="text-sm text-rose-600 mt-2">{{ $message }}</p> @enderror
 
@@ -183,8 +204,17 @@
                         @if ($recording->transcription_status === 'failed' && $recording->transcription_error)
                             <p class="text-sm text-rose-600 mb-2"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> {{ $recording->transcription_error }}</p>
                         @endif
-                        <form method="POST" action="{{ route('meeting-recordings.transcribe', $recording->id) }}">
+                        <form method="POST" action="{{ route('meeting-recordings.transcribe', $recording->id) }}" class="flex flex-col sm:flex-row sm:items-end gap-2">
                             @csrf
+                            <div>
+                                <label for="transcribe-language-{{ $recording->id }}" class="block text-xs font-medium text-slate-600 mb-1">Language</label>
+                                <select id="transcribe-language-{{ $recording->id }}" name="transcription_language" class="pm-input text-sm min-w-44">
+                                    <option value="auto">Auto detect</option>
+                                    <option value="en-GB" selected>UK English</option>
+                                    <option value="lg">Luganda</option>
+                                    <option value="sw">Kiswahili</option>
+                                </select>
+                            </div>
                             <button type="submit" class="text-sm bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors">
                                 <i class="fa-solid fa-file-waveform" aria-hidden="true"></i> Transcribe Recording
                             </button>
@@ -271,11 +301,45 @@
             </div>
         @endforeach
 
-        @if ($recordings->hasPages())
+        @if ($recordings instanceof \Illuminate\Contracts\Pagination\Paginator && $recordings->hasPages())
             <nav aria-label="Meeting recordings pagination" class="mt-4">
-                {{ $recordings->links() }}
+                {{ $recordings->fragment('record-meeting')->links() }}
             </nav>
         @endif
+
+        @php
+            // Build the WhatsApp share text before it is used below.
+            // Keep this independent of the recordings paginator so the share action
+            // still works when there are no recordings or the user is on another page.
+            $shareLines = [
+                'Meeting: ' . (string) $meeting->title,
+                'Date: ' . optional($meeting->start_at)->format('M j, Y g:i A'),
+            ];
+
+            if (filled($meeting->location)) {
+                $shareLines[] = 'Location: ' . (string) $meeting->location;
+            }
+
+            if (filled($meeting->agenda)) {
+                $shareLines[] = '';
+                $shareLines[] = 'Agenda:';
+                $shareLines[] = trim((string) $meeting->agenda);
+            }
+
+            if (filled($meeting->notes)) {
+                $shareLines[] = '';
+                $shareLines[] = 'Meeting Notes:';
+                $shareLines[] = trim((string) $meeting->notes);
+            }
+
+            $shareLines[] = '';
+            $shareLines[] = 'View meeting notes: ' . route('meetings.notes', $meeting->id);
+
+            $shareText = implode("\n", array_filter(
+                $shareLines,
+                static fn ($line) => $line !== null
+            ));
+        @endphp
 
         {{-- ================= DOWNLOAD & SHARE ================= --}}
         <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6 mt-6">
@@ -350,12 +414,10 @@
             var file = fileInput.files[0];
             if (!file) { return; }
 
-            var probe = document.createElement('video');
-            probe.muted = true;
+            var probe = new Audio();
             probe.preload = 'metadata';
             probe.onloadedmetadata = function () {
-                var durationSeconds = Number.isFinite(probe.duration) ? Math.round(probe.duration) : 0;
-                URL.revokeObjectURL(probe.src);
+                var durationSeconds = Math.round(probe.duration) || 0;
                 pmSubmitUploadedRecording(file, durationSeconds);
                 fileInput.value = '';
             };
@@ -363,7 +425,6 @@
                 // Some formats/browsers can't report duration this way —
                 // still proceed rather than blocking the whole upload
                 // over a value the server only stores for display.
-                URL.revokeObjectURL(probe.src);
                 pmSubmitUploadedRecording(file, 0);
                 fileInput.value = '';
             };

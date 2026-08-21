@@ -8,9 +8,17 @@ use App\Models\BusinessCard;
 use App\Models\Expense;
 use App\Models\Income;
 use App\Models\DailyPlan;
+use App\Models\Meeting;
 use App\Models\Project;
 use App\Models\ProjectTask;
 use App\Models\Reminder;
+use App\Models\Debt;
+use App\Models\SavingsGoal;
+use App\Models\SavingsContribution;
+use App\Models\SpiritualPractice;
+use App\Services\DailyInsightService;
+use App\Services\PersonalProgressService;
+use App\Services\PeriodReviewMetricsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -25,9 +33,12 @@ class DashboardController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $userId = $request->user()->id;
-        $startOfMonth = Carbon::now()->startOfMonth();
-        $endOfMonth = Carbon::now()->endOfMonth();
+        $user = $request->user();
+        $userId = $user->id;
+        $timezone = $user->timezone ?: config('app.timezone', 'Africa/Kampala');
+        $localNow = Carbon::now($timezone);
+        $startOfMonth = $localNow->copy()->startOfMonth();
+        $endOfMonth = $localNow->copy()->endOfMonth();
 
         // ---- Spending by category (this month) — doughnut chart ----
         $expensesByCategory = Expense::where('user_id', $userId)
@@ -70,7 +81,21 @@ class DashboardController extends Controller
             'income_trend' => $incomeTrend,
             'expense_trend' => $expenseTrend,
             'recent_activity' => $this->recentActivity($userId),
-            'top_tasks' => $this->topTasksFor($userId),
+            'top_tasks' => $this->topTasksFor($request->user()),
+            'finance_summary' => $this->financeSummary($userId, $startOfMonth, $endOfMonth),
+            'today_insight' => $this->mobileInsight(app(DailyInsightService::class)->current($user)),
+            'server_context' => [
+                'timezone' => $timezone,
+                'local_date' => $localNow->toDateString(),
+                'local_time' => $localNow->format('H:i'),
+            ],
+            'personal_progress' => app(PersonalProgressService::class)->summary($request->user()),
+            'goal_intelligence' => app(\App\Services\GoalIntelligenceService::class)->build($request->user()),
+            'monthly_review_preview' => app(\App\Services\MonthlyReviewService::class)->build($request->user()),
+            'onboarding' => [
+                'completed' => ! is_null($request->user()->onboarding_completed_at),
+                'focuses' => $request->user()->onboarding_focuses ?? [],
+            ],
         ]);
     }
 
@@ -88,57 +113,50 @@ class DashboardController extends Controller
      * screen can show "top 3 upcoming" any time the dashboard loads,
      * not only once a day via the async email/notification digest.
      */
-    private function topTasksFor(int $userId): array
+    private function topTasksFor(\App\Models\User $user): array
     {
-        $today = Carbon::today();
+        /*
+         * IMPORTANT: Keep Mobile Today's Focus identical to Laravel Web.
+         *
+         * The web DashboardController uses the user's current DailyPlan and
+         * PeriodReviewMetricsService::todayFocus() as the authoritative source.
+         * The API previously duplicated this logic and also mixed in project
+         * tasks, meetings and reminders. That meant Web could show focus cards
+         * while Mobile received an empty/different list.
+         *
+         * Using the shared service removes that divergence.
+         */
+        return app(PeriodReviewMetricsService::class)
+            ->todayFocus($user, 6)
+            ->map(function ($item) use ($user) {
+                $startTime = $item->start_time ?? null;
 
-        // Only items that are actually due/planned for TODAY belong in a
-        // section labelled "Today's Top 3". Daily Planner items inherit
-        // their due date from the parent daily plan; Project Tasks use their
-        // own due_date column. Completed items are excluded.
-        $daily = DailyPlan::where('user_id', $userId)
-            ->whereDate('plan_date', $today)
-            ->with(['items' => fn ($query) => $query
-                ->where('is_completed', false)
-                ->orderByRaw("FIELD(priority, 'high', 'medium', 'low')")
-                ->orderBy('start_time')
-                ->orderBy('sort_order')
-                ->orderBy('id')])
-            ->first();
+                $displayTime = null;
+                if ($startTime) {
+                    try {
+                        $displayTime = Carbon::parse((string) $startTime)
+                            ->format('g:i A');
+                    } catch (\Throwable) {
+                        $displayTime = (string) $startTime;
+                    }
+                }
 
-        $dailyItems = $daily
-            ? $daily->items->map(fn ($item) => [
-                'title' => $item->title,
-                'source' => 'Daily Planner',
-                'due_date' => $today->toDateString(),
-                'sort' => $item->start_time ?: '23:59:59',
-                'priority_rank' => match ($item->priority) { 'high' => 0, 'medium' => 1, default => 2 },
-            ])
-            : collect();
-
-        $projectTasks = ProjectTask::where('user_id', $userId)
-            ->whereDate('due_date', $today)
-            ->whereIn('status', ['todo', 'in_progress'])
-            ->orderBy('due_date')
-            ->orderBy('id')
-            ->get()
-            ->map(fn ($task) => [
-                'title' => $task->title,
-                'source' => 'Task',
-                'due_date' => $task->due_date?->toDateString() ?? $today->toDateString(),
-                'sort' => '23:59:59',
-                'priority_rank' => 1,
-            ]);
-
-        return $dailyItems
-            ->concat($projectTasks)
-            ->sortBy(fn ($item) => sprintf('%d-%s', $item['priority_rank'], $item['sort']))
-            ->take(3)
-            ->map(fn ($item) => [
-                'title' => $item['title'],
-                'source' => $item['source'],
-                'due_date' => $item['due_date'],
-            ])
+                return [
+                    'id' => (int) $item->id,
+                    'title' => (string) ($item->title ?? 'Daily task'),
+                    'source' => (string) ($item->source ?? 'Daily Planner'),
+                    'module' => 'daily_planner',
+                    'priority' => (string) ($item->priority ?? ''),
+                    'start_time' => $startTime
+                        ? substr((string) $startTime, 0, 8)
+                        : null,
+                    'time' => $displayTime,
+                    'is_completed' => (bool) ($item->is_completed ?? false),
+                    'plan_id' => $item->daily_plan_id
+                        ?? $item->plan_id
+                        ?? null,
+                ];
+            })
             ->values()
             ->all();
     }
@@ -151,6 +169,143 @@ class DashboardController extends Controller
     public function recentActivityFull(Request $request): JsonResponse
     {
         return response()->json(['data' => $this->recentActivity($request->user()->id, perModelLimit: 20, take: 50)]);
+    }
+
+
+    /**
+     * Dedicated mobile endpoint for Today's Focus. Keeping this separate from
+     * the larger dashboard payload prevents stale/partially cached dashboard
+     * responses from making the Home screen look empty.
+     */
+    public function todayFocus(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $timezone = $user->timezone
+            ?: config('app.timezone', 'Africa/Kampala');
+        $items = $this->topTasksFor($user);
+
+        return response()->json([
+            'data' => $items,
+            'top_tasks' => $items,
+            'meta' => [
+                'source' => 'daily_planner',
+                'timezone' => $timezone,
+                'local_date' => Carbon::now($timezone)->toDateString(),
+                'count' => count($items),
+            ],
+        ]);
+    }
+
+    /**
+     * Dedicated current insight endpoint for mobile. Insight selection is based
+     * on the user's configured timezone and the active two-hour/daypart window.
+     */
+    public function todayInsight(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $timezone = $user->timezone ?: config('app.timezone', 'Africa/Kampala');
+        $localNow = Carbon::now($timezone);
+
+        return response()->json([
+            'data' => $this->mobileInsight(app(DailyInsightService::class)->current($user)),
+            'meta' => [
+                'timezone' => $timezone,
+                'local_date' => $localNow->toDateString(),
+                'local_time' => $localNow->format('H:i'),
+            ],
+        ]);
+    }
+
+    public function financeSummaryData(Request $request): JsonResponse
+    {
+        $timezone = $request->user()->timezone ?: config('app.timezone', 'Africa/Kampala');
+        $now = Carbon::now($timezone);
+
+        return response()->json([
+            'data' => $this->financeSummary(
+                $request->user()->id,
+                $now->copy()->startOfMonth(),
+                $now->copy()->endOfMonth(),
+            ),
+        ]);
+    }
+
+    private function financeSummary(int $userId, Carbon $startOfMonth, Carbon $endOfMonth): array
+    {
+        $incomeBase = Income::where('user_id', $userId)->where('is_archived', false);
+        $expenseBase = Expense::where('user_id', $userId)->where('is_archived', false);
+        $budgetBase = Budget::where('user_id', $userId)->where('is_archived', false);
+        $debtBase = Debt::where('user_id', $userId)->where('is_archived', false);
+        $savingBase = SavingsContribution::where('user_id', $userId)->where('is_archived', false);
+        $goalBase = SavingsGoal::where('user_id', $userId)->where('is_archived', false);
+
+        $latest = static fn ($query, string $dateColumn, string $labelColumn) => ($row = (clone $query)->orderByDesc($dateColumn)->first()) ? [
+            'label' => (string) ($row->{$labelColumn} ?? 'Latest record'),
+            'date' => optional($row->{$dateColumn})->toDateString() ?? (string) $row->{$dateColumn},
+        ] : null;
+
+        $monthIncome = (float) (clone $incomeBase)->whereBetween('received_at', [$startOfMonth, $endOfMonth])->sum('amount');
+        $monthExpenses = (float) (clone $expenseBase)->whereBetween('spent_at', [$startOfMonth, $endOfMonth])->sum('amount');
+        $allSavings = (float) (clone $savingBase)->sum('amount');
+
+        return [
+            'financial_planner' => [
+                'title' => 'Financial Planner', 'endpoint' => 'financial-planner',
+                'monthly_total' => $monthIncome - $monthExpenses,
+                'overall_total' => $allSavings,
+                'count' => (clone $incomeBase)->count() + (clone $expenseBase)->count(),
+                'monthly_label' => 'Monthly surplus', 'overall_label' => 'Total savings', 'latest' => null,
+            ],
+            'income' => [
+                'title' => 'Income', 'endpoint' => 'incomes',
+                'monthly_total' => $monthIncome,
+                'overall_total' => (float) (clone $incomeBase)->sum('amount'), 'count' => (clone $incomeBase)->count(),
+                'latest' => $latest($incomeBase, 'received_at', 'source'),
+            ],
+            'expenses' => [
+                'title' => 'Expenses', 'endpoint' => 'expenses',
+                'monthly_total' => $monthExpenses,
+                'overall_total' => (float) (clone $expenseBase)->sum('amount'), 'count' => (clone $expenseBase)->count(),
+                'latest' => $latest($expenseBase, 'spent_at', 'category'),
+            ],
+            'budgets' => [
+                'title' => 'Budgets', 'endpoint' => 'budgets',
+                'monthly_total' => (float) (clone $budgetBase)->where('period', 'monthly')->sum('amount'),
+                'overall_total' => (float) (clone $budgetBase)->sum('amount'), 'count' => (clone $budgetBase)->count(),
+                'latest' => null,
+            ],
+            'debts' => [
+                'title' => 'Debts', 'endpoint' => 'debts',
+                'monthly_total' => (float) (clone $debtBase)->whereBetween('date', [$startOfMonth, $endOfMonth])->sum('amount'),
+                'overall_total' => (float) (clone $debtBase)->where('status', 'outstanding')->sum('amount'), 'count' => (clone $debtBase)->count(),
+                'latest' => $latest($debtBase, 'date', 'person_name'),
+            ],
+            'savings' => [
+                'title' => 'Savings', 'endpoint' => 'savings-contributions',
+                'monthly_total' => (float) (clone $savingBase)->whereBetween('contributed_at', [$startOfMonth, $endOfMonth])->sum('amount'),
+                'overall_total' => $allSavings, 'count' => (clone $savingBase)->count(),
+                'latest' => $latest($savingBase, 'contributed_at', 'amount'),
+            ],
+            'savings_goals' => [
+                'title' => 'Savings Goals', 'endpoint' => 'savings-goals',
+                'monthly_total' => (float) (clone $savingBase)->whereBetween('contributed_at', [$startOfMonth, $endOfMonth])->sum('amount'),
+                'overall_total' => (float) (clone $goalBase)->sum('target_amount'), 'count' => (clone $goalBase)->count(),
+                'latest' => null, 'overall_label' => 'Total target',
+            ],
+        ];
+    }
+
+    private function mobileInsight(array $insight): array
+    {
+        $destinations = [
+            'expenses.index' => 'expenses', 'budgets.index' => 'budgets', 'savings-goals.index' => 'savings-goals',
+            'project-tasks.index' => 'project-tasks', 'reminders.index' => 'reminders', 'daily-planner.index' => 'daily-planner',
+            'sleep-logs.index' => 'sleep-logs', 'spiritual-practices.index' => 'spiritual-practices',
+            'personal-goals.index' => 'personal-goals', 'wellbeing.index' => 'wellbeing',
+        ];
+        $insight['destination'] = $destinations[$insight['route_name'] ?? ''] ?? 'daily-planner';
+        unset($insight['route_name'], $insight['key']);
+        return $insight;
     }
 
     private function recentActivity(int $userId, int $perModelLimit = 5, int $take = 10): array

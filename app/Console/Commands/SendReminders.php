@@ -3,20 +3,17 @@
 namespace App\Console\Commands;
 
 use App\Models\Reminder;
+use App\Notifications\ReminderFallbackMailNotification;
 use App\Notifications\ReminderNotification;
 use App\Services\FcmService;
 use Illuminate\Console\Command;
+use Illuminate\Notifications\DatabaseNotification;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification as NotificationFacade;
-use Illuminate\Support\Carbon;
 use Throwable;
 
-/**
- * Runs on a schedule (see routes/console.php) and fires every reminder
- * whose next_run_at has passed. Recurring reminders are automatically
- * rolled forward (daily/weekly/monthly/annually); one-off reminders are
- * deactivated after firing.
- */
 class SendReminders extends Command
 {
     protected $signature = 'reminders:send';
@@ -25,86 +22,191 @@ class SendReminders extends Command
 
     public function handle(FcmService $fcm): int
     {
+        $now = Carbon::now();
+
         $due = Reminder::with('user')
             ->where('is_active', true)
-            ->where('next_run_at', '<=', Carbon::now())
+            ->whereNotNull('next_run_at')
+            ->where('next_run_at', '<=', $now)
+            ->orderBy('next_run_at')
+            ->limit(500)
             ->get();
 
         if ($due->isEmpty()) {
-            $this->info('No reminders due.');
+            $this->info('No reminders due at '.$now->toDateTimeString().'.');
             return self::SUCCESS;
         }
 
         foreach ($due as $reminder) {
-            if (! $reminder->user) {
+            $user = $reminder->user;
+
+            if (! $user) {
+                $this->warn("Reminder #{$reminder->id} has no user; skipping.");
                 continue;
             }
 
-            // Per the subscription-expiry restrictions: an expired user
-            // doesn't get reminder emails/alarms sent on their behalf
-            // until they renew. Still advances the schedule (rather than
-            // leaving it due) so a lapsed subscriber doesn't get hit with
-            // a backlog of every missed occurrence firing at once the
-            // moment they renew — reminders just resume normally from
-            // whatever's next after that point.
-            if (! $reminder->user->hasActiveAccess()) {
+            // The product intentionally disables reminder delivery after a
+            // subscription/trial expires. Move recurring reminders forward so
+            // they do not build up hundreds of missed occurrences while access
+            // is inactive.
+            if (! $user->hasActiveAccess()) {
                 $reminder->scheduleNext();
                 continue;
             }
 
-            // This runs every minute (see routes/console.php). Without
-            // this try/catch, one reminder's email getting rejected by the
-            // mail server (a 550 "classified as spam" response is a real,
-            // observed failure mode) would throw and abort the ENTIRE
-            // foreach — every other due reminder in this run, for
-            // potentially many different users, would silently never get
-            // sent or rescheduled that cycle. Each reminder is now
-            // independent: one failure is logged and skipped, the rest of
-            // the batch still goes out. A reminder that failed to send
-            // deliberately does NOT call scheduleNext() — its next_run_at
-            // stays in the past, so it's picked up again (and retried) on
-            // the next run, rather than silently skipping an occurrence
-            // that was never actually delivered.
-            try {
-                NotificationFacade::send($reminder->user, new ReminderNotification($reminder));
-            } catch (Throwable $e) {
-                Log::warning('Could not send a reminder notification.', [
-                    'reminder_id' => $reminder->id,
-                    'user_id' => $reminder->user->id,
-                    'error' => $e->getMessage(),
-                ]);
+            $occurrence = $reminder->next_run_at->copy();
+            $occurrenceSuffix = $occurrence->format('YmdHi');
+            $pushKey = "reminder-push-sent:{$reminder->id}:{$occurrenceSuffix}";
+            $databaseKey = "reminder-database-sent:{$reminder->id}:{$occurrenceSuffix}";
+            $databaseNotificationId = null;
 
-                $this->error("Failed to send reminder #{$reminder->id} \"{$reminder->title}\" to {$reminder->user->email} — will retry next run.");
+            /*
+             * 1) DATABASE / IN-APP FIRST.
+             *
+             * Storing the notification before FCM means the push can carry the
+             * exact Laravel notification id. Mobile can then mark the same row
+             * as read immediately when the user taps the notification.
+             */
+            if (! Cache::has($databaseKey)) {
+                try {
+                    $before = now()->subSeconds(2);
+                    NotificationFacade::sendNow($user, new ReminderNotification($reminder, ['database']));
 
+                    $databaseNotificationId = $this->latestReminderNotificationId(
+                        $user->notifications()
+                            ->where('type', ReminderNotification::class)
+                            ->where('created_at', '>=', $before)
+                            ->latest('created_at')
+                            ->limit(10)
+                            ->get(),
+                        $reminder->id
+                    );
+
+                    Cache::put($databaseKey, true, now()->addDays(2));
+                } catch (Throwable $e) {
+                    Log::warning('Could not store reminder database notification.', [
+                        'reminder_id' => $reminder->id,
+                        'user_id' => $user->id,
+                        'exception' => get_class($e),
+                        'error' => $e->getMessage(),
+                    ]);
+                    $this->warn("In-app notification failed for reminder #{$reminder->id}: {$e->getMessage()}");
+                }
+            } else {
+                $databaseNotificationId = $this->latestReminderNotificationId(
+                    $user->notifications()
+                        ->where('type', ReminderNotification::class)
+                        ->latest('created_at')
+                        ->limit(15)
+                        ->get(),
+                    $reminder->id
+                );
+            }
+
+            /*
+             * 2) PUSH — independent from email/database.
+             * A missing Firebase configuration or stale token must never stop
+             * database/email delivery or the rest of the reminder batch.
+             */
+            if ($reminder->alarm_enabled && ! $user->alarms_muted && ! Cache::has($pushKey)) {
+                try {
+                    $data = [
+                        'reminder_id' => (string) $reminder->id,
+                        'type' => 'reminder',
+                        'scheduled_at' => $occurrence->toIso8601String(),
+                        'target' => 'reminders',
+                    ];
+
+                    if ($databaseNotificationId) {
+                        $data['notification_id'] = $databaseNotificationId;
+                    }
+
+                    if ($fcm->sendToUser(
+                        $user,
+                        $reminder->title,
+                        $reminder->message ?: 'This is your scheduled reminder.',
+                        $data
+                    )) {
+                        Cache::put($pushKey, true, now()->addDays(2));
+                        $this->line("Push sent for reminder #{$reminder->id}.");
+                    }
+                } catch (Throwable $e) {
+                    Log::warning('FCM push attempt threw unexpectedly.', [
+                        'reminder_id' => $reminder->id,
+                        'user_id' => $user->id,
+                        'exception' => get_class($e),
+                        'error' => $e->getMessage(),
+                    ]);
+                    $this->warn("Push failed for reminder #{$reminder->id}: {$e->getMessage()}");
+                }
+            }
+
+            // In-App Only reminders are complete once database/push were attempted.
+            if ($reminder->channel !== 'mail') {
+                $reminder->scheduleNext();
+                $this->info("Processed in-app reminder #{$reminder->id} \"{$reminder->title}\" for {$user->email}");
                 continue;
             }
 
-            // Mobile push, in ADDITION to email — deliberately does not
-            // gate scheduleNext()/the email path above at all. Email is
-            // the long-established, reliable channel (with its own
-            // hardening, above); push is a bonus for anyone with the
-            // Flutter app installed and no different in spirit from the
-            // in-app browser alarm — if it's not configured
-            // (FIREBASE_CREDENTIALS_PATH missing) or a user has no
-            // registered device, FcmService::sendToUser() silently does
-            // nothing rather than failing the reminder.
+            /*
+             * 3) EMAIL — first try the branded template. If the SMTP provider
+             * rejects the richer HTML, immediately retry once with the simpler
+             * fallback notification.
+             */
+            $brandedError = null;
+
             try {
-                $fcm->sendToUser($reminder->user, $reminder->title, $reminder->message ?: 'This is your scheduled reminder.', [
-                    'reminder_id' => (string) $reminder->id,
-                    'type' => 'reminder',
-                ]);
+                NotificationFacade::sendNow($user, new ReminderNotification($reminder, ['mail']));
             } catch (Throwable $e) {
-                Log::warning('FCM push attempt threw unexpectedly.', [
+                $brandedError = $e;
+                Log::warning('Branded reminder email failed; trying simple fallback.', [
                     'reminder_id' => $reminder->id,
+                    'user_id' => $user->id,
+                    'exception' => get_class($e),
                     'error' => $e->getMessage(),
                 ]);
             }
 
-            $reminder->scheduleNext();
+            if ($brandedError) {
+                try {
+                    NotificationFacade::sendNow($user, new ReminderFallbackMailNotification($reminder));
+                    $this->warn("Branded email was rejected for reminder #{$reminder->id}, but the simple fallback email was sent successfully.");
+                } catch (Throwable $fallbackError) {
+                    Log::error('Both reminder email attempts failed.', [
+                        'reminder_id' => $reminder->id,
+                        'user_id' => $user->id,
+                        'branded_exception' => get_class($brandedError),
+                        'branded_error' => $brandedError->getMessage(),
+                        'fallback_exception' => get_class($fallbackError),
+                        'fallback_error' => $fallbackError->getMessage(),
+                    ]);
 
-            $this->info("Sent reminder #{$reminder->id} \"{$reminder->title}\" to {$reminder->user->email}");
+                    $this->error("Failed reminder #{$reminder->id} \"{$reminder->title}\" to {$user->email}.");
+                    $this->line('The reminder remains due and will retry on a later scheduler run.');
+                    continue;
+                }
+            }
+
+            $reminder->scheduleNext();
+            $this->info("Sent reminder #{$reminder->id} \"{$reminder->title}\" to {$user->email}");
         }
 
         return self::SUCCESS;
+    }
+
+    private function latestReminderNotificationId(iterable $notifications, int $reminderId): ?string
+    {
+        foreach ($notifications as $notification) {
+            if (! $notification instanceof DatabaseNotification) {
+                continue;
+            }
+
+            $data = is_array($notification->data) ? $notification->data : [];
+            if ((int) ($data['reminder_id'] ?? 0) === $reminderId) {
+                return (string) $notification->id;
+            }
+        }
+
+        return null;
     }
 }

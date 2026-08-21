@@ -58,6 +58,20 @@
                     </p>
                 @endif
 
+                <div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 mb-6">
+                    <div class="flex items-center justify-between gap-3 mb-3">
+                        <div><p class="text-xs uppercase tracking-wide font-bold text-emerald-700">Your value this month</p><p class="text-sm text-slate-600">See what My Digital Diary is already helping you manage.</p></div>
+                        <i class="fa-solid fa-sparkles text-emerald-600"></i>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
+                        <div><p class="text-slate-400 text-xs">Tasks completed</p><p class="font-bold text-slate-800">{{ $valueSummary['tasks_completed'] ?? 0 }}</p></div>
+                        <div><p class="text-slate-400 text-xs">Expenses tracked</p><p class="font-bold text-slate-800">{{ format_money($valueSummary['expenses_tracked'] ?? 0) }}</p></div>
+                        <div><p class="text-slate-400 text-xs">Saved</p><p class="font-bold text-slate-800">{{ format_money($valueSummary['saved'] ?? 0) }}</p></div>
+                        <div><p class="text-slate-400 text-xs">AI plans</p><p class="font-bold text-slate-800">{{ $valueSummary['ai_plans'] ?? 0 }}</p></div>
+                        <div><p class="text-slate-400 text-xs">Meetings</p><p class="font-bold text-slate-800">{{ $valueSummary['meetings'] ?? 0 }}</p></div>
+                    </div>
+                </div>
+
                 @if ($plans->isEmpty())
                     <div class="border border-slate-200 rounded-xl p-5 mb-6 bg-gradient-to-br from-slate-50 to-white">
                         <p class="text-3xl font-bold text-slate-800">{{ format_money($settings->monthly_price) }}<span class="text-base font-normal text-slate-500">/month</span></p>
@@ -94,11 +108,27 @@
                         {{-- Individual its own full-width row, same as before. --}}
                         @if ($plansByCategory->get('individual', collect())->isNotEmpty())
                             <h3 class="text-sm font-semibold text-slate-600 uppercase tracking-wide mt-5 mb-3">Individual</h3>
-                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-2">
-                                @foreach ($plansByCategory->get('individual') as $plan)
+                            @php
+                                $individualPlans = $plansByCategory->get('individual');
+                                $primaryPlans = $individualPlans->filter(fn($p) => in_array((int) $p->duration_months, [1, 12], true));
+                                if ($primaryPlans->isEmpty()) $primaryPlans = $individualPlans->take(2);
+                                $moreIndividualPlans = $individualPlans->reject(fn($p) => $primaryPlans->contains('id', $p->id));
+                            @endphp
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
+                                @foreach ($primaryPlans as $plan)
                                     @include('subscription.partials.plan-card', ['plan' => $plan])
                                 @endforeach
                             </div>
+                            @if($moreIndividualPlans->isNotEmpty())
+                                <details class="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                    <summary class="cursor-pointer text-sm font-semibold text-slate-700">More billing options</summary>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
+                                        @foreach ($moreIndividualPlans as $plan)
+                                            @include('subscription.partials.plan-card', ['plan' => $plan])
+                                        @endforeach
+                                    </div>
+                                </details>
+                            @endif
                         @endif
 
                         {{-- Family & Small Team and Enterprise share one row each is
@@ -254,7 +284,7 @@
                                         <div class="flex-1 min-w-[12rem]">
                                             <label for="phone-{{ $gateway->id }}" class="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
                                             <input type="text" id="phone-{{ $gateway->id }}" name="phone_number" required aria-required="true"
-                                                   placeholder="e.g. 0700000000" class="pm-input">
+                                                   placeholder="e.g. 0700000000" value="{{ old('phone_number', $accountPhone) }}" class="pm-input">
                                         </div>
                                         <button type="submit" class="pm-pay-btn inline-flex items-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed w-full justify-center"
                                                 {{ $plans->isNotEmpty() ? 'disabled' : '' }}>
@@ -315,7 +345,6 @@
         {{-- ============= end pm-sub-panel-subscription ============= --}}
 
         <div role="tabpanel" id="pm-sub-panel-billing" aria-labelledby="pm-sub-tab-billing" tabindex="0" class="pm-sub-panel space-y-6" hidden>
-            {{-- ---- Stats ---- --}}
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 @foreach ([
                     ['label' => 'Total Invoices', 'value' => $billingStats['total_invoices'], 'color' => 'slate'],
@@ -330,7 +359,26 @@
                 @endforeach
             </div>
 
-            {{-- ---- Search + period filter ---- --}}
+            <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-4 sm:p-5">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <p class="text-xs uppercase tracking-wide text-slate-500">Account payment phone</p>
+                        <p class="font-semibold text-slate-800">
+                            {{ $accountPhone ?: 'Not set yet' }}
+                        </p>
+                        <p class="text-xs text-slate-500 mt-1">
+                            This number is pre-filled for Mobile Money prompts. When you use a different number, it becomes your new payment phone.
+                        </p>
+                    </div>
+                    @if ($accountPhone)
+                        <span class="inline-flex items-center gap-2 text-sm text-[var(--brand-1)]">
+                            <i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i>
+                            Ready for payment prompts
+                        </span>
+                    @endif
+                </div>
+            </div>
+
             <form method="GET" action="{{ route('subscription.show') }}" class="flex flex-wrap items-end gap-3">
                 <input type="hidden" name="tab" value="billing">
                 <div class="flex-1 min-w-[180px] max-w-xs">
@@ -352,104 +400,218 @@
                     <span class="text-slate-400 text-sm">to</span>
                     <input type="date" name="billing_to" value="{{ $billingTo }}" class="pm-input text-sm">
                 </div>
+                <div>
+                    <label for="billing_per_page" class="sr-only">Records per page</label>
+                    <select id="billing_per_page" name="billing_per_page" class="pm-input text-sm">
+                        @foreach ([10, 25, 50, 100] as $size)
+                            <option value="{{ $size }}" @selected($billingPerPage === $size)>{{ $size }} / page</option>
+                        @endforeach
+                    </select>
+                </div>
                 <button type="submit" class="btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">Filter</button>
-                @if ($billingSearch || $billingPeriod)
-                    <a href="{{ route('subscription.show') }}" class="text-sm text-slate-500 hover:text-slate-700 pb-2.5">Clear</a>
+                @if ($billingSearch || $billingPeriod || $billingPerPage !== 10)
+                    <a href="{{ route('subscription.show', ['tab' => 'billing']) }}" class="text-sm text-slate-500 hover:text-slate-700 pb-2.5">Clear</a>
                 @endif
             </form>
 
-            {{-- ---- Bulk actions for Invoices & Receipts ---- --}}
-            <div class="flex flex-wrap items-center gap-2">
-                <button type="button" id="pm-delete-selected-invoices" onclick="pmBulkDeleteBilling('invoice')" disabled
-                        class="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40">
-                    <i class="fa-solid fa-file-invoice"></i> Delete selected invoices
-                </button>
-                <button type="button" id="pm-delete-selected-receipts" onclick="pmBulkDeleteBilling('receipt')" disabled
-                        class="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40">
-                    <i class="fa-solid fa-receipt"></i> Delete selected receipts
-                </button>
-                <span id="pm-billing-selected-count" class="text-sm text-slate-500">0 selected</span>
-            </div>
-
-            {{-- ---- Table ---- --}}
-            <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6">
+            <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-4 sm:p-6">
                 <div class="overflow-x-auto">
                     <table class="min-w-full text-sm">
-                        <caption class="sr-only">Your past payment submissions and their status.</caption>
+                        <caption class="sr-only">Your invoices, receipts and pending subscription payments.</caption>
                         <thead class="text-left text-slate-500">
                             <tr>
-                                <th scope="col" class="py-1 pr-4 w-10">
-                                    <input type="checkbox" id="pm-billing-select-all" onchange="pmToggleAllBilling(this)" aria-label="Select all billing records on this page" class="rounded border-slate-300">
-                                </th>
-                                <th scope="col" class="py-1 pr-4">Plan</th>
-                                <th scope="col" class="py-1 pr-4">Method</th>
-                                <th scope="col" class="py-1 pr-4">Amount</th>
-                                <th scope="col" class="py-1 pr-4">Status</th>
-                                <th scope="col" class="py-1 pr-4">Date</th>
-                                <th scope="col" class="py-1 pr-4"><span class="sr-only">Invoice</span></th>
-                                <th scope="col" class="py-1 pr-4"><span class="sr-only">Receipt</span></th>
-                                <th scope="col" class="py-1"><span class="sr-only">Actions</span></th>
+                                <th scope="col" class="py-2 pr-4">Plan</th>
+                                <th scope="col" class="py-2 pr-4">Method</th>
+                                <th scope="col" class="py-2 pr-4">Phone / Account</th>
+                                <th scope="col" class="py-2 pr-4">Amount</th>
+                                <th scope="col" class="py-2 pr-4">Status</th>
+                                <th scope="col" class="py-2 pr-4">Date</th>
+                                <th scope="col" class="py-2 pr-4">Documents</th>
+                                <th scope="col" class="py-2">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
                             @forelse ($payments as $payment)
-                                <tr>
-                                    <td class="py-2 pr-4">
-                                        <input type="checkbox"
-                                               class="pm-billing-row rounded border-slate-300"
-                                               value="{{ $payment->id }}"
-                                               data-invoice-id="{{ $payment->invoice?->id ?? '' }}"
-                                               data-receipt-id="{{ $payment->status === 'completed' ? $payment->id : '' }}"
-                                               onchange="pmUpdateBillingBulkState()"
-                                               aria-label="Select billing record {{ $payment->id }}">
-                                    </td>
-                                    <td class="py-2 pr-4">{{ $payment->plan->name ?? '—' }}</td>
-                                    <td class="py-2 pr-4">{{ $payment->gateway->name ?? ucfirst(str_replace('_', ' ', $payment->method)) }}</td>
-                                    <td class="py-2 pr-4">{{ format_money_in($payment->amount, $payment->currency) }}</td>
-                                    <td class="py-2 pr-4">
-                                        @php
-                                            $color = match($payment->status) {
-                                                'completed' => 'text-emerald-700',
-                                                'pending' => 'text-amber-600',
-                                                default => 'text-rose-600',
-                                            };
-                                        @endphp
-                                        <span class="{{ $color }} font-medium">{{ ucfirst($payment->status) }}</span>
-                                    </td>
-                                    <td class="py-2 pr-4">{{ $payment->created_at->format('Y-m-d') }}</td>
-                                    <td class="py-2 pr-4">
-                                        @if ($payment->invoice)
-                                            <a href="{{ route('subscription.invoice', $payment->invoice->id) }}" class="text-[var(--brand-1)] hover:underline whitespace-nowrap">
-                                                <i class="fa-solid fa-file-invoice" aria-hidden="true"></i> Invoice
-                                            </a>
+                                @php
+                                    $paymentPhone = $payment->paymentContactPhone() ?: $accountPhone;
+                                    $statusColor = match($payment->status) {
+                                        'completed' => 'text-emerald-700',
+                                        'pending' => 'text-amber-600',
+                                        default => 'text-rose-600',
+                                    };
+                                @endphp
+                                <tr class="align-top">
+                                    <td class="py-3 pr-4 font-medium text-slate-800">{{ $payment->plan->name ?? '—' }}</td>
+                                    <td class="py-3 pr-4">{{ $payment->gateway->display_name ?? $payment->gateway->name ?? ucfirst(str_replace('_', ' ', $payment->method)) }}</td>
+                                    <td class="py-3 pr-4">
+                                        @if ($paymentPhone)
+                                            <div class="flex flex-col">
+                                                <a href="tel:{{ preg_replace('/\s+/', '', $paymentPhone) }}" class="text-[var(--brand-1)] hover:underline whitespace-nowrap font-medium">
+                                                    {{ $paymentPhone }}
+                                                </a>
+                                                <span class="text-[11px] text-slate-400">Mobile Money phone</span>
+                                            </div>
+                                        @elseif ($payment->method === 'bank' && filled($payment->reference))
+                                            <div class="flex flex-col">
+                                                <span class="font-mono text-slate-700 break-all">{{ $payment->reference }}</span>
+                                                <span class="text-[11px] text-slate-400">Bank reference</span>
+                                            </div>
+                                        @else
+                                            <span class="text-slate-400">—</span>
                                         @endif
                                     </td>
-                                    <td class="py-2 pr-4">
-                                        @if ($payment->status === 'completed')
-                                            <a href="{{ route('subscription.receipt', $payment->id) }}" class="text-[var(--brand-1)] hover:underline whitespace-nowrap">
-                                                <i class="fa-solid fa-file-pdf" aria-hidden="true"></i> Receipt
-                                            </a>
-                                        @endif
+                                    <td class="py-3 pr-4 whitespace-nowrap">{{ format_money_in($payment->amount, $payment->currency) }}</td>
+                                    <td class="py-3 pr-4">
+                                        <span class="{{ $statusColor }} font-medium">{{ ucfirst($payment->status) }}</span>
                                     </td>
-                                    <td class="py-2 text-right">
-                                        <button type="button" onclick="document.getElementById('billing-payment-view-{{ $payment->id }}').showModal()" class="text-slate-500 hover:text-slate-800" title="View payment"><i class="fa-solid fa-eye"></i><span class="sr-only">View payment</span></button>
-                                        <dialog id="billing-payment-view-{{ $payment->id }}" class="rounded-2xl p-0 pm-dialog-sm shadow-2xl backdrop:bg-slate-900/50 text-left">
-                                            <div class="p-6"><div class="flex items-center justify-between mb-4"><h3 class="text-lg font-bold text-slate-800">Payment Details</h3><button type="button" onclick="this.closest('dialog').close()" class="text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark"></i></button></div>
-                                            <dl class="grid grid-cols-2 gap-4 text-sm"><div><dt class="text-xs uppercase text-slate-400">Plan</dt><dd>{{ $payment->plan->name ?? '—' }}</dd></div><div><dt class="text-xs uppercase text-slate-400">Method</dt><dd>{{ $payment->gateway->name ?? ucfirst(str_replace('_', ' ', $payment->method)) }}</dd></div><div><dt class="text-xs uppercase text-slate-400">Amount</dt><dd>{{ format_money_in($payment->amount, $payment->currency) }}</dd></div><div><dt class="text-xs uppercase text-slate-400">Status</dt><dd>{{ ucfirst($payment->status) }}</dd></div><div><dt class="text-xs uppercase text-slate-400">Reference</dt><dd>{{ $payment->reference ?? '—' }}</dd></div><div><dt class="text-xs uppercase text-slate-400">Date</dt><dd>{{ $payment->created_at->format('Y-m-d H:i') }}</dd></div></dl></div>
-                                        </dialog>
+                                    <td class="py-3 pr-4 whitespace-nowrap">{{ $payment->created_at->format('Y-m-d') }}</td>
+                                    <td class="py-3 pr-4">
+                                        <div class="flex flex-col gap-1">
+                                            @if ($payment->invoice)
+                                                <a href="{{ route('subscription.invoice', $payment->invoice->id) }}" class="text-[var(--brand-1)] hover:underline whitespace-nowrap">
+                                                    <i class="fa-solid fa-file-invoice" aria-hidden="true"></i> Invoice
+                                                </a>
+                                            @endif
+                                            @if ($payment->status === 'completed')
+                                                <a href="{{ route('subscription.receipt', $payment->id) }}" class="text-[var(--brand-1)] hover:underline whitespace-nowrap">
+                                                    <i class="fa-solid fa-file-pdf" aria-hidden="true"></i> Receipt
+                                                </a>
+                                            @endif
+                                        </div>
+                                    </td>
+                                    <td class="py-3">
+                                        @if ($payment->status === 'pending')
+                                            <div class="flex flex-wrap items-center gap-2 min-w-[150px]">
+                                                <button type="button"
+                                                        onclick="document.getElementById('pm-pending-payment-{{ $payment->id }}').showModal()"
+                                                        class="btn-primary text-white px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap">
+                                                    <i class="fa-solid fa-wallet mr-1" aria-hidden="true"></i> Pay
+                                                </button>
+                                                <form method="POST" action="{{ route('subscription.payment.cancel', $payment) }}"
+                                                      data-confirm="Cancel this pending subscription invoice/payment?" data-confirm-title="Cancel pending payment?" data-confirm-text="Cancel payment">
+                                                    @csrf
+                                                    <button type="submit" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100">
+                                                        <i class="fa-solid fa-xmark" aria-hidden="true"></i> Cancel
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        @else
+                                            <span class="text-slate-400">—</span>
+                                        @endif
                                     </td>
                                 </tr>
+
+                                @if ($payment->status === 'pending')
+                                    <dialog id="pm-pending-payment-{{ $payment->id }}" class="rounded-2xl p-0 w-[min(94vw,620px)] backdrop:bg-slate-900/50">
+                                        <div class="bg-white rounded-2xl overflow-hidden">
+                                            <div class="flex items-start justify-between gap-4 px-5 py-4 border-b border-slate-100">
+                                                <div>
+                                                    <h3 class="font-bold text-lg text-slate-900">Complete pending payment</h3>
+                                                    <p class="text-sm text-slate-500 mt-1">
+                                                        {{ $payment->plan->name ?? 'Subscription' }} · {{ format_money_in($payment->amount, $payment->currency) }}
+                                                    </p>
+                                                </div>
+                                                <button type="button" onclick="this.closest('dialog').close()" class="text-slate-400 hover:text-slate-700 p-1" aria-label="Close">
+                                                    <i class="fa-solid fa-xmark text-xl"></i>
+                                                </button>
+                                            </div>
+
+                                            <div class="p-5 space-y-5">
+                                                @if ($automaticMobileGateway)
+                                                    <section class="border border-slate-200 rounded-xl p-4">
+                                                        <h4 class="font-semibold text-slate-800 flex items-center gap-2">
+                                                            <i class="fa-solid fa-mobile-screen-button text-[var(--brand-1)]"></i>
+                                                            Mobile Money prompt
+                                                        </h4>
+                                                        <p class="text-sm text-slate-500 mt-1 mb-3">
+                                                            Resend a payment prompt to your account phone or enter another number.
+                                                        </p>
+                                                        <form method="POST" action="{{ route('subscription.payment.mobile-money', $payment) }}" class="grid sm:grid-cols-3 gap-3 items-end">
+                                                            @csrf
+                                                            <div>
+                                                                <label class="block text-xs font-medium text-slate-600 mb-1">Network</label>
+                                                                <select name="network" required class="pm-input text-sm">
+                                                                    @if ($automaticMobileGateway->supports_mtn)<option value="mtn">MTN Mobile Money</option>@endif
+                                                                    @if ($automaticMobileGateway->supports_airtel)<option value="airtel">Airtel Money</option>@endif
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label class="block text-xs font-medium text-slate-600 mb-1">Phone number</label>
+                                                                <input type="text" name="phone_number" required value="{{ $paymentPhone }}" placeholder="0700000000" class="pm-input text-sm">
+                                                            </div>
+                                                            <button type="submit" class="btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-semibold">
+                                                                Send Prompt
+                                                            </button>
+                                                        </form>
+                                                    </section>
+                                                @endif
+
+                                                @if ($bankGateways->isNotEmpty())
+                                                    <section class="space-y-3">
+                                                        <div>
+                                                            <h4 class="font-semibold text-slate-800 flex items-center gap-2">
+                                                                <i class="fa-solid fa-building-columns text-[var(--brand-1)]"></i>
+                                                                Pay by bank transfer
+                                                            </h4>
+                                                            <p class="text-sm text-slate-500 mt-1">Transfer the invoice amount, then enter the transaction/reference number below.</p>
+                                                        </div>
+
+                                                        @foreach ($bankGateways as $bank)
+                                                            <div class="border border-slate-200 rounded-xl p-4">
+                                                                <dl class="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm mb-4">
+                                                                    <div><dt class="text-slate-500">Bank</dt><dd class="font-medium">{{ $bank->configValue('bank_name') ?: $bank->name }}</dd></div>
+                                                                    <div><dt class="text-slate-500">Account Name</dt><dd class="font-medium">{{ $bank->configValue('account_name') ?: '—' }}</dd></div>
+                                                                    <div><dt class="text-slate-500">Account Number</dt><dd class="font-mono font-medium">{{ $bank->configValue('account_number') ?: '—' }}</dd></div>
+                                                                    @if ($bank->configValue('routing_or_swift'))
+                                                                        <div><dt class="text-slate-500">Routing / SWIFT</dt><dd class="font-mono">{{ $bank->configValue('routing_or_swift') }}</dd></div>
+                                                                    @endif
+                                                                </dl>
+                                                                @if ($bank->instructions)
+                                                                    <p class="text-xs text-slate-500 whitespace-pre-line mb-3">{{ $bank->instructions }}</p>
+                                                                @endif
+                                                                <form method="POST" action="{{ route('subscription.payment.bank', $payment) }}" class="flex flex-col sm:flex-row gap-3 sm:items-end">
+                                                                    @csrf
+                                                                    <input type="hidden" name="payment_gateway_id" value="{{ $bank->id }}">
+                                                                    <div class="flex-1">
+                                                                        <label class="block text-xs font-medium text-slate-600 mb-1">Bank transaction reference</label>
+                                                                        <input type="text" name="reference" required placeholder="Enter transaction / bank reference" class="pm-input text-sm">
+                                                                    </div>
+                                                                    <button type="submit" class="btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-semibold">
+                                                                        Submit Payment
+                                                                    </button>
+                                                                </form>
+                                                            </div>
+                                                        @endforeach
+                                                    </section>
+                                                @endif
+
+                                                @if (! $automaticMobileGateway && $bankGateways->isEmpty())
+                                                    <p class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                                        No Mobile Money collection or bank-transfer gateway is currently enabled. Please contact support.
+                                                    </p>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    </dialog>
+                                @endif
                             @empty
                                 <tr>
-                                    <td colspan="9" class="py-6 text-center text-slate-500">No payments yet.</td>
+                                    <td colspan="8" class="py-8 text-center text-slate-500">No invoices or payments yet.</td>
                                 </tr>
                             @endforelse
                         </tbody>
                     </table>
                 </div>
-            </div>
 
-            <div>{{ $payments->links() }}</div>
+                @if ($payments->total() > 0)
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-5 pt-4 border-t border-slate-100">
+                        <p class="text-sm text-slate-500">
+                            Showing {{ $payments->firstItem() }} to {{ $payments->lastItem() }} of {{ $payments->total() }} records
+                        </p>
+                        <div>{{ $payments->links() }}</div>
+                    </div>
+                @endif
+            </div>
         </div>
     </div>
 
@@ -463,72 +625,6 @@
         var pmBaseCurrencySymbol = @json($settings->default_currency_symbol);
         var pmBaseCurrencyDecimals = {{ $settings->default_currency_decimals }};
 
-        function pmToggleAllBilling(master) {
-            document.querySelectorAll('.pm-billing-row').forEach(function (checkbox) {
-                checkbox.checked = master.checked;
-            });
-            pmUpdateBillingBulkState();
-        }
-
-        function pmUpdateBillingBulkState() {
-            var rows = Array.from(document.querySelectorAll('.pm-billing-row'));
-            var selected = rows.filter(function (checkbox) { return checkbox.checked; });
-            var invoiceCount = selected.filter(function (checkbox) { return checkbox.dataset.invoiceId; }).length;
-            var receiptCount = selected.filter(function (checkbox) { return checkbox.dataset.receiptId; }).length;
-            var selectAll = document.getElementById('pm-billing-select-all');
-
-            if (selectAll) {
-                selectAll.checked = rows.length > 0 && selected.length === rows.length;
-                selectAll.indeterminate = selected.length > 0 && selected.length < rows.length;
-            }
-
-            var invoiceButton = document.getElementById('pm-delete-selected-invoices');
-            var receiptButton = document.getElementById('pm-delete-selected-receipts');
-            if (invoiceButton) invoiceButton.disabled = invoiceCount === 0;
-            if (receiptButton) receiptButton.disabled = receiptCount === 0;
-
-            var count = document.getElementById('pm-billing-selected-count');
-            if (count) count.textContent = selected.length + ' selected';
-        }
-
-        function pmBulkDeleteBilling(type) {
-            var selected = Array.from(document.querySelectorAll('.pm-billing-row:checked'));
-            var isInvoice = type === 'invoice';
-            var ids = selected
-                .map(function (checkbox) { return isInvoice ? checkbox.dataset.invoiceId : checkbox.dataset.receiptId; })
-                .filter(Boolean);
-
-            if (!ids.length) {
-                alert('Select at least one ' + (isInvoice ? 'invoice' : 'receipt') + '.');
-                return;
-            }
-
-            var message = isInvoice
-                ? 'Delete ' + ids.length + ' selected invoice(s)? Paid or cancelled invoices will be kept for billing records.'
-                : 'Delete ' + ids.length + ' selected receipt(s)? This removes the completed payment/receipt record and cannot be undone.';
-
-            if (!confirm(message)) return;
-
-            var form = document.createElement('form');
-            form.method = 'POST';
-            form.action = isInvoice
-                ? @json(route('subscription.invoices.bulk-destroy'))
-                : @json(route('subscription.receipts.bulk-destroy'));
-            form.innerHTML = '<input type="hidden" name="_token" value="' + @json(csrf_token()) + '">'
-                + '<input type="hidden" name="_method" value="DELETE">';
-
-            ids.forEach(function (id) {
-                var input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = isInvoice ? 'invoice_ids[]' : 'receipt_ids[]';
-                input.value = id;
-                form.appendChild(input);
-            });
-
-            document.body.appendChild(form);
-            form.submit();
-        }
-
         function pmConvertPlanPrices(currencyCode) {
             var select = document.getElementById('pm-currency-select');
             var selectedOption = select.options[select.selectedIndex];
@@ -539,7 +635,7 @@
 
             document.querySelectorAll('.pm-plan-price').forEach(function (el) {
                 var basePrice = parseFloat(el.dataset.basePrice);
-                var converted = basePrice * rate;
+                var converted = isBase ? basePrice : (rate > 0 ? basePrice / rate : basePrice);
                 el.textContent = symbol + ' ' + converted.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
             });
         }

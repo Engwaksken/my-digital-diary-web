@@ -25,10 +25,11 @@
                 <input id="data_consent" name="data_consent" type="checkbox" value="1" required aria-required="true" aria-describedby="data_consent-hint"
                        class="mt-1 rounded border-gray-300 text-[var(--brand-1)] shadow-sm focus:ring-2 focus:ring-[var(--brand-2)] focus:ring-offset-2">
                 <label for="data_consent" class="text-sm text-gray-600">
-                    I agree to let this app store and process my data as described in the
-                    <a href="{{ route('privacy-policy') }}" target="_blank" rel="noopener noreferrer" class="auth-link">
-                        Privacy Policy<span class="sr-only"> (opens in a new tab)</span>
-                    </a>. I can export or delete it any time from Privacy &amp; Data in my account.
+                    I agree to the
+                    <a href="{{ Route::has('terms-of-use') ? route('terms-of-use') : url('/terms-of-use') }}" target="_blank" rel="noopener noreferrer" class="auth-link">Terms of Use<span class="sr-only"> (opens in a new tab)</span></a>
+                    and consent to the storage and processing of my data as described in the
+                    <a href="{{ route('privacy-policy') }}" target="_blank" rel="noopener noreferrer" class="auth-link">Privacy Policy<span class="sr-only"> (opens in a new tab)</span></a>.
+                    I can manage exports and account deletion from Privacy &amp; Data after registration.
                 </label>
             </div>
             <p id="data_consent-hint" class="sr-only">This checkbox is required to create an account.</p>

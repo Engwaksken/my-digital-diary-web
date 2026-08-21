@@ -83,7 +83,7 @@
                     </div>
                 </form>
                 <form method="POST" action="{{ route('admin.feedback.destroy', $item->id) }}" class="mt-2"
-                      onsubmit="return confirm('Remove this feedback?');">
+                      data-confirm="Remove this feedback? This action cannot be undone." data-confirm-title="Delete feedback?" data-confirm-text="Delete">
                     @csrf
                     @method('DELETE')
                     <button type="submit" class="text-xs text-rose-500 hover:underline">Remove</button>

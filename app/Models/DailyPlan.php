@@ -5,7 +5,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 class DailyPlan extends Model
 {
     use HasFactory;
-    protected $fillable=['user_id','plan_date','title','notes'];
+    protected $fillable=['user_id','plan_date','title','notes','achievements','challenges'];
     protected $casts=['plan_date'=>'date'];
     public function user(){ return $this->belongsTo(User::class); }
     public function items(){ return $this->hasMany(DailyPlanItem::class)->orderBy('sort_order')->orderBy('start_time')->orderBy('id'); }

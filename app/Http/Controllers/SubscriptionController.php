@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\BillingEventLog;
+use App\Models\BusinessCard;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentGateway;
 use App\Models\SiteSetting;
 use App\Models\SubscriptionPlan;
+use App\Services\MonthlyReviewService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -38,7 +40,7 @@ use Illuminate\View\View;
  */
 class SubscriptionController extends Controller
 {
-    public function show(Request $request): View
+    public function show(Request $request, MonthlyReviewService $monthlyReviewService): View
     {
         $user = $request->user();
         $settings = SiteSetting::current();
@@ -52,7 +54,7 @@ class SubscriptionController extends Controller
         $from = $request->query('billing_from');
         $to = $request->query('billing_to');
 
-        $paymentsQuery = $user->payments()->with(['gateway', 'plan', 'invoice'])
+        $paymentsQuery = $user->payments()->with(['gateway', 'plan', 'invoice', 'transactionLogs'])
             ->when($search, fn ($q) => $q->where(function ($sub) use ($search) {
                 $sub->where('reference', 'like', "%{$search}%")
                     ->orWhereHas('plan', fn ($p) => $p->where('name', 'like', "%{$search}%"));
@@ -68,13 +70,37 @@ class SubscriptionController extends Controller
             default => null,
         };
 
-        $payments = $paymentsQuery->orderByDesc('id')->paginate(10, ['*'], 'billing_page')->withQueryString();
+        $billingPerPage = (int) $request->query('billing_per_page', 10);
+        if (! in_array($billingPerPage, [10, 25, 50, 100], true)) {
+            $billingPerPage = 10;
+        }
+
+        $payments = $paymentsQuery
+            ->orderByDesc('id')
+            ->paginate($billingPerPage, ['*'], 'billing_page')
+            ->withQueryString();
+
+        $accountPhone = $user->phone_number
+            ?: BusinessCard::where('user_id', $user->id)->value('phone');
+
+        $automaticMobileGateway = $gateways->first(fn ($gateway) => $gateway->collectsAutomatically());
+        $bankGateways = $gateways->where('type', 'bank')->values();
 
         $billingStats = [
             'total_invoices' => Invoice::where('user_id', $user->id)->count(),
             'completed' => $user->payments()->where('status', 'completed')->count(),
             'pending' => $user->payments()->where('status', 'pending')->count(),
             'failed' => $user->payments()->whereIn('status', ['failed', 'rejected'])->count(),
+        ];
+
+        $monthReview = $monthlyReviewService->build($user, Carbon::now($user->timezone ?: 'Africa/Kampala'));
+        $monthValue = $monthReview['value'] ?? [];
+        $valueSummary = [
+            'tasks_completed' => (int) ($monthValue['tasks_completed'] ?? 0),
+            'expenses_tracked' => (float) ($monthReview['money']['expenses'] ?? 0),
+            'saved' => (float) ($monthReview['money']['saved'] ?? 0),
+            'ai_plans' => (int) ($monthValue['ai_plans'] ?? 0),
+            'meetings' => (int) ($monthValue['meetings'] ?? 0),
         ];
 
         return view('subscription.show', [
@@ -88,65 +114,12 @@ class SubscriptionController extends Controller
             'billingPeriod' => $period,
             'billingFrom' => $from,
             'billingTo' => $to,
+            'billingPerPage' => $billingPerPage,
+            'accountPhone' => $accountPhone,
+            'automaticMobileGateway' => $automaticMobileGateway,
+            'bankGateways' => $bankGateways,
+            'valueSummary' => $valueSummary,
         ]);
-    }
-
-    /**
-     * Delete multiple invoices from the signed-in user's own billing history.
-     * Paid/cancelled invoices are retained for accounting/audit integrity;
-     * only records allowed by Invoice::isDeletable() are removed.
-     */
-    public function bulkDestroyInvoices(Request $request): RedirectResponse
-    {
-        $data = $request->validate([
-            'invoice_ids' => ['required', 'array', 'min:1'],
-            'invoice_ids.*' => ['integer'],
-        ]);
-
-        $invoices = Invoice::where('user_id', $request->user()->id)
-            ->whereIn('id', $data['invoice_ids'])
-            ->get();
-
-        $deleted = 0;
-        $skipped = 0;
-
-        foreach ($invoices as $invoice) {
-            if ($invoice->isDeletable()) {
-                $invoice->delete();
-                $deleted++;
-            } else {
-                $skipped++;
-            }
-        }
-
-        $message = $deleted === 1 ? '1 invoice deleted.' : "{$deleted} invoices deleted.";
-        if ($skipped > 0) {
-            $message .= " {$skipped} paid/cancelled invoice(s) kept for billing records.";
-        }
-
-        return back()->with($deleted > 0 ? 'success' : 'warning', $message);
-    }
-
-    /**
-     * Delete selected completed payment/receipt records belonging to the
-     * signed-in user. A receipt in this application is the completed Payment
-     * row itself, so ownership is enforced before deletion.
-     */
-    public function bulkDestroyReceipts(Request $request): RedirectResponse
-    {
-        $data = $request->validate([
-            'receipt_ids' => ['required', 'array', 'min:1'],
-            'receipt_ids.*' => ['integer'],
-        ]);
-
-        $deleted = Payment::where('user_id', $request->user()->id)
-            ->where('status', 'completed')
-            ->whereIn('id', $data['receipt_ids'])
-            ->delete();
-
-        return back()->with('success', $deleted === 1
-            ? '1 receipt deleted.'
-            : "{$deleted} receipts deleted.");
     }
 
     /**
@@ -378,6 +351,8 @@ class SubscriptionController extends Controller
 
         $plan = $this->findEnabledPlan($data['plan_id']);
 
+        $request->user()->update(['phone_number' => $data['phone_number']]);
+
         $gateway = PaymentGateway::whereIn('type', ['mobile_money', 'aggregator'])->where('is_default', true)->where('is_enabled', true)->first();
 
         if (! $gateway || ! $gateway->collectsAutomatically()) {
@@ -423,6 +398,132 @@ class SubscriptionController extends Controller
 
             return back()->withErrors(['payment' => 'Could not start the mobile money request: ' . $e->getMessage()]);
         }
+    }
+
+    /**
+     * Re-send a mobile money prompt for an EXISTING pending invoice/payment.
+     * The same payment/invoice row is reused so retrying never generates
+     * duplicate invoices in the Invoices & Receipts history.
+     */
+    public function retryPendingMobileMoney(Request $request, Payment $payment): RedirectResponse
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+        abort_unless(in_array($payment->status, ['pending', 'failed'], true), 422);
+
+        $data = $request->validate([
+            'phone_number' => ['required', 'string', 'max:30'],
+            'network' => ['required', 'in:mtn,airtel'],
+        ]);
+
+        $gateway = PaymentGateway::whereIn('type', ['mobile_money', 'aggregator'])
+            ->where('is_default', true)
+            ->where('is_enabled', true)
+            ->get()
+            ->first(fn ($candidate) => $candidate->collectsAutomatically());
+
+        if (! $gateway) {
+            return back()->withErrors(['payment' => 'Mobile money collection is not configured yet.']);
+        }
+
+        $request->user()->update(['phone_number' => $data['phone_number']]);
+
+        $reference = 'sub_retry_' . $request->user()->id . '_' . now()->format('YmdHis') . '_' . random_int(1000, 9999);
+
+        $payment->update([
+            'payment_gateway_id' => $gateway->id,
+            'method' => 'mobile_money',
+            'status' => 'pending',
+            'reference' => $reference,
+        ]);
+
+        try {
+            $driver = \App\PaymentGateways\PaymentGatewayDriverFactory::make($gateway);
+            $driver->initiateCollection(
+                $reference,
+                (float) $payment->amount,
+                $payment->currency,
+                $data['phone_number'],
+                $data['network'],
+                $request->user()->id,
+                $payment->id
+            );
+
+            BillingEventLog::record('payment_prompt_resent', $request->user()->id, [
+                'payment_id' => $payment->id,
+                'phone_number' => $data['phone_number'],
+                'network' => $data['network'],
+            ]);
+
+            return back()->with('success', 'A new payment prompt was sent to ' . $data['phone_number'] . '. Approve it on your phone.');
+        } catch (\Throwable $e) {
+            Log::warning('Pending mobile money retry failed', [
+                'payment_id' => $payment->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->withErrors(['payment' => 'Could not resend the payment prompt: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Apply a bank-transfer reference to an EXISTING pending invoice.
+     * The admin can then verify this same payment record instead of the user
+     * creating a second payment/invoice just to change payment method.
+     */
+    public function submitPendingBankPayment(Request $request, Payment $payment): RedirectResponse
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+        abort_unless(in_array($payment->status, ['pending', 'failed'], true), 422);
+
+        $data = $request->validate([
+            'payment_gateway_id' => ['required', 'exists:payment_gateways,id'],
+            'reference' => ['required', 'string', 'max:255'],
+        ]);
+
+        $gateway = PaymentGateway::whereKey($data['payment_gateway_id'])
+            ->where('is_enabled', true)
+            ->where('type', 'bank')
+            ->firstOrFail();
+
+        $payment->update([
+            'payment_gateway_id' => $gateway->id,
+            'method' => 'bank',
+            'status' => 'pending',
+            'reference' => $data['reference'],
+        ]);
+
+        BillingEventLog::record('pending_payment_bank_reference_submitted', $request->user()->id, [
+            'payment_id' => $payment->id,
+            'payment_gateway_id' => $gateway->id,
+            'reference' => $data['reference'],
+        ]);
+
+        return back()->with('success', 'Bank payment reference submitted. Your payment is awaiting verification.');
+    }
+
+    /**
+     * Cancel an unpaid pending subscription payment/invoice.
+     * Only the owner can cancel it, and completed payments can never be
+     * cancelled from the self-service billing screen.
+     */
+    public function cancelPendingPayment(Request $request, Payment $payment): RedirectResponse
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+        abort_unless($payment->status === 'pending', 422);
+
+        $payment->update(['status' => 'cancelled']);
+
+        if ($payment->invoice && $payment->invoice->status !== 'paid') {
+            $payment->invoice->update(['status' => 'cancelled']);
+        }
+
+        BillingEventLog::record('pending_payment_cancelled', $request->user()->id, [
+            'payment_id' => $payment->id,
+            'invoice_id' => $payment->invoice?->id,
+        ]);
+
+        return redirect()->route('subscription.show', ['tab' => 'billing'])
+            ->with('success', 'Pending subscription payment cancelled.');
     }
 
     /**

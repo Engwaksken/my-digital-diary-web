@@ -92,8 +92,12 @@
             </button>
         </div>
 
-        <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto">
-            <table class="min-w-full text-sm">
+        <div class="md:hidden mb-2 text-[11px] font-medium text-slate-400">
+            <i class="fa-solid fa-arrows-left-right mr-1"></i>
+            Swipe sideways to view all invoice columns.
+        </div>
+        <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto pm-horizontal-table-wrap">
+            <table class="min-w-full text-sm pm-horizontal-data-table pm-invoices-horizontal-table pm-admin-horizontal-table">
                 <caption class="sr-only">Every quotation and invoice, site-wide.</caption>
                 <thead class="bg-slate-50 text-left border-b border-slate-100">
                     <tr>
@@ -127,7 +131,7 @@
                                     —
                                 @endif
                             </td>
-                            <td class="px-4 py-3">{{ $invoice->plan?->name ?? $invoice->description ?? '—' }}</td>
+                            <td class="px-4 py-3 pm-table-wrap-text">{{ $invoice->plan?->name ?? $invoice->description ?? '—' }}</td>
                             <td class="px-4 py-3">{{ format_money_in($invoice->amount, $invoice->currency) }}</td>
                             <td class="px-4 py-3">
                                 @php
@@ -146,7 +150,7 @@
                                     <i class="fa-solid fa-download" aria-hidden="true"></i>
                                 </a>
                                 @if ($invoice->isDeletable())
-                                    <form method="POST" action="{{ route('admin.invoices.destroy', $invoice->id) }}" class="inline" onsubmit="return confirm('Delete this {{ $invoice->isQuote() ? 'quotation' : 'invoice' }}? This cannot be undone.');">
+                                    <form method="POST" action="{{ route('admin.invoices.destroy', $invoice->id) }}" class="inline" data-confirm="Delete this {{ $invoice->isQuote() ? 'quotation' : 'invoice' }}? This action cannot be undone." data-confirm-title="Delete {{ $invoice->isQuote() ? 'quotation' : 'invoice' }}?" data-confirm-text="Delete">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="text-rose-600 hover:underline">Delete</button>
@@ -213,8 +217,12 @@
             @endif
         </form>
 
-        <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto">
-            <table class="min-w-full text-sm">
+        <div class="md:hidden mb-2 text-[11px] font-medium text-slate-400">
+            <i class="fa-solid fa-arrows-left-right mr-1"></i>
+            Swipe sideways to view all receipt columns.
+        </div>
+        <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto pm-horizontal-table-wrap">
+            <table class="min-w-full text-sm pm-horizontal-data-table pm-receipts-horizontal-table pm-admin-horizontal-table">
                 <caption class="sr-only">Every completed payment (receipt), site-wide. Receipts are never deletable — they're a real financial record.</caption>
                 <thead class="bg-slate-50 text-left border-b border-slate-100">
                     <tr>
@@ -317,8 +325,7 @@
         function pmSubmitInvoiceBulkDelete() {
             var checked = document.querySelectorAll('.pm-invoice-checkbox:checked');
             if (checked.length === 0) { return; }
-            if (!confirm('Delete the selected quotations/invoices? This cannot be undone.')) { return; }
-
+            pmConfirmAction({title:'Delete selected documents?',message:'Delete the selected quotations/invoices? This action cannot be undone.',confirmText:'Delete selected',onConfirm:function(){
             var form = document.createElement('form');
             form.method = 'POST';
             form.action = '{{ route("admin.invoices.bulk-destroy") }}';
@@ -345,6 +352,7 @@
 
             document.body.appendChild(form);
             form.submit();
+            }});
         }
 
         // Land on the Receipts tab if that's what was just searched/

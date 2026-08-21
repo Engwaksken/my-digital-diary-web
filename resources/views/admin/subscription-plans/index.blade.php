@@ -25,8 +25,8 @@
         tier automatically instead of needing four prices kept in sync by hand.
     </p>
 
-    <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto" role="region" aria-label="Subscription plans table" tabindex="0">
-        <table class="min-w-full text-sm">
+    <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto pm-admin-table-scroll" role="region" aria-label="Subscription plans table" tabindex="0">
+        <table class="min-w-full text-sm pm-admin-horizontal-table">
             <caption class="sr-only">Subscription plans with computed price, discount, and enabled state.</caption>
             <thead class="bg-slate-50 text-left border-b border-slate-100">
                 <tr>
@@ -87,7 +87,7 @@
                                 Edit
                             </a>
                             <form action="{{ route('admin.subscription-plans.destroy', $plan->id) }}" method="POST" class="inline"
-                                  onsubmit="return confirm('Remove this plan?');">
+                                  data-confirm="Remove this subscription plan?" data-confirm-title="Delete subscription plan?" data-confirm-text="Delete">
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" class="text-rose-600 hover:underline">Delete</button>

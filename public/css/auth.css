@@ -1,9 +1,17 @@
+@import url("./professional-forms.css");
+
 /*
  * Shared stylesheet for every authentication page (Login, Register, OTP,
  * Forgot Password, Reset Password) — extracted out of guest-layout's old
  * inline <style> block so it's ONE file linked once, not markup repeated
  * per page. If a future auth page is added, linking this stylesheet is
  * the only styling step it needs.
+ *
+ * v2 — refreshed to match the professional, "soft UI" form language used
+ * across the app's modals (modal-responsive.css): larger touch targets,
+ * calmer shadows, a slower/smoother focus transition, and fluid sizing
+ * so the same rules read well from a small phone up to a wide desktop.
+ * Every original selector is kept so no markup or JS needs to change.
  */
 
 /* No logged-in user exists on any auth page, so this is always the site
@@ -17,16 +25,91 @@
     --brand-1-tint-10: rgba(12, 59, 46, 0.1);
     --brand-1-tint-20: rgba(12, 59, 46, 0.2);
     --brand-2-tint-25: rgba(109, 151, 115, 0.25);
+
+    /* Neutral scale shared by every input/card on auth pages. Kept as
+       its own set of tokens (rather than hard-coded hex everywhere)
+       so the whole page can be retuned from one place. */
+    --auth-border: #dfe4ea;
+    --auth-border-hover: #c7cfd9;
+    --auth-text: #1e293b;
+    --auth-muted: #64748b;
+    --auth-placeholder: #99a3b0;
+    --auth-surface: #ffffff;
+
+    --auth-radius-sm: 10px;
+    --auth-radius-md: 12px;
+    --auth-radius-lg: 18px;
+
+    --auth-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+    --auth-shadow-sm: 0 6px 16px -4px rgba(15, 23, 42, 0.10), 0 2px 6px -2px rgba(15, 23, 42, 0.06);
+    --auth-shadow-card: 0 30px 80px -20px rgba(12, 59, 46, 0.22), 0 10px 30px -12px rgba(15, 23, 42, 0.12);
+
+    --auth-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
 }
 
 a:focus-visible, button:focus-visible, input:focus-visible,
 select:focus-visible, textarea:focus-visible {
     outline: 3px solid #FFBA00;
     outline-offset: 2px;
+    border-radius: 6px;
+}
+
+/* --------------------------------------------------------------------------
+   FORM CARD
+   Optional wrapper class for the panel that holds the auth form. Safe to
+   add to markup; if it isn't present nothing else here depends on it.
+   -------------------------------------------------------------------------- */
+.auth-card {
+    width: 100%;
+    max-width: 440px;
+    margin-inline: auto;
+    background: var(--auth-surface);
+    border: 1px solid var(--auth-border);
+    border-radius: var(--auth-radius-lg);
+    box-shadow: var(--auth-shadow-card);
+    padding: clamp(1.5rem, 4vw + 0.5rem, 2.75rem);
+}
+
+@media (max-width: 480px) {
+    .auth-card {
+        border-radius: 16px;
+        padding: 1.5rem 1.25rem;
+        box-shadow: var(--auth-shadow-sm);
+    }
+}
+
+/* --------------------------------------------------------------------------
+   FIELD GROUP
+   Consistent vertical rhythm between label / input / hint or error, and a
+   fluid 1 → 2 column layout for forms that pair fields (e.g. first/last
+   name) without needing extra breakpoints on every page.
+   -------------------------------------------------------------------------- */
+.auth-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    width: 100%;
+    min-width: 0;
+}
+
+.auth-field-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    width: 100%;
+}
+
+.auth-label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #334155;
+    letter-spacing: 0.01em;
 }
 
 /* Plain CSS rather than Tailwind's border-slate-300/shadow-sm utilities —
@@ -36,23 +119,46 @@ select:focus-visible, textarea:focus-visible {
 .pm-input {
     display: block;
     width: 100%;
-    border: 1px solid #94a3b8;
-    border-radius: 0.5rem;
-    padding: 0.625rem 0.875rem;
-    background-color: #ffffff;
-    color: #1e293b;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    min-width: 0;
+    box-sizing: border-box;
+
+    min-height: 46px;
+    padding: 0.75rem 0.9375rem;
+
+    border: 1.5px solid var(--auth-border);
+    border-radius: var(--auth-radius-md);
+
+    background-color: var(--auth-surface);
+    color: var(--auth-text);
+
+    font-size: 0.9375rem;
+    line-height: 1.4;
+
+    box-shadow: var(--auth-shadow-xs);
+    transition: border-color 0.2s var(--auth-ease),
+                box-shadow 0.2s var(--auth-ease),
+                background-color 0.2s var(--auth-ease);
 }
 
 .pm-input::placeholder {
-    color: #94a3b8;
+    color: var(--auth-placeholder);
+}
+
+.pm-input:hover:not(:focus):not([aria-invalid="true"]) {
+    border-color: var(--auth-border-hover);
 }
 
 .pm-input:focus {
     outline: none;
     border-color: var(--brand-2);
-    box-shadow: 0 0 0 3px var(--brand-2-tint-25);
+    box-shadow: 0 0 0 4px var(--brand-2-tint-25);
+}
+
+.pm-input:disabled {
+    background-color: #f1f5f9;
+    color: var(--auth-muted);
+    cursor: not-allowed;
+    box-shadow: none;
 }
 
 .pm-input[aria-invalid="true"] {
@@ -60,18 +166,70 @@ select:focus-visible, textarea:focus-visible {
 }
 
 .pm-input[aria-invalid="true"]:focus {
-    box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.15);
+    box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.15);
 }
+
+/* Checkboxes / radios on auth pages (remember-me, terms acceptance) —
+   sized to match the rest of the form instead of the browser default. */
+.auth-check {
+    width: 1.125rem;
+    height: 1.125rem;
+    flex: 0 0 1.125rem;
+    border: 1.5px solid var(--auth-border);
+    border-radius: 5px;
+    accent-color: var(--brand-1);
+    cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   BUTTONS
+   -------------------------------------------------------------------------- */
 
 /* "Primary button, secondary color on hover" — not a gradient, not just
    a darker shade of the same color: resting state is the brand primary,
    hover swaps to the brand secondary outright. */
 .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+
+    width: 100%;
+    min-height: 46px;
+    padding: 0.75rem 1.25rem;
+
+    border: none;
+    border-radius: var(--auth-radius-md);
+
     background-color: var(--brand-1);
+    color: #ffffff;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+
+    box-shadow: var(--auth-shadow-sm);
+    cursor: pointer;
+    transition: background-color 0.2s var(--auth-ease),
+                transform 0.15s var(--auth-ease),
+                box-shadow 0.2s var(--auth-ease);
 }
 
 .btn-primary:hover {
     background-color: var(--brand-2);
+    box-shadow: 0 10px 24px -6px var(--brand-2-tint-25);
+    transform: translateY(-1px);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+    box-shadow: var(--auth-shadow-xs);
+}
+
+.btn-primary:disabled {
+    background-color: #94a3b8;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
 }
 
 /* Every auth-page link (forgot password, sign up, already registered,
@@ -81,6 +239,7 @@ select:focus-visible, textarea:focus-visible {
    links" is a single rule instead of an inline override on every <a>. */
 .auth-link {
     color: var(--brand-1);
+    font-weight: 600;
     text-decoration: none;
     transition: color 0.15s ease;
 }
@@ -106,6 +265,14 @@ select:focus-visible, textarea:focus-visible {
     font-size: 0.8125rem;
     color: #94a3b8;
     margin-top: 0.375rem;
+    line-height: 1.45;
+}
+
+.auth-error {
+    font-size: 0.8125rem;
+    color: #e11d48;
+    margin-top: 0.375rem;
+    line-height: 1.45;
 }
 
 /* The left-side marketing panel's background — a subtle diagonal brand
@@ -120,15 +287,38 @@ select:focus-visible, textarea:focus-visible {
 
 /* Logo inside the auth card — larger than before (was a flat h-14) but
    still capped and responsive so it can't overwhelm a narrow phone
-   screen; grows a bit more once there's room at sm+. */
+   screen; grows a bit more once there's room at sm+. Fluid via clamp()
+   so it scales continuously between phone and desktop instead of
+   jumping at a single breakpoint. */
 .auth-logo {
-    height: 4.5rem;
+    height: clamp(4rem, 3.4rem + 2vw, 5.5rem);
     width: auto;
     max-width: 85%;
 }
 
-@media (min-width: 640px) {
-    .auth-logo {
-        height: 5.5rem;
+/* --------------------------------------------------------------------------
+   RESPONSIVE FINE-TUNING
+   -------------------------------------------------------------------------- */
+@media (max-width: 480px) {
+    .pm-input,
+    .btn-primary {
+        min-height: 44px;
+        font-size: 0.875rem;
+    }
+
+    .auth-field-row {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.875rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pm-input,
+    .btn-primary {
+        transition: none;
+    }
+
+    .btn-primary:hover {
+        transform: none;
     }
 }

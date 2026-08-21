@@ -34,19 +34,30 @@ class Payment extends Model
         return $this->hasOne(Invoice::class);
     }
 
+    public function transactionLogs()
+    {
+        return $this->hasMany(PaymentTransactionLog::class);
+    }
+
     /**
-     * Most recent gateway transaction for this payment. Automated mobile
-     * money collections store the actual number used here, which is the
-     * best billing contact number available for the payment record.
+     * The most recent gateway transaction recorded for this payment.
+     *
+     * Billing, invoice and admin screens eager-load this relation when
+     * they need the latest phone number/network/reference without loading
+     * the complete transaction history.
      */
     public function latestTransaction()
     {
         return $this->hasOne(PaymentTransactionLog::class)->latestOfMany();
     }
 
-    public function getContactPhoneAttribute(): ?string
+    public function paymentContactPhone(): ?string
     {
-        return $this->latestTransaction?->phone_number;
+        $logged = $this->relationLoaded('transactionLogs')
+            ? $this->transactionLogs->sortByDesc('id')->first(fn ($log) => filled($log->phone_number))?->phone_number
+            : $this->transactionLogs()->whereNotNull('phone_number')->latest('id')->value('phone_number');
+
+        return $logged ?: $this->user?->phone_number;
     }
 
     /**

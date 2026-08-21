@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\Expense;
+use App\Services\ReceiptExtractionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Services\OfflineConflictGuard;
 
 /**
  * Mobile equivalent of the web app's ExpenseController overrides —
@@ -25,7 +27,7 @@ class ExpenseController extends ApiCrudController
         'items' => 'nullable|array',
         'items.*.description' => 'required_with:items|string|max:255',
         'items.*.quantity' => 'required_with:items|numeric|min:0.01',
-        'items.*.unit_price' => 'required_with:items|numeric|min:0',
+        'items.*.unit_price' => 'required_with:items|numeric',
     ];
 
     /**
@@ -35,19 +37,21 @@ class ExpenseController extends ApiCrudController
      */
     public function index(Request $request): JsonResponse
     {
-        $showArchived = $request->boolean('archived');
-
-        $items = Expense::where('user_id', $request->user()->id)
-            ->where('is_archived', $showArchived)
+        $items = $this->filteredIndexQuery($request)
             ->with('items')
             ->orderByDesc('id')
-            ->paginate(20);
+            ->paginate(20)
+            ->withQueryString();
 
         return response()->json($items);
     }
 
     public function store(Request $request): JsonResponse
     {
+        if ($request->boolean('receipt_extract')) {
+            return $this->extractReceipt($request);
+        }
+
         $data = $request->validate($this->rules);
         $data['user_id'] = $request->user()->id;
         $items = $data['items'] ?? [];
@@ -71,6 +75,7 @@ class ExpenseController extends ApiCrudController
     public function update(Request $request, int $id): JsonResponse
     {
         $expense = Expense::where('user_id', $request->user()->id)->findOrFail($id);
+        if ($conflict = OfflineConflictGuard::check($request, $expense)) return $conflict;
 
         $data = $request->validate($this->rules);
         $items = $data['items'] ?? [];
@@ -93,6 +98,21 @@ class ExpenseController extends ApiCrudController
         }
 
         return response()->json($expense->fresh()->load('items'));
+    }
+
+    private function extractReceipt(Request $request): JsonResponse
+    {
+        $request->validate([
+            'receipt_file' => 'required|file|max:12288|mimes:pdf,jpg,jpeg,png,webp',
+        ]);
+
+        try {
+            $data = app(ReceiptExtractionService::class)->extract($request->user(), $request->file('receipt_file'));
+            return response()->json(['message' => 'Receipt extracted. Review the details, then save the expense.', 'data' => $data]);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
     }
 
     private function syncItems(Expense $expense, array $items): void

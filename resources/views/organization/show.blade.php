@@ -31,7 +31,7 @@
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 max-w-3xl">
             <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-blue-400 p-4">
                 <p class="text-xs text-slate-500 uppercase tracking-wide">Plan</p>
-                <p class="text-lg font-bold text-slate-800">{{ $organization->plan?->name ?? '—' }}</p>
+                <p class="text-lg font-bold text-slate-800">{{ $organization->plan?->name ?? '-' }}</p>
             </div>
             <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-emerald-400 p-4">
                 <p class="text-xs text-slate-500 uppercase tracking-wide">Members Used</p>
@@ -67,7 +67,7 @@
                 <p role="alert" class="text-sm text-rose-600 mt-2">{{ $message }}</p>
             @enderror
             @if (! $organization->hasSeatAvailable())
-                <p class="text-xs text-amber-600 mt-2">No member slots available — remove someone or upgrade your plan first.</p>
+                <p class="text-xs text-amber-600 mt-2">No member slots available -remove someone or upgrade your plan first.</p>
             @endif
         </div>
 
@@ -110,7 +110,7 @@
                                     </form>
                                 @endif
                                 <button type="button" onclick="document.getElementById('replace-modal-{{ $member->id }}').showModal()" class="text-blue-600 hover:underline mr-3">Replace</button>
-                                <form method="POST" action="{{ route('organization.members.remove', $member->id) }}" class="inline" onsubmit="return confirm('Remove this person and free up their member slot?');">
+                                <form method="POST" action="{{ route('organization.members.remove', $member->id) }}" class="inline" data-confirm="Remove this person and free up their member slot?" data-confirm-title="Remove organization member?" data-confirm-text="Remove">
                                     @csrf
                                     @method('DELETE')
                                     <button type="submit" class="text-rose-600 hover:underline">Remove</button>
@@ -142,7 +142,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="px-4 py-6 text-center text-slate-500">No team members yet — invite your first one above.</td>
+                            <td colspan="4" class="px-4 py-6 text-center text-slate-500">No team members yet invite your first one above.</td>
                         </tr>
                     @endforelse
                 </tbody>

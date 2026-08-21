@@ -181,7 +181,7 @@ class MeetingController extends CrudController
             'connections' => $connections,
             'enabledPlatforms' => $enabledPlatforms,
             'statusFilter' => $statusFilter,
-        ], fn ($q) => $q->orderBy('start_at'), 10);
+        ], fn ($q) => $q->orderByDesc('start_at')->orderByDesc('id'), 10);
     }
 
     protected function stats(Request $request): array
@@ -301,9 +301,14 @@ class MeetingController extends CrudController
     {
         $item = Meeting::where('user_id', $request->user()->id)->findOrFail($meeting);
 
+        $recordings = $item->recordings()
+            ->orderByDesc('id')
+            ->paginate(10, ['*'], 'recordings_page')
+            ->withQueryString();
+
         return view('meetings.notes', [
             'meeting' => $item,
-            'recordings' => $item->recordings()->orderByDesc('id')->get(),
+            'recordings' => $recordings,
         ]);
     }
 

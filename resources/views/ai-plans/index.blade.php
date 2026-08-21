@@ -10,13 +10,9 @@
             </div>
             <h1 class="text-2xl font-bold text-slate-800 tracking-tight">AI Planner</h1>
         </div>
-        <form method="POST" action="{{ route('ai-plans.store') }}">
-            @csrf
-            <button type="submit" class="inline-flex items-center justify-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
-                <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
-                <span>Generate New Plan</span>
-            </button>
-        </form>
+        <button type="button" onclick="document.getElementById('ai-generate-modal').showModal()" class="inline-flex items-center justify-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
+            <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span>Generate New Plan</span>
+        </button>
     </div>
 
     @if ($plans->isEmpty() && !$search)
@@ -30,14 +26,16 @@
         {{-- Stats always visible, never tabbed same reasoning as
              everywhere else in the app: a quick-reference summary
              shouldn't be hidden behind a click. --}}
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
             @foreach ($stats as $stat)
-                <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-{{ $stat['color'] }}-400 p-4">
-                    <div class="w-9 h-9 rounded-lg bg-{{ $stat['color'] }}-50 text-{{ $stat['color'] }}-600 flex items-center justify-center mb-2">
+                <div class="pm-card-bg rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-{{ $stat['color'] }}-400 p-3 flex items-center gap-3 min-w-0">
+                    <div class="w-9 h-9 rounded-lg bg-{{ $stat['color'] }}-50 text-{{ $stat['color'] }}-600 flex items-center justify-center shrink-0">
                         <i class="{{ $stat['icon'] }} text-sm" aria-hidden="true"></i>
                     </div>
-                    <p class="text-xs text-slate-500 uppercase tracking-wide truncate">{{ $stat['label'] }}</p>
-                    <p class="text-xl font-bold text-slate-800 truncate">{{ $stat['value'] }}</p>
+                    <div class="min-w-0">
+                        <p class="text-[11px] text-slate-500 uppercase tracking-wide truncate">{{ $stat['label'] }}</p>
+                        <p class="text-lg font-bold text-slate-800 truncate">{{ $stat['value'] }}</p>
+                    </div>
                 </div>
             @endforeach
         </div>
@@ -118,11 +116,24 @@
                 No plans match "{{ $search }}". <a href="{{ route('ai-plans.index') }}" class="text-[var(--brand-1)] hover:underline">Clear search</a>.
             </div>
         @else
+            <form id="ai-plan-bulk-form" method="POST" action="{{ route('ai-plans.bulk-destroy') }}" class="hidden">
+                @csrf
+                @method('DELETE')
+            </form>
+            <div id="ai-plan-bulk-bar" class="hidden mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3">
+                <p class="text-sm font-medium text-rose-700"><span id="ai-plan-selected-count">0</span> plan(s) selected</p>
+                <button type="button" onclick="pmOpenAiPlanBulkDeleteModal()" class="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700">
+                    <i class="fa-solid fa-trash-can" aria-hidden="true"></i> Delete Selected
+                </button>
+            </div>
             <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto" role="region" aria-label="AI plans table" tabindex="0">
                 <table class="min-w-full text-sm">
                     <caption class="sr-only">Your generated AI plans, with view, download, and delete actions for each.</caption>
                     <thead class="bg-slate-50 text-left border-b border-slate-100">
                         <tr>
+                            <th scope="col" class="px-4 py-3 w-10">
+                                <input type="checkbox" id="ai-plan-select-all" onchange="pmToggleAllAiPlans(this)" class="rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]" aria-label="Select all AI plans">
+                            </th>
                             <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Date</th>
                             <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Provider</th>
                             <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Preview</th>
@@ -132,6 +143,9 @@
                     <tbody class="divide-y divide-slate-100">
                         @foreach ($plans as $plan)
                             <tr class="hover:bg-slate-50 transition-colors">
+                                <td class="px-4 py-3 align-top">
+                                    <input type="checkbox" name="ids[]" value="{{ $plan->id }}" form="ai-plan-bulk-form" onchange="pmUpdateAiPlanBulkBar()" class="ai-plan-row-checkbox rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]" aria-label="Select AI plan from {{ $plan->created_at->format('Y-m-d H:i') }}">
+                                </td>
                                 <td class="px-4 py-3 text-slate-700 whitespace-nowrap">{{ $plan->created_at->format('Y-m-d H:i') }}</td>
                                 <td class="px-4 py-3 text-slate-600">
                                     {{ \App\Models\AiProvider::where('key', $plan->provider)->value('name') ?? ($plan->provider ?? '—') }}
@@ -139,24 +153,34 @@
                                 <td class="px-4 py-3 text-slate-700 max-w-md">
                                     {{ \Illuminate\Support\Str::limit(str_replace(["\n", "\r"], ' ', $plan->cleanContent()), 90) }}
                                 </td>
-                                <td class="px-4 py-3 text-right whitespace-nowrap">
-                                    <button type="button"
-                                            onclick="pmOpenAiPlanViewModal({{ json_encode($plan->created_at->format('Y-m-d H:i')) }}, {{ json_encode($plan->cleanContent()) }})"
-                                            class="inline-flex items-center gap-1 text-[var(--brand-1)] hover:text-[var(--brand-1-dark)] mr-3 transition-colors">
-                                        <i class="fa-solid fa-eye text-xs" aria-hidden="true"></i>
-                                        <span class="sr-only">View plan from </span>{{ $plan->created_at->format('M j') }}
-                                    </button>
-                                    <a href="{{ route('ai-plans.pdf', $plan->id) }}"
-                                       class="inline-flex items-center gap-1 text-slate-500 hover:text-slate-700 mr-3 transition-colors">
-                                        <i class="fa-solid fa-file-pdf text-xs" aria-hidden="true"></i>
-                                        <span class="sr-only">Download PDF of plan from {{ $plan->created_at->format('Y-m-d H:i') }}</span>
-                                    </a>
-                                    <button type="button"
-                                            onclick="pmOpenAiPlanDeleteModal({{ json_encode(route('ai-plans.destroy', $plan->id)) }}, {{ json_encode($plan->created_at->format('Y-m-d H:i')) }})"
-                                            class="inline-flex items-center gap-1 text-rose-500 hover:text-rose-700 transition-colors">
-                                        <i class="fa-solid fa-trash-can text-xs" aria-hidden="true"></i>
-                                        <span class="sr-only">Delete plan from {{ $plan->created_at->format('Y-m-d H:i') }}</span>
-                                    </button>
+                                <td class="px-4 py-3 align-top">
+                                    <div class="flex flex-wrap justify-end gap-2 min-w-[330px]">
+                                        <button type="button"
+                                                onclick="pmOpenAiPlanViewModal({{ json_encode($plan->created_at->format('Y-m-d H:i')) }}, {{ json_encode($plan->cleanContent()) }}, {{ json_encode(route('ai-plans.preview', $plan->id)) }}, {{ json_encode(route('ai-plans.pdf', $plan->id)) }})"
+                                                class="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-100 transition-colors">
+                                            <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                                            View Plan
+                                        </button>
+
+                                        <a href="{{ route('ai-plans.preview', $plan->id) }}" target="_blank" rel="noopener"
+                                           class="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 hover:bg-sky-100 transition-colors">
+                                            <i class="fa-solid fa-file-pdf" aria-hidden="true"></i>
+                                            View PDF
+                                        </a>
+
+                                        <a href="{{ route('ai-plans.pdf', $plan->id) }}"
+                                           class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors">
+                                            <i class="fa-solid fa-download" aria-hidden="true"></i>
+                                            Download
+                                        </a>
+
+                                        <button type="button"
+                                                onclick="pmOpenAiPlanDeleteModal({{ json_encode(route('ai-plans.destroy', $plan->id)) }}, {{ json_encode($plan->created_at->format('Y-m-d H:i')) }})"
+                                                class="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 transition-colors">
+                                            <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+                                            Delete
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         @endforeach
@@ -171,6 +195,18 @@
         </div>
     @endif
 
+
+    <dialog id="ai-generate-modal" class="rounded-2xl p-0 pm-dialog-xl shadow-2xl backdrop:bg-slate-900/50">
+        <form method="POST" action="{{ route('ai-plans.store') }}" class="p-6">
+            @csrf
+            <div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold text-slate-800">What should the AI Planner generate?</h2><button type="button" onclick="this.closest('dialog').close()" class="text-slate-400"><i class="fa-solid fa-xmark"></i></button></div>
+            <label for="custom_prompt" class="block text-sm font-medium text-slate-700 mb-1">Your request</label>
+            <textarea id="custom_prompt" name="custom_prompt" rows="5" maxlength="3000" class="pm-input" placeholder="Example: Build a realistic 7-day plan focused on saving UGX 100,000, completing my overdue project tasks, exercising three times, and making time for prayer.">{{ old('custom_prompt') }}</textarea>
+            <p class="text-xs text-slate-500 mt-2">Optional. If left blank, the standard personalized planner will be used.</p>
+            <div class="flex justify-end gap-3 mt-5"><button type="button" onclick="this.closest('dialog').close()" class="px-4 py-2 text-sm text-slate-600">Cancel</button><button type="submit" class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Generate</button></div>
+        </form>
+    </dialog>
+
     {{-- View full plan modal read-only. --}}
     <dialog id="ai-plan-view-modal" aria-labelledby="ai-plan-view-title" class="rounded-2xl p-0 pm-dialog-xl shadow-2xl backdrop:bg-slate-900/50">
         <div class="p-6">
@@ -181,7 +217,21 @@
                     <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                 </button>
             </div>
-            <div id="ai-plan-view-content" class="text-sm whitespace-pre-line leading-relaxed max-h-[60vh] overflow-y-auto"></div>
+            <div id="ai-plan-view-content" class="text-sm whitespace-pre-line leading-relaxed max-h-[58vh] overflow-y-auto pr-1"></div>
+            <div class="mt-5 pt-4 border-t border-slate-100 flex flex-wrap justify-end gap-2">
+                <button type="button" onclick="document.getElementById('ai-plan-view-modal').close()"
+                        class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+                    Close
+                </button>
+                <a id="ai-plan-view-pdf-link" href="#" target="_blank" rel="noopener"
+                   class="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100">
+                    <i class="fa-solid fa-eye"></i> View PDF
+                </a>
+                <a id="ai-plan-download-pdf-link" href="#"
+                   class="inline-flex items-center gap-2 btn-primary text-white px-4 py-2 rounded-lg text-sm font-semibold">
+                    <i class="fa-solid fa-download"></i> Download PDF
+                </a>
+            </div>
         </div>
     </dialog>
 
@@ -209,10 +259,28 @@
         </form>
     </dialog>
 
+    <dialog id="ai-plan-bulk-delete-modal" aria-labelledby="ai-plan-bulk-delete-title" class="rounded-2xl p-6 pm-dialog-sm shadow-2xl backdrop:bg-slate-900/50">
+        <div class="flex items-center gap-3 mb-3">
+            <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+            </div>
+            <h2 id="ai-plan-bulk-delete-title" class="text-lg font-bold text-slate-800">Delete selected plans?</h2>
+        </div>
+        <p id="ai-plan-bulk-delete-desc" class="text-sm text-slate-600 mb-5">This action cannot be undone.</p>
+        <div class="flex justify-end gap-3">
+            <button type="button" onclick="document.getElementById('ai-plan-bulk-delete-modal').close()" class="text-sm text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+            <button type="button" onclick="document.getElementById('ai-plan-bulk-form').submit()" class="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm">
+                <i class="fa-solid fa-trash-can" aria-hidden="true"></i> Delete Selected
+            </button>
+        </div>
+    </dialog>
+
     <script>
-        function pmOpenAiPlanViewModal(dateLabel, content) {
+        function pmOpenAiPlanViewModal(dateLabel, content, previewUrl, downloadUrl) {
             document.getElementById('ai-plan-view-title').textContent = 'Plan ' + dateLabel;
             document.getElementById('ai-plan-view-content').textContent = content;
+            document.getElementById('ai-plan-view-pdf-link').href = previewUrl || '#';
+            document.getElementById('ai-plan-download-pdf-link').href = downloadUrl || '#';
             document.getElementById('ai-plan-view-modal').showModal();
         }
 
@@ -221,6 +289,35 @@
             document.getElementById('ai-plan-delete-desc').textContent =
                 'Delete the plan from ' + dateLabel + '? This action cannot be undone.';
             document.getElementById('ai-plan-delete-modal').showModal();
+        }
+
+        function pmUpdateAiPlanBulkBar() {
+            var boxes = Array.prototype.slice.call(document.querySelectorAll('.ai-plan-row-checkbox'));
+            var selected = boxes.filter(function (box) { return box.checked; });
+            var bar = document.getElementById('ai-plan-bulk-bar');
+            var counter = document.getElementById('ai-plan-selected-count');
+            var selectAll = document.getElementById('ai-plan-select-all');
+            if (counter) { counter.textContent = selected.length; }
+            if (bar) { bar.classList.toggle('hidden', selected.length === 0); }
+            if (selectAll) {
+                selectAll.checked = boxes.length > 0 && selected.length === boxes.length;
+                selectAll.indeterminate = selected.length > 0 && selected.length < boxes.length;
+            }
+        }
+
+        function pmToggleAllAiPlans(source) {
+            document.querySelectorAll('.ai-plan-row-checkbox').forEach(function (box) {
+                box.checked = source.checked;
+            });
+            pmUpdateAiPlanBulkBar();
+        }
+
+        function pmOpenAiPlanBulkDeleteModal() {
+            var selected = document.querySelectorAll('.ai-plan-row-checkbox:checked').length;
+            if (!selected) { return; }
+            document.getElementById('ai-plan-bulk-delete-desc').textContent =
+                'You are about to delete ' + selected + ' selected AI plan' + (selected === 1 ? '' : 's') + '. This action cannot be undone.';
+            document.getElementById('ai-plan-bulk-delete-modal').showModal();
         }
 
         function pmSelectAiTab(key) {

@@ -73,8 +73,13 @@
     </form>
 
     {{-- ================= TABLE ================= --}}
-    <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto">
-        <table class="min-w-full text-sm">
+    <div class="md:hidden mb-2 text-[11px] font-medium text-slate-400">
+        <i class="fa-solid fa-arrows-left-right mr-1"></i>
+        Swipe sideways to view all enterprise inquiry columns.
+    </div>
+
+    <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto pm-horizontal-table-wrap">
+        <table class="min-w-full text-sm pm-horizontal-data-table pm-enterprise-inquiries-horizontal-table pm-admin-horizontal-table">
             <caption class="sr-only">Sales inquiries submitted from the Enterprise pricing section.</caption>
             <thead class="bg-slate-50 text-left border-b border-slate-100">
                 <tr>
@@ -101,7 +106,9 @@
                         </td>
                         <td class="px-4 py-3">{{ $inquiry->country }}</td>
                         <td class="px-4 py-3">{{ $inquiry->employee_count }}</td>
-                        <td class="px-4 py-3 max-w-xs truncate" title="{{ $inquiry->about }}">{{ $inquiry->about }}</td>
+                        <td class="px-4 py-3 pm-table-wrap-text" title="{{ $inquiry->about }}">
+                            {{ $inquiry->about }}
+                        </td>
                         <td class="px-4 py-3">
                             <form method="POST" action="{{ route('admin.enterprise-inquiries.status', $inquiry->id) }}">
                                 @csrf
@@ -156,13 +163,13 @@
                                                             <button type="submit" class="text-xs text-slate-600 hover:underline">Resend</button>
                                                         </form>
                                                         @if ($doc->isQuote())
-                                                            <form method="POST" action="{{ route('admin.enterprise-inquiries.convert-invoice', [$inquiry->id, $doc->id]) }}" onsubmit="return confirm('Convert this quotation into a real invoice and send it?');">
+                                                            <form method="POST" action="{{ route('admin.enterprise-inquiries.convert-invoice', [$inquiry->id, $doc->id]) }}" data-confirm="Convert this quotation into a real invoice and send it?" data-confirm-title="Convert quotation?" data-confirm-text="Convert & send" data-confirm-danger="false">
                                                                 @csrf
                                                                 <button type="submit" class="text-xs text-emerald-700 hover:underline">Convert to Invoice</button>
                                                             </form>
                                                         @endif
                                                         @if ($doc->isDeletable())
-                                                            <form method="POST" action="{{ route('admin.invoices.destroy', $doc->id) }}" onsubmit="return confirm('Delete this {{ $doc->isQuote() ? 'quotation' : 'invoice' }}? This cannot be undone.');">
+                                                            <form method="POST" action="{{ route('admin.invoices.destroy', $doc->id) }}" data-confirm="Delete this {{ $doc->isQuote() ? 'quotation' : 'invoice' }}? This action cannot be undone." data-confirm-title="Delete document?" data-confirm-text="Delete">
                                                                 @csrf
                                                                 @method('DELETE')
                                                                 <button type="submit" class="text-xs text-rose-600 hover:underline">Delete</button>

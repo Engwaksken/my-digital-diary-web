@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class AiPlan extends Model
 {
-    protected $fillable = ['user_id', 'content', 'provider', 'used_shared_key'];
+    protected $fillable = ['user_id', 'content', 'custom_prompt', 'provider', 'used_shared_key'];
 
     public function user()
     {

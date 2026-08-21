@@ -15,7 +15,7 @@
 <body>
     <h1>{{ $moduleLabel }} Report</h1>
     <p class="meta">
-        Generated for {{ $generatedFor }} on {{ now()->format('F j, Y') }} — {{ $items->count() }} item(s), archived items excluded.
+        Generated for {{ $generatedFor }} on {{ now()->format('F j, Y') }} - {{ $items->count() }} item(s), archived items excluded.
     </p>
 
     <table>

@@ -33,7 +33,34 @@
         @include('crud.extras.' . $routeName . '-top')
     @endif
 
-    {{-- Stats cards are always visible — not tabbed — so they read like
+    @if (!empty($moduleGoalSummary))
+        <div class="mb-5 rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-9 h-9 rounded-lg bg-white text-violet-600 flex items-center justify-center shadow-sm shrink-0">
+                    <i class="fa-solid fa-bullseye" aria-hidden="true"></i>
+                </div>
+                <div class="min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <p class="text-sm font-semibold text-slate-800">Goals for this area</p>
+                        <span class="text-xs text-violet-700 bg-white rounded-full px-2 py-0.5">{{ $moduleGoalSummary['active'] }} active</span>
+                        <span class="text-xs text-slate-500">{{ $moduleGoalSummary['average'] }}% avg. progress</span>
+                    </div>
+                    @if ($moduleGoalSummary['latest'])
+                        <p class="text-xs text-slate-600 mt-1 truncate">Focus: {{ $moduleGoalSummary['latest']->title }} · {{ $moduleGoalSummary['latest']->progress_percent }}%</p>
+                    @else
+                        <p class="text-xs text-slate-500 mt-1">Set a goal so your records and daily actions stay connected to what matters.</p>
+                    @endif
+                </div>
+            </div>
+            <a href="{{ route('personal-goals.index', ['module' => $moduleGoalSummary['module']]) }}"
+               class="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-white border border-violet-200 text-violet-700 text-sm font-semibold hover:bg-violet-100 transition-colors shrink-0">
+                <i class="fa-solid fa-crosshairs text-xs" aria-hidden="true"></i>
+                {{ $moduleGoalSummary['active'] ? 'View goals' : 'Add goal' }}
+            </a>
+        </div>
+    @endif
+
+    {{-- Stats cards are always visible  not tabbed  so they read like
          the at-a-glance summary they're meant to be, with the Chart/Table
          tabs underneath for the more detailed views. --}}
     @if (!empty($stats))
@@ -60,13 +87,19 @@
 
     @php
         // Only Chart and Table are tabbed now. Table is the default active
-        // tab — visiting a module page is usually about the actual
+        // tab  visiting a module page is usually about the actual
         // records, with the chart as a secondary, occasional-use view. If
-        // there's no chart yet, there's nothing to tab between at all —
+        // there's no chart yet, there's nothing to tab between at all 
         // Table is still the default active tab. Tabs are now always
         // shown (previously only when a chart existed) since Calendar is
         // always available, regardless of whether this module has a chart.
         $pmShowTabs = true;
+
+        // Resolve bulk-delete support once in a normal Blade PHP block.
+        // Keeping the assignment here avoids parser issues caused by the
+        // inline @php(...) assignment that was added beside the table panel.
+        $pmHasBulkDelete = \Illuminate\Support\Facades\Route::has($routeName . '.bulk-destroy')
+            && auth()->user()->hasActiveAccess();
     @endphp
 
     @if ($pmShowTabs)
@@ -106,7 +139,7 @@
     @if (!empty($chart))
         @php
             // Built as a plain string here rather than nesting loop/conditional
-            // directives directly inside the aria-label="..." attribute — that
+            // directives directly inside the aria-label="..." attribute  that
             // inline-nested-directives-inside-an-attribute pattern is fragile
             // to parse and caused a real ParseError in testing.
             $chartAriaParts = [];
@@ -127,7 +160,7 @@
                     {{ $chart['title'] }}
                 </h2>
                 {{-- Fixed height + maintainAspectRatio:false (in the JS
-                     below) gives precise control over the rendered size —
+                     below) gives precise control over the rendered size 
                      without both, Chart.js sizes itself from the
                      container's width using a fairly large default aspect
                      ratio, rendering much bigger than intended. --}}
@@ -143,7 +176,7 @@
             var pmCrudChartInstance = null;
 
             // Deferred until the Chart tab is actually shown (or immediately
-            // if there are no tabs at all, i.e. this is the only section) —
+            // if there are no tabs at all, i.e. this is the only section) 
             // Chart.js measures the canvas at construction time, and a
             // canvas inside a display:none ancestor measures as 0x0, which
             // renders blank even after the tab is later revealed.
@@ -173,7 +206,7 @@
                         maintainAspectRatio: false,
                         plugins: {
                             legend: {
-                                // Always shown now — a doughnut's colored
+                                // Always shown now  a doughnut's colored
                                 // slices are meaningless without a key
                                 // mapping each color back to its category,
                                 // and this used to be hidden for every
@@ -184,7 +217,7 @@
                                 position: 'bottom',
                                 labels: chartType === 'doughnut' ? {
                                     // Default doughnut legend only shows the
-                                    // label (e.g. "Groceries") — this adds
+                                    // label (e.g. "Groceries")  this adds
                                     // the actual value too (e.g.
                                     // "Groceries: 120"), so the key doubles
                                     // as a real reference, not just a color
@@ -214,7 +247,7 @@
 
             document.addEventListener('DOMContentLoaded', function () {
                 // No tabs at all (chart is the only section) means the
-                // panel is never hidden in the first place — safe to
+                // panel is never hidden in the first place  safe to
                 // initialize right away.
                 var chartPanel = document.getElementById('pm-crud-panel-chart');
                 if (chartPanel && !chartPanel.hasAttribute('hidden')) {
@@ -268,32 +301,45 @@
         @endif
     </form>
 
-    @if (auth()->user()->hasActiveAccess())
-        <div id="pm-crud-bulk-bar" class="hidden items-center justify-between gap-3 bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 mb-3">
-            <span id="pm-crud-bulk-count" class="text-sm font-medium text-rose-700">0 selected</span>
-            <button type="button" onclick="pmSubmitCrudBulkDelete()"
-                    class="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
-                <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
-                Delete selected
+    @if ($pmHasBulkDelete)
+        <form id="pm-crud-bulk-delete-form" method="POST" action="{{ route($routeName . '.bulk-destroy') }}">
+            @csrf
+            @method('DELETE')
+        </form>
+        <div id="pm-crud-bulk-bar" class="hidden mb-3 items-center justify-between gap-3 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3">
+            <span class="text-sm font-medium text-rose-700"><span id="pm-crud-selected-count">0</span> selected</span>
+            <button type="button" onclick="pmConfirmCrudBulkDelete()" class="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700">
+                <i class="fa-solid fa-trash-can"></i> Delete selected
             </button>
         </div>
     @endif
 
-    <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 overflow-x-auto" role="region" aria-label="{{ $title }}s table" tabindex="0">
-        <table class="min-w-full text-sm">
+    @if ($routeName === 'personal-goals')
+        <div class="pm-table-swipe-hint md:hidden mb-2 text-[11px] font-medium text-slate-400">
+            <i class="fa-solid fa-arrows-left-right mr-1"></i>
+            Swipe the table sideways to view all goal columns.
+        </div>
+    @endif
+
+    <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 overflow-x-auto pm-horizontal-table-wrap"
+         role="region"
+         aria-label="{{ $title }}s table"
+         tabindex="0">
+        <table class="min-w-full text-sm pm-horizontal-data-table {{ $routeName === 'personal-goals' ? 'pm-goals-horizontal-table' : '' }}">
             <caption class="sr-only">List of your {{ strtolower($title) }}s, with edit and delete actions for each.</caption>
             <thead class="bg-slate-50 text-left border-b border-slate-100">
                 <tr>
-                    <th scope="col" class="px-4 py-3 w-10">
-                        @if (auth()->user()->hasActiveAccess())
-                            <input type="checkbox" id="pm-crud-select-all" onchange="pmToggleAllCrud(this)"
-                                   class="rounded border-slate-300 text-rose-600 focus:ring-rose-500"
-                                   aria-label="Select all {{ strtolower($title) }}s on this page">
-                        @endif
-                    </th>
+                    @if ($pmHasBulkDelete)
+                        <th scope="col" class="px-4 py-3 w-10">
+                            <input type="checkbox" id="pm-crud-select-all" onchange="pmToggleAllCrudRows(this)" class="rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]" aria-label="Select all {{ strtolower($title) }} records">
+                        </th>
+                    @endif
                     @foreach ($fields as $field)
                         <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">{{ $field['label'] }}</th>
                     @endforeach
+                    @if ($routeName === 'expenses')
+                        <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Items</th>
+                    @endif
                     <th scope="col" class="px-4 py-3">
                         <span class="sr-only">Actions</span>
                     </th>
@@ -313,73 +359,94 @@
                         foreach ($fields as $f) {
                             $v = $item->{$f['name']} ?? null;
                             if (is_object($v) && method_exists($v, 'format')) {
-                                $v = $f['type'] === 'datetime-local' ? $v->format('Y-m-d\TH:i') : $v->format('Y-m-d');
+                                if ($f['type'] === 'datetime-local') {
+                                    $v = $v->format('Y-m-d\TH:i');
+                                } elseif ($f['type'] === 'time') {
+                                    $v = $v->format('H:i');
+                                } else {
+                                    $v = $v->format('Y-m-d');
+                                }
+                            } elseif ($f['type'] === 'time' && is_string($v) && $v !== '') {
+                                $v = substr($v, 0, 5);
                             }
                             $rowValues[$f['name']] = $v;
                         }
                     @endphp
                     <tr class="hover:bg-slate-50 transition-colors">
-                        <td class="px-4 py-3 align-top">
-                            @if (($item->user_id ?? null) == auth()->id() && auth()->user()->hasActiveAccess())
-                                <input type="checkbox" value="{{ $item->id }}" class="pm-crud-row-checkbox rounded border-slate-300 text-rose-600 focus:ring-rose-500"
-                                       onchange="pmUpdateCrudBulkBar()" aria-label="Select {{ $rowLabel }}">
-                            @endif
-                        </td>
+                        @if ($pmHasBulkDelete)
+                            <td class="px-4 py-3 align-top">
+                                @if (($item->user_id ?? null) == auth()->id())
+                                    <input type="checkbox" name="ids[]" value="{{ $item->id }}" form="pm-crud-bulk-delete-form" onchange="pmUpdateCrudBulkBar()" class="pm-crud-row-checkbox rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]" aria-label="Select {{ $rowLabel }}">
+                                @endif
+                            </td>
+                        @endif
                         @foreach ($fields as $field)
-                            <td class="px-4 py-3 align-top text-slate-700">
-                                @php $value = $item->{$field['name']}; @endphp
-                                @if ($routeName === 'meetings' && $field['name'] === 'location')
+                            <td class="px-4 py-3 align-top text-slate-700 {{ $routeName === 'personal-goals' && in_array($field['name'], ['description', 'notes'], true) ? 'pm-table-wrap-text' : '' }}">
+                                @php
+                                    $value = $item->{$field['name']};
+                                    $meetingFieldName = strtolower((string) ($field['name'] ?? ''));
+                                    $isMeetingLinkField = $routeName === 'meetings' && in_array($meetingFieldName, ['location', 'meeting_link', 'video_link', 'join_url', 'url'], true);
+                                    $isMeetingAttendeesField = $routeName === 'meetings' && in_array($meetingFieldName, ['attendees', 'attendee', 'participants'], true);
+                                    $isMeetingNotesField = $routeName === 'meetings' && in_array($meetingFieldName, ['notes', 'agenda', 'notes_agenda', 'description'], true);
+                                @endphp
+                                @if ($isMeetingLinkField)
                                     @php
-                                        $meetingLocation = trim((string) ($value ?? ''));
-                                        $isMeetingUrl = \Illuminate\Support\Str::startsWith(strtolower($meetingLocation), ['http://', 'https://']);
+                                        $meetingLinkValue = trim((string) ($value ?? ''));
+                                        $meetingLinkIsUrl = $meetingLinkValue !== '' && filter_var($meetingLinkValue, FILTER_VALIDATE_URL);
                                     @endphp
-                                    @if ($meetingLocation === '')
-                                        —
-                                    @elseif ($isMeetingUrl)
-                                        <a href="{{ $meetingLocation }}"
-                                           target="_blank"
-                                           rel="noopener noreferrer"
-                                           title="{{ $meetingLocation }}"
-                                           class="inline-flex items-center gap-1 text-[var(--brand-1)] hover:underline font-medium whitespace-nowrap">
+                                    @if ($meetingLinkValue === '')
+                                        <span class="text-slate-400"></span>
+                                    @elseif ($meetingLinkIsUrl)
+                                        <a href="{{ $meetingLinkValue }}" target="_blank" rel="noopener noreferrer"
+                                           class="inline-flex items-center gap-1 text-[var(--brand-1)] hover:underline font-medium"
+                                           title="{{ $meetingLinkValue }}">
                                             <i class="fa-solid fa-arrow-up-right-from-square text-[10px]" aria-hidden="true"></i>
-                                            Link
+                                            View link
                                         </a>
                                     @else
-                                        <span title="{{ $meetingLocation }}" class="cursor-help">
-                                            {{ \Illuminate\Support\Str::limit($meetingLocation, 28) }}
-                                        </span>
+                                        <span title="{{ $meetingLinkValue }}">{{ \Illuminate\Support\Str::limit($meetingLinkValue, 34) }}</span>
                                     @endif
-                                @elseif ($routeName === 'meetings' && $field['name'] === 'attendees')
+                                @elseif ($isMeetingAttendeesField)
                                     @php
-                                        $attendeeRaw = trim((string) ($value ?? ''));
-                                        $attendeeList = $attendeeRaw === ''
-                                            ? []
-                                            : array_values(array_filter(preg_split('/[\s,;]+/', $attendeeRaw) ?: []));
+                                        $meetingAttendeeParts = collect();
+                                        if (is_array($value) || $value instanceof \Illuminate\Support\Collection) {
+                                            $meetingAttendeeParts = collect($value)->map(function ($entry) {
+                                                if (is_scalar($entry)) return trim((string) $entry);
+                                                if (is_array($entry)) return trim((string) ($entry['email'] ?? $entry['name'] ?? $entry['value'] ?? ''));
+                                                if (is_object($entry)) return trim((string) ($entry->email ?? $entry->name ?? $entry->value ?? ''));
+                                                return '';
+                                            });
+                                        } else {
+                                            $rawAttendees = trim((string) ($value ?? ''));
+                                            if ($rawAttendees !== '') {
+                                                $meetingAttendeeParts = collect(preg_split('/[,;\n]+/', $rawAttendees));
+                                            }
+                                        }
+                                        $meetingAttendeeParts = $meetingAttendeeParts->map(fn ($part) => trim((string) $part))->filter()->unique()->values();
+                                        $meetingAttendeeCount = $meetingAttendeeParts->count();
+                                        $meetingAttendeeTitle = $meetingAttendeeParts->implode(', ');
                                     @endphp
-                                    @if ($attendeeRaw === '')
-                                        —
-                                    @else
-                                        <span title="{{ $attendeeRaw }}"
-                                              class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 cursor-help whitespace-nowrap">
-                                            <i class="fa-solid fa-users text-[10px]" aria-hidden="true"></i>
-                                            Attendees List{{ count($attendeeList) ? ' (' . count($attendeeList) . ')' : '' }}
+                                    @if ($meetingAttendeeCount > 0)
+                                        <span class="inline-flex items-center gap-1.5 font-medium text-slate-700" title="{{ $meetingAttendeeTitle }}">
+                                            <i class="fa-solid fa-users text-slate-400 text-xs" aria-hidden="true"></i>
+                                            {{ $meetingAttendeeCount }}
                                         </span>
+                                    @else
+                                        <span class="text-slate-400"></span>
                                     @endif
-                                @elseif ($routeName === 'meetings' && $field['name'] === 'notes')
-                                    @php $meetingNotes = trim((string) ($value ?? '')); @endphp
-                                    @if ($meetingNotes === '')
-                                        —
+                                @elseif ($isMeetingNotesField)
+                                    @php $meetingNotesText = trim(strip_tags((string) ($value ?? ''))); @endphp
+                                    @if ($meetingNotesText !== '')
+                                        <span class="cursor-help" title="{{ $meetingNotesText }}">{{ \Illuminate\Support\Str::limit($meetingNotesText, 42) }}</span>
                                     @else
-                                        <span title="{{ $meetingNotes }}" class="cursor-help">
-                                            {{ \Illuminate\Support\Str::limit($meetingNotes, 32) }}
-                                        </span>
+                                        <span class="text-slate-400"></span>
                                     @endif
                                 @elseif ($field['name'] === 'project_id' && isset($item->project))
                                     {{ $item->project->name }}
                                 @elseif ($field['name'] === 'savings_goal_id' && isset($item->goal))
                                     {{ $item->goal->name }}
                                 @elseif ($field['money'] ?? false)
-                                    {{ $value !== null ? format_money($value) : '—' }}
+                                    {{ $value !== null ? format_money($value) : '' }}
                                 @elseif ($field['type'] === 'checkbox')
                                     @if ($value)
                                         <i class="fa-solid fa-circle-check text-emerald-500" aria-hidden="true"></i>
@@ -388,29 +455,80 @@
                                         <i class="fa-solid fa-circle-xmark text-slate-300" aria-hidden="true"></i>
                                         <span class="sr-only">No</span>
                                     @endif
-                                @elseif (is_object($value) && method_exists($value, 'format'))
-                                    {{ $field['type'] === 'datetime-local' ? $value->format('Y-m-d H:i') : $value->format('Y-m-d') }}
-                                @elseif (is_array($value))
+                                @elseif ($field['type'] === 'time' && $value)
                                     @php
-                                        $displayValue = collect($value)->map(function ($part) {
-                                            if (is_array($part) || is_object($part)) {
-                                                return json_encode($part, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                                            }
-                                            return (string) $part;
-                                        })->implode(', ');
+                                        try {
+                                            $displayTime = \Illuminate\Support\Carbon::parse((string) $value)->format('g:i A');
+                                        } catch (\Throwable $e) {
+                                            $displayTime = (string) $value;
+                                        }
                                     @endphp
-                                    {{ \Illuminate\Support\Str::limit($displayValue !== '' ? $displayValue : '—', 60) }}
-                                @elseif (isset($field['options']) && $value !== null && (is_string($value) || is_int($value)) && array_key_exists($value, $field['options']))
+                                    {{ $displayTime }}
+                                @elseif (is_object($value) && method_exists($value, 'format'))
+                                    {{ $field['type'] === 'datetime-local' ? $value->format('d M Y, g:i A') : $value->format('Y-m-d') }}
+                                @elseif (is_array($value) || $value instanceof \Illuminate\Support\Collection)
+                                    @php
+                                        $arrayValue = $value instanceof \Illuminate\Support\Collection ? $value->all() : $value;
+                                        $displayParts = collect($arrayValue)
+                                            ->map(function ($entry) {
+                                                if (is_null($entry)) {
+                                                    return null;
+                                                }
+                                                if (is_scalar($entry)) {
+                                                    return trim((string) $entry);
+                                                }
+                                                if (is_array($entry)) {
+                                                    foreach (['name', 'title', 'email', 'label', 'value'] as $key) {
+                                                        if (isset($entry[$key]) && is_scalar($entry[$key])) {
+                                                            return trim((string) $entry[$key]);
+                                                        }
+                                                    }
+                                                    return collect($entry)
+                                                        ->filter(fn ($part) => is_scalar($part) && trim((string) $part) !== '')
+                                                        ->map(fn ($part) => trim((string) $part))
+                                                        ->implode(' - ');
+                                                }
+                                                if (is_object($entry)) {
+                                                    foreach (['name', 'title', 'email', 'label', 'value'] as $key) {
+                                                        if (isset($entry->{$key}) && is_scalar($entry->{$key})) {
+                                                            return trim((string) $entry->{$key});
+                                                        }
+                                                    }
+                                                    if (method_exists($entry, '__toString')) {
+                                                        return trim((string) $entry);
+                                                    }
+                                                }
+                                                return null;
+                                            })
+                                            ->filter(fn ($part) => filled($part))
+                                            ->values()
+                                            ->implode(', ');
+                                    @endphp
+                                    {{ $displayParts !== '' ? \Illuminate\Support\Str::limit($displayParts, 120) : '' }}
+                                @elseif (isset($field['options']) && $value !== null && !is_array($value) && array_key_exists($value, $field['options']))
                                     {{ $field['options'][$value] }}
-                                @elseif ($value instanceof \Stringable)
-                                    {{ \Illuminate\Support\Str::limit((string) $value, 60) }}
-                                @elseif (is_scalar($value) || $value === null)
-                                    {{ \Illuminate\Support\Str::limit((string) ($value ?? ''), 60) ?: '—' }}
                                 @else
-                                    {{ \Illuminate\Support\Str::limit(json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '—', 60) }}
+                                    {{ $value !== null ? \Illuminate\Support\Str::limit((string) $value, 60) : '' }}
                                 @endif
                             </td>
                         @endforeach
+                        @if ($routeName === 'expenses')
+                            @php
+                                $expenseItemNames = $item->items
+                                    ->pluck('description')
+                                    ->filter(fn ($description) => filled($description))
+                                    ->map(fn ($description) => trim((string) $description))
+                                    ->values();
+                                $expenseItemsText = $expenseItemNames->implode(', ');
+                            @endphp
+                            <td class="px-4 py-3 align-top text-slate-700 min-w-[220px] max-w-[420px]">
+                                @if ($expenseItemsText !== '')
+                                    <span class="whitespace-normal break-words" title="{{ $expenseItemsText }}">{{ $expenseItemsText }}</span>
+                                @else
+                                    <span class="text-slate-400"></span>
+                                @endif
+                            </td>
+                        @endif
                         <td class="px-4 py-3 text-right whitespace-nowrap">
                             <button type="button"
                                     onclick='openCrudViewModal({{ json_encode($rowValues) }}, {{ $item->id }}, {{ (($item->user_id ?? null) == auth()->id()) ? "true" : "false" }})'
@@ -450,7 +568,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="{{ count($fields) + 2 }}" class="px-4 py-10 text-center text-slate-400">
+                        <td colspan="{{ count($fields) + 1 + ($routeName === 'expenses' ? 1 : 0) + ($pmHasBulkDelete ? 1 : 0) }}" class="px-4 py-10 text-center text-slate-400">
                             <i class="{{ $icon }} text-3xl mb-2 block opacity-30" aria-hidden="true"></i>
                             No {{ strtolower($title) }}s yet.
                         </td>
@@ -463,6 +581,38 @@
     <nav aria-label="Pagination" class="mt-4">
         {{ $items->links() }}
     </nav>
+    @if ($pmHasBulkDelete)
+        <script>
+            function pmUpdateCrudBulkBar() {
+                var boxes = Array.from(document.querySelectorAll('.pm-crud-row-checkbox'));
+                var selected = boxes.filter(function (box) { return box.checked; });
+                var bar = document.getElementById('pm-crud-bulk-bar');
+                var count = document.getElementById('pm-crud-selected-count');
+                var master = document.getElementById('pm-crud-select-all');
+                if (bar) bar.classList.toggle('hidden', selected.length === 0);
+                if (bar) bar.classList.toggle('flex', selected.length > 0);
+                if (count) count.textContent = selected.length;
+                if (master) {
+                    master.checked = boxes.length > 0 && selected.length === boxes.length;
+                    master.indeterminate = selected.length > 0 && selected.length < boxes.length;
+                }
+            }
+            function pmToggleAllCrudRows(master) {
+                document.querySelectorAll('.pm-crud-row-checkbox').forEach(function (box) { box.checked = master.checked; });
+                pmUpdateCrudBulkBar();
+            }
+            function pmConfirmCrudBulkDelete() {
+                var selected = document.querySelectorAll('.pm-crud-row-checkbox:checked');
+                if (!selected.length) return;
+                pmConfirmAction({
+                    title: 'Delete selected {{ strtolower($title) }}s?',
+                    message: 'You are about to permanently delete ' + selected.length + ' selected record' + (selected.length === 1 ? '' : 's') + '. This action cannot be undone.',
+                    confirmText: 'Delete selected',
+                    onConfirm: function () { document.getElementById('pm-crud-bulk-delete-form').requestSubmit(); }
+                });
+            }
+        </script>
+    @endif
     </div>
 
     <div role="tabpanel" id="pm-crud-panel-calendar" aria-labelledby="pm-crud-tab-calendar" tabindex="0" class="pm-crud-panel" hidden>
@@ -480,7 +630,7 @@
             </div>
 
             <p class="text-xs text-slate-400 mb-3">
-                Click any day to add a new {{ strtolower($title) }} for that date{{ $dateFieldName ? '' : ' (date will need to be set manually — this module doesn\'t track a specific date field of its own beyond when it was added)' }}.
+                Click any day to add a new {{ strtolower($title) }} for that date{{ $dateFieldName ? '' : ' (date will need to be set manually  this module doesn\'t track a specific date field of its own beyond when it was added)' }}.
             </p>
 
             <div class="grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-400 uppercase mb-1">
@@ -514,7 +664,7 @@
                             {{-- Each existing item is its own clickable
                                  button, opening the SAME edit modal the
                                  table's Edit button uses (openCrudEditModal
-                                 is already defined further down) —
+                                 is already defined further down) 
                                  stopPropagation so clicking a pill doesn't
                                  ALSO trigger the day cell's "add new" click
                                  handler underneath it. --}}
@@ -533,175 +683,141 @@
         </div>
     </div>
 
-    {{-- Shared create/edit modal. Server-rendered with old()-filled fields
-         so validation-error redisplay works even though the "normal" path
-         to reach it is a JS click, not a page load. --}}
-    <dialog id="crud-modal" aria-labelledby="crud-modal-title" class="rounded-2xl p-0 pm-dialog shadow-2xl backdrop:bg-slate-900/50">
-        <form method="POST" id="crud-modal-form" action="{{ old('_dialog_action', route($routeName . '.store')) }}" class="p-6 space-y-5">
+    {{-- Shared create/edit modal. This drives Health, Expenses, Reminders, Projects,
+         Meetings and the other generic CRUD modules, so one professional structure
+         keeps the whole application consistent. --}}
+    <dialog id="crud-modal" aria-labelledby="crud-modal-title" class="{{ in_array($routeName, ['expenses', 'meetings'], true) ? 'pm-dialog-lg' : 'pm-dialog' }} pm-modal-shell">
+        <form method="POST" id="crud-modal-form" action="{{ old('_dialog_action', route($routeName . '.store')) }}" class="pm-modal-form">
             @csrf
             @if (old('_method') === 'PUT')
                 @method('PUT')
             @endif
             <input type="hidden" name="_dialog_action" id="crud-modal-dialog-action" value="{{ old('_dialog_action', '') }}">
 
-            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-lg bg-{{ $accent }}-100 text-{{ $accent }}-600 flex items-center justify-center shrink-0">
-                        <i class="{{ $icon }} text-sm" aria-hidden="true"></i>
+            <header class="pm-modal-header">
+                <div class="pm-modal-heading">
+                    <div class="pm-modal-icon">
+                        <i class="{{ $icon }}" aria-hidden="true"></i>
                     </div>
-                    <h2 id="crud-modal-title" class="text-lg font-bold text-slate-800">
-                        {{ old('_method') === 'PUT' ? 'Edit' : 'New' }} {{ $title }}
-                    </h2>
+                    <div class="min-w-0">
+                        <h2 id="crud-modal-title" class="pm-modal-title">
+                            {{ old('_method') === 'PUT' ? 'Edit' : 'New' }} {{ $title }}
+                        </h2>
+                        <p id="crud-modal-description" class="pm-modal-description">
+                            {{ old('_method') === 'PUT' ? 'Update the details below, then save your changes.' : 'Enter the details below. Required fields are marked with an asterisk.' }}
+                        </p>
+                    </div>
                 </div>
-                <button type="button" onclick="document.getElementById('crud-modal').close()"
-                        class="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors" aria-label="Close dialog">
+                <button type="button" onclick="document.getElementById('crud-modal').close()" class="pm-modal-close" aria-label="Close dialog">
                     <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                 </button>
+            </header>
+
+            <div class="pm-modal-body">
+                @include('crud._fields', ['fields' => $fields, 'item' => null])
+
+                @if ($dateFieldName)
+                    <div class="pm-modal-section flex items-start gap-3">
+                        <input type="checkbox" id="crud-set-reminder" name="set_reminder" value="1"
+                               class="mt-0.5 rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]">
+                        <div>
+                            <label for="crud-set-reminder" class="!mb-0 text-sm font-semibold text-slate-700">
+                                Also set a reminder
+                            </label>
+                            <p class="text-xs text-slate-500 mt-1">Get notified about this {{ strtolower($title) }} at the relevant date and time.</p>
+                        </div>
+                    </div>
+                @endif
             </div>
 
-            @include('crud._fields', ['fields' => $fields, 'item' => null])
-
-            @if ($dateFieldName)
-                <div class="flex items-center gap-2 border-t border-slate-100 pt-4">
-                    <input type="checkbox" id="crud-set-reminder" name="set_reminder" value="1"
-                           class="rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]">
-                    <label for="crud-set-reminder" class="text-sm text-slate-700">
-                        Also set a reminder for this {{ strtolower($title) }}
-                    </label>
-                </div>
-            @endif
-
-            <div class="flex items-center gap-3 pt-2 border-t border-slate-100 mt-2">
-                <button type="submit" class="inline-flex items-center gap-2 btn-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
+            <footer class="pm-modal-footer">
+                <button type="button" onclick="document.getElementById('crud-modal').close()" class="pm-btn-cancel">Cancel</button>
+                <button type="submit" class="pm-btn-save btn-primary text-white">
                     <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
-                    <span>Save</span>
+                    <span id="crud-modal-save-label">Save {{ $title }}</span>
                 </button>
-                <button type="button" onclick="document.getElementById('crud-modal').close()" class="text-sm text-slate-500 hover:text-slate-700 transition-colors">
-                    Cancel
-                </button>
-            </div>
+            </footer>
         </form>
     </dialog>
 
-    {{-- Shared read-only View modal used by every generic table page. --}}
-    <dialog id="crud-view-modal" aria-labelledby="crud-view-modal-title" class="rounded-2xl p-0 pm-dialog shadow-2xl backdrop:bg-slate-900/50">
-        <div class="p-6">
-            <div class="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-lg bg-{{ $accent }}-100 text-{{ $accent }}-600 flex items-center justify-center shrink-0">
-                        <i class="fa-solid fa-eye text-sm" aria-hidden="true"></i>
+    {{-- Shared read-only View modal. --}}
+    <dialog id="crud-view-modal" aria-labelledby="crud-view-modal-title" class="pm-dialog pm-modal-shell">
+        <div class="pm-modal-content">
+            <header class="pm-modal-header">
+                <div class="pm-modal-heading">
+                    <div class="pm-modal-icon"><i class="fa-solid fa-eye" aria-hidden="true"></i></div>
+                    <div>
+                        <h2 id="crud-view-modal-title" class="pm-modal-title">View {{ $title }}</h2>
+                        <p class="pm-modal-description">Review the saved information below. Use Edit from the table if you need to make changes.</p>
                     </div>
-                    <h2 id="crud-view-modal-title" class="text-lg font-bold text-slate-800">View {{ $title }}</h2>
                 </div>
-                <button type="button" onclick="document.getElementById('crud-view-modal').close()"
-                        class="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors" aria-label="Close dialog">
+                <button type="button" onclick="document.getElementById('crud-view-modal').close()" class="pm-modal-close" aria-label="Close dialog">
                     <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                 </button>
+            </header>
+
+            <div class="pm-modal-body">
+                <dl id="crud-view-fields" class="pm-modal-read-grid"></dl>
+
+                @if ($routeName === 'meetings')
+                    <section id="crud-meeting-view-actions" class="hidden pm-modal-section">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Meeting tools</p>
+                        <div class="flex flex-wrap gap-2">
+                            <a id="crud-meeting-record-link" href="#" class="inline-flex items-center gap-2 btn-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium">
+                                <i class="fa-solid fa-microphone" aria-hidden="true"></i> Record Meeting
+                            </a>
+                            <a id="crud-meeting-upload-link" href="#" class="inline-flex items-center gap-2 border border-slate-200 bg-white text-slate-700 px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50">
+                                <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> Upload Recording
+                            </a>
+                            <a id="crud-meeting-transcript-link" href="#" class="inline-flex items-center gap-2 border border-slate-200 bg-white text-slate-700 px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50">
+                                <i class="fa-solid fa-file-lines" aria-hidden="true"></i> Transcript &amp; AI Summary
+                            </a>
+                        </div>
+                    </section>
+                @endif
             </div>
 
-            <dl id="crud-view-fields" class="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4"></dl>
-
-            @if ($routeName === 'meetings')
-                <div id="crud-meeting-view-actions" class="hidden mt-6 pt-4 border-t border-slate-100">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Meeting tools</p>
-                    <div class="flex flex-wrap gap-2">
-                        <a id="crud-meeting-record-link" href="#"
-                           class="inline-flex items-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium">
-                            <i class="fa-solid fa-microphone" aria-hidden="true"></i> Record Meeting
-                        </a>
-                        <a id="crud-meeting-upload-link" href="#"
-                           class="inline-flex items-center gap-2 border border-slate-200 text-slate-700 px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-50">
-                            <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i> Upload Recording
-                        </a>
-                        <a id="crud-meeting-transcript-link" href="#"
-                           class="inline-flex items-center gap-2 border border-slate-200 text-slate-700 px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-50">
-                            <i class="fa-solid fa-file-lines" aria-hidden="true"></i> Transcript &amp; AI Summary
-                        </a>
-                    </div>
-                    <p class="text-xs text-slate-400 mt-2">Record live audio or upload an existing recording, then transcribe it and generate key points, decisions and action items with AI.</p>
-                </div>
-            @endif
-
-            <div class="flex justify-end mt-6 pt-4 border-t border-slate-100">
-                <button type="button" onclick="document.getElementById('crud-view-modal').close()" class="text-sm text-slate-500 hover:text-slate-700">Close</button>
-            </div>
+            <footer class="pm-modal-footer">
+                <button type="button" onclick="document.getElementById('crud-view-modal').close()" class="pm-btn-cancel">Close</button>
+            </footer>
         </div>
     </dialog>
 
     {{-- Shared delete-confirmation modal. --}}
-    <dialog id="crud-delete-modal" aria-labelledby="crud-delete-modal-title" class="rounded-2xl p-6 pm-dialog-sm shadow-2xl backdrop:bg-slate-900/50">
-        <div class="flex items-center gap-3 mb-3">
-            <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
-                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+    <dialog id="crud-delete-modal" aria-labelledby="crud-delete-modal-title" class="pm-dialog-sm pm-modal-shell">
+        <div class="pm-modal-content">
+            <header class="pm-modal-header">
+                <div class="pm-modal-heading">
+                    <div class="pm-modal-icon danger"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></div>
+                    <div>
+                        <h2 id="crud-delete-modal-title" class="pm-modal-title">Delete {{ strtolower($title) }}?</h2>
+                        <p class="pm-modal-description">Check the item carefully before removing it.</p>
+                    </div>
+                </div>
+                <button type="button" onclick="document.getElementById('crud-delete-modal').close()" class="pm-modal-close" aria-label="Close dialog">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            </header>
+            <div class="pm-modal-body">
+                <div class="pm-modal-section bg-rose-50/60 border-rose-100">
+                    <p id="crud-delete-modal-desc" class="text-sm text-slate-700">This action cannot be undone.</p>
+                </div>
             </div>
-            <h2 id="crud-delete-modal-title" class="text-lg font-bold text-slate-800">Delete {{ strtolower($title) }}?</h2>
+            <form method="POST" id="crud-delete-modal-form" class="!gap-0">
+                @csrf
+                @method('DELETE')
+                <footer class="pm-modal-footer">
+                    <button type="button" onclick="document.getElementById('crud-delete-modal').close()" class="pm-btn-cancel">Cancel</button>
+                    <button type="submit" class="pm-btn-danger">
+                        <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+                        <span>Delete permanently</span>
+                    </button>
+                </footer>
+            </form>
         </div>
-        <p id="crud-delete-modal-desc" class="text-sm text-slate-600 mb-5">This action cannot be undone.</p>
-        <form method="POST" id="crud-delete-modal-form">
-            @csrf
-            @method('DELETE')
-            <div class="flex justify-end gap-3">
-                <button type="button" onclick="document.getElementById('crud-delete-modal').close()" class="text-sm text-slate-500 hover:text-slate-700 transition-colors">
-                    Cancel
-                </button>
-                <button type="submit" class="inline-flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
-                    <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
-                    <span>Delete</span>
-                </button>
-            </div>
-        </form>
     </dialog>
 
     <script>
-        function pmToggleAllCrud(selectAllCheckbox) {
-            document.querySelectorAll('.pm-crud-row-checkbox').forEach(function (checkbox) {
-                checkbox.checked = selectAllCheckbox.checked;
-            });
-            pmUpdateCrudBulkBar();
-        }
-
-        function pmUpdateCrudBulkBar() {
-            var all = Array.prototype.slice.call(document.querySelectorAll('.pm-crud-row-checkbox'));
-            var checked = all.filter(function (checkbox) { return checkbox.checked; });
-            var bar = document.getElementById('pm-crud-bulk-bar');
-            var count = document.getElementById('pm-crud-bulk-count');
-            var selectAll = document.getElementById('pm-crud-select-all');
-
-            if (bar) { bar.classList.toggle('hidden', checked.length === 0); bar.classList.toggle('flex', checked.length > 0); }
-            if (count) { count.textContent = checked.length + (checked.length === 1 ? ' item selected' : ' items selected'); }
-            if (selectAll) {
-                selectAll.checked = all.length > 0 && checked.length === all.length;
-                selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
-            }
-        }
-
-        function pmSubmitCrudBulkDelete() {
-            var checked = document.querySelectorAll('.pm-crud-row-checkbox:checked');
-            if (!checked.length) { return; }
-            if (!confirm('Delete ' + checked.length + ' selected {{ strtolower($title) }}' + (checked.length === 1 ? '' : 's') + '? This action cannot be undone.')) { return; }
-
-            var form = document.createElement('form');
-            form.method = 'POST';
-            form.action = @json(route($routeName . '.bulk-destroy'));
-
-            var token = document.createElement('input');
-            token.type = 'hidden'; token.name = '_token'; token.value = @json(csrf_token());
-            form.appendChild(token);
-
-            var method = document.createElement('input');
-            method.type = 'hidden'; method.name = '_method'; method.value = 'DELETE';
-            form.appendChild(method);
-
-            checked.forEach(function (checkbox) {
-                var field = document.createElement('input');
-                field.type = 'hidden'; field.name = 'ids[]'; field.value = checkbox.value;
-                form.appendChild(field);
-            });
-
-            document.body.appendChild(form);
-            form.submit();
-        }
-
         function pmToggleCrudDateRange(select) {
             var wrapper = document.getElementById('crud-date-range-{{ $routeName }}');
             if (wrapper) { wrapper.style.display = select.value === 'range' ? 'flex' : 'none'; }
@@ -752,17 +868,22 @@
             var methodInput = form.querySelector('input[name="_method"]');
             if (methodInput) { methodInput.remove(); }
             document.getElementById('crud-modal-title').textContent = 'New {{ $title }}';
+            document.getElementById('crud-modal-description').textContent = 'Enter the details below. Required fields are marked with an asterisk.';
+            var saveLabel = document.getElementById('crud-modal-save-label'); if (saveLabel) { saveLabel.textContent = 'Save {{ $title }}'; }
             dialog.classList.remove('pm-dialog-quick');
             dialog.classList.add('pm-dialog');
             dialog.showModal();
+            if (typeof window.pmSync12HourTimeControls === 'function') {
+                window.setTimeout(function () { window.pmSync12HourTimeControls(dialog); }, 0);
+            }
         }
 
-        // Calendar tab's "click a day to add" — opens the same create
+        // Calendar tab's "click a day to add"  opens the same create
         // modal as the "Add" button (same fields, same validation), then
         // pre-fills whichever field maps to this module's date column
         // (see CrudController's editableDateFieldName()) with the clicked
         // day. Modules with no editable date field of their own (e.g.
-        // Feedback) just open the plain create modal — there's nothing to
+        // Feedback) just open the plain create modal  there's nothing to
         // pre-fill. Styled visibly smaller/lighter (.pm-dialog-quick) and
         // titled with the actual date, closer to the compact "quick add
         // event" popup Google Calendar/Teams show for this exact
@@ -775,7 +896,7 @@
             dialog.classList.add('pm-dialog-quick');
 
             var friendlyDate = new Date(dateKey + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-            document.getElementById('crud-modal-title').textContent = 'New {{ $title }} — ' + friendlyDate;
+            document.getElementById('crud-modal-title').textContent = 'New {{ $title }}  ' + friendlyDate;
 
             @if ($dateFieldName)
                 var dateField = document.getElementById('field-{{ $dateFieldName }}');
@@ -788,24 +909,49 @@
         function openCrudViewModal(values, itemId, isOwner) {
             var fields = @json($fields);
             var container = document.getElementById('crud-view-fields');
+            var dialog = document.getElementById('crud-view-modal');
+            if (!container || !dialog) { return; }
+
             container.innerHTML = '';
 
-            fields.forEach(function (field) {
-                var value = values[field.name];
-
+            function displayValue(value) {
                 if (Array.isArray(value)) {
-                    value = value.map(function (part) {
-                        return (part !== null && typeof part === 'object') ? JSON.stringify(part) : String(part);
-                    }).join(', ');
-                } else if (value !== null && typeof value === 'object') {
-                    value = JSON.stringify(value, null, 2);
+                    return value.map(function (part) {
+                        if (part === null || part === undefined) { return ''; }
+                        if (typeof part !== 'object') { return String(part); }
+                        return part.name || part.title || part.email || part.label || part.value || JSON.stringify(part);
+                    }).filter(Boolean).join(', ');
                 }
+                if (value !== null && typeof value === 'object') {
+                    return value.name || value.title || value.email || value.label || value.value || JSON.stringify(value, null, 2);
+                }
+                return value;
+            }
 
-                if (value === null || value === undefined || value === '') { value = '—'; }
+            fields.forEach(function (field) {
+                var value = displayValue(values[field.name]);
+
+                if (value === null || value === undefined || value === '') { value = ''; }
                 if (field.options && (typeof value === 'string' || typeof value === 'number') && Object.prototype.hasOwnProperty.call(field.options, value)) {
                     value = field.options[value];
                 }
                 if (field.type === 'checkbox') { value = value && value !== '0' ? 'Yes' : 'No'; }
+                if (field.type === 'time' && value) {
+                    var parts = String(value).match(/^(\d{1,2}):(\d{2})/);
+                    if (parts) {
+                        var hour24 = Number(parts[1]);
+                        var hour12 = (hour24 % 12) || 12;
+                        value = hour12 + ':' + parts[2] + ' ' + (hour24 >= 12 ? 'PM' : 'AM');
+                    }
+                }
+                if (field.type === 'datetime-local' && value) {
+                    var dtMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})/);
+                    if (dtMatch) {
+                        var dtHour24 = Number(dtMatch[4]);
+                        var dtHour12 = (dtHour24 % 12) || 12;
+                        value = dtMatch[3] + '/' + dtMatch[2] + '/' + dtMatch[1] + ', ' + dtHour12 + ':' + dtMatch[5] + ' ' + (dtHour24 >= 12 ? 'PM' : 'AM');
+                    }
+                }
 
                 var wrap = document.createElement('div');
                 wrap.className = field.type === 'textarea' ? 'sm:col-span-2' : '';
@@ -826,16 +972,19 @@
                     if (isOwner) {
                         tools.classList.remove('hidden');
                         var base = @json(url('/meetings')) + '/' + itemId + '/notes';
-                        document.getElementById('crud-meeting-record-link').href = base + '#record-meeting';
-                        document.getElementById('crud-meeting-upload-link').href = base + '#record-meeting';
-                        document.getElementById('crud-meeting-transcript-link').href = base + '#transcripts-summary';
+                        var record = document.getElementById('crud-meeting-record-link');
+                        var upload = document.getElementById('crud-meeting-upload-link');
+                        var transcript = document.getElementById('crud-meeting-transcript-link');
+                        if (record) { record.href = base + '#record-meeting'; }
+                        if (upload) { upload.href = base + '#record-meeting'; }
+                        if (transcript) { transcript.href = base + '#transcripts-summary'; }
                     } else {
                         tools.classList.add('hidden');
                     }
                 }
             @endif
 
-            document.getElementById('crud-view-modal').showModal();
+            dialog.showModal();
         }
 
         function openCrudEditModal(actionUrl, values) {
@@ -862,7 +1011,7 @@
                 // Checkbox fields render TWO inputs sharing the same name
                 // (a hidden "0" fallback + the real checkbox), so
                 // form.elements[name] is a RadioNodeList, not a single
-                // element — .value doesn't check/uncheck it correctly.
+                // element  .value doesn't check/uncheck it correctly.
                 if (el instanceof RadioNodeList) {
                     var checkbox = form.querySelector('input[type="checkbox"][name="' + name + '"]');
                     if (checkbox) { checkbox.checked = !!values[name]; }
@@ -876,7 +1025,12 @@
             });
 
             document.getElementById('crud-modal-title').textContent = 'Edit {{ $title }}';
+            document.getElementById('crud-modal-description').textContent = 'Update the details below, then save your changes.';
+            var saveLabel = document.getElementById('crud-modal-save-label'); if (saveLabel) { saveLabel.textContent = 'Save changes'; }
             dialog.showModal();
+            if (typeof window.pmSync12HourTimeControls === 'function') {
+                window.setTimeout(function () { window.pmSync12HourTimeControls(dialog); }, 0);
+            }
         }
 
         function openCrudDeleteModal(actionUrl, label) {
@@ -887,11 +1041,7 @@
             dialog.showModal();
         }
 
-        // If this page just reloaded after a failed validation on the
-        // create/edit modal (old('_dialog_action') is present), reopen it
-        // automatically instead of leaving the error silently at the top
-        // of an otherwise-normal index page — and make sure the Table tab
-        // (where the modal lives) is the visible one first.
+       
         document.addEventListener('DOMContentLoaded', function () {
             @if ($errors->any() && old('_dialog_action'))
                 pmSelectCrudTab('table');
@@ -901,7 +1051,7 @@
     </script>
 
     {{-- Optional per-module extras (e.g. Meetings' "Schedule Multiple" modal).
-         Silently does nothing for every other module — view()->exists()
+         Silently does nothing for every other module view()->exists()
          just returns false when no matching file was created. --}}
     @if (view()->exists('crud.extras.' . $routeName . '-extra'))
         @include('crud.extras.' . $routeName . '-extra')

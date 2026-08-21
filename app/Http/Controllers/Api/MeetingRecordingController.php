@@ -87,7 +87,7 @@ class MeetingRecordingController extends Controller
         $recording->update([
             'status' => 'completed',
             'audio_path' => $audioPath,
-            'duration_seconds' => $this->resolveDurationSeconds($audioPath, (int) $data['duration_seconds']),
+            'duration_seconds' => $data['duration_seconds'],
         ]);
 
         MeetingAuditLog::record($recording->meeting_id, $request->user()->id, 'stopped_recording', "Duration: {$recording->formattedDuration()}");
@@ -103,16 +103,20 @@ class MeetingRecordingController extends Controller
             return response()->json(['message' => 'No audio to transcribe yet.'], 422);
         }
 
+        $data = $request->validate([
+            'transcription_language' => ['nullable', 'in:auto,en-GB,lg,sw'],
+        ]);
+        $language = $data['transcription_language'] ?? 'auto';
+
         $recording->update(['transcription_status' => 'processing', 'transcription_error' => null]);
 
         try {
-            $result = app(TranscriptionService::class)->transcribe($request->user(), $recording->audio_path);
+            $result = app(TranscriptionService::class)->transcribe($request->user(), $recording->audio_path, $language);
 
             $recording->update([
                 'transcript' => $result['transcript'],
                 'transcript_segments' => $result['segments'],
                 'transcription_status' => 'completed',
-                'duration_seconds' => $this->durationFromTranscriptOrExisting($recording, $result['segments'] ?? []),
             ]);
 
             MeetingAuditLog::record($recording->meeting_id, $request->user()->id, 'transcribed_recording');
@@ -233,63 +237,7 @@ class MeetingRecordingController extends Controller
             'summary' => $recording->summary,
             'summary_status' => $recording->summary_status,
             'summary_error' => $recording->summary_error,
-            'created_at' => $recording->created_at->copy()->timezone('Africa/Nairobi')->toIso8601String(),
+            'created_at' => $recording->created_at->toIso8601String(),
         ];
     }
-    private function resolveDurationSeconds(string $audioPath, int $clientDuration = 0): int
-    {
-        if ($clientDuration > 0) {
-            return $clientDuration;
-        }
-
-        if (! function_exists('shell_exec')) {
-            return 0;
-        }
-
-        try {
-            $binary = trim((string) @shell_exec('command -v ffprobe 2>/dev/null'));
-            if ($binary === '') {
-                return 0;
-            }
-
-            $absolutePath = Storage::disk('public')->path($audioPath);
-            if (! is_file($absolutePath)) {
-                return 0;
-            }
-
-            $command = escapeshellarg($binary)
-                . ' -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '
-                . escapeshellarg($absolutePath)
-                . ' 2>/dev/null';
-            $seconds = (float) trim((string) @shell_exec($command));
-
-            return $seconds > 0 ? (int) round($seconds) : 0;
-        } catch (\Throwable) {
-            return 0;
-        }
-    }
-
-    private function durationFromTranscriptOrExisting(MeetingRecording $recording, array $segments): int
-    {
-        if ((int) $recording->duration_seconds > 0) {
-            return (int) $recording->duration_seconds;
-        }
-
-        $max = 0.0;
-        foreach ($segments as $segment) {
-            $end = (float) ($segment['end_seconds'] ?? $segment['end'] ?? 0);
-            if ($end > $max) {
-                $max = $end;
-            }
-        }
-
-        if ($max > 0) {
-            return (int) ceil($max);
-        }
-
-        return $recording->audio_path
-            ? $this->resolveDurationSeconds($recording->audio_path, 0)
-            : 0;
-    }
-
 }

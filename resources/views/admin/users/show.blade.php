@@ -29,6 +29,15 @@
                     <dd>{{ $user->hasGivenDataConsent() ? 'Given ' . $user->data_consent_at->format('Y-m-d') : 'Not recorded' }}</dd>
                 </div>
                 <div class="flex justify-between"><dt class="text-slate-500">Account status</dt><dd>{{ $user->isSuspended() ? 'Suspended' : 'Active' }}</dd></div>
+                <div class="pt-3 mt-3 border-t border-slate-100">
+                    <div class="flex items-center justify-between gap-3 mb-2">
+                        <dt class="text-slate-500">Usage progress</dt>
+                        <dd class="font-bold text-slate-700">{{ $usageProgress ?? 0 }}%</dd>
+                    </div>
+                    <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div class="h-full rounded-full bg-[var(--brand-1)] transition-all duration-500" style="width: {{ (int) ($usageProgress ?? 0) }}%"></div>
+                    </div>
+                </div>
             </dl>
         </div>
 
@@ -61,6 +70,13 @@
                     <i class="fa-solid fa-user-shield" aria-hidden="true"></i>
                     <span>Role</span>
                 </button>
+                <button type="button" role="tab" id="pm-user-tab-data" aria-controls="pm-user-panel-data"
+                        aria-selected="false" tabindex="-1" data-tab="data"
+                        onclick="pmSelectUserTab('data')" onkeydown="pmUserTabKeydown(event, 'data')"
+                        class="pm-user-tab flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300">
+                    <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+                    <span>Data Recovery</span>
+                </button>
                 <button type="button" role="tab" id="pm-user-tab-danger" aria-controls="pm-user-panel-danger"
                         aria-selected="false" tabindex="-1" data-tab="danger"
                         onclick="pmSelectUserTab('danger')" onkeydown="pmUserTabKeydown(event, 'danger')"
@@ -82,7 +98,7 @@
                 @else
                     <p class="text-sm text-slate-600 mb-3">This account can currently log in normally.</p>
                     <form method="POST" action="{{ route('admin.users.suspend', $user->id) }}"
-                          onsubmit="return confirm('Suspend {{ $user->name }}? They will be unable to log in until reactivated.');">
+                          data-confirm="Suspend {{ $user->name }}? They will be unable to log in until reactivated." data-confirm-title="Suspend user?" data-confirm-text="Suspend">
                         @csrf
                         <button type="submit" class="bg-rose-600 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm hover:shadow-md hover:bg-rose-700 transition-all">
                             Suspend account
@@ -137,6 +153,45 @@
                 </form>
             </div>
 
+            <div role="tabpanel" id="pm-user-panel-data" aria-labelledby="pm-user-tab-data" tabindex="0" class="pm-user-panel pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6" hidden>
+                <div class="flex items-start gap-3 mb-5">
+                    <span class="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 grid place-items-center shrink-0">
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                    </span>
+                    <div>
+                        <h2 class="font-bold text-slate-800">Restore user data</h2>
+                        <p class="text-sm text-slate-500 mt-1">Restore all records still available in this user's 30-day recycle bin. The record contents are not displayed to the administrator.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-5">
+                    <div class="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                        <p class="text-xs text-slate-500 uppercase tracking-wide">Usage progress</p>
+                        <p class="text-2xl font-extrabold text-slate-800 mt-1">{{ $usageProgress ?? 0 }}%</p>
+                    </div>
+                    <div class="rounded-2xl bg-amber-50 border border-amber-100 p-4">
+                        <p class="text-xs text-amber-700 uppercase tracking-wide">Recoverable items</p>
+                        <p class="text-2xl font-extrabold text-amber-900 mt-1">{{ $recoverableCount ?? 0 }}</p>
+                    </div>
+                </div>
+
+                @if (($recoverableCount ?? 0) > 0)
+                    <form method="POST" action="{{ route('admin.users.restore-data', $user) }}"
+                          data-confirm="Restore all recoverable data for {{ $user->name }}?" data-confirm-title="Restore user data?" data-confirm-text="Restore" data-confirm-danger="false">
+                        @csrf
+                        <button type="submit" class="btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-semibold inline-flex items-center gap-2">
+                            <i class="fa-solid fa-rotate-left"></i>
+                            Restore {{ $recoverableCount }} item(s)
+                        </button>
+                    </form>
+                    <p class="text-xs text-slate-400 mt-3">After recovery, a confirmation email will be sent to <strong>{{ $user->email }}</strong>.</p>
+                @else
+                    <div class="rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800 p-4 text-sm">
+                        <i class="fa-solid fa-circle-check mr-1"></i> There is currently no deleted data available to restore.
+                    </div>
+                @endif
+            </div>
+
             <div role="tabpanel" id="pm-user-panel-danger" aria-labelledby="pm-user-tab-danger" tabindex="0" class="pm-user-panel bg-white shadow-sm border border-rose-200 rounded-xl p-6" hidden>
                 <h2 class="font-semibold mb-3 text-rose-700">Delete account</h2>
                 <p class="text-sm text-slate-600 mb-4">
@@ -144,7 +199,7 @@
                     every module. This cannot be undone.
                 </p>
                 <form method="POST" action="{{ route('admin.users.destroy', $user->id) }}"
-                      onsubmit="return confirm('Permanently delete {{ $user->name }} and all their data? This cannot be undone.');">
+                      data-confirm="Permanently delete {{ $user->name }} and all their data? This cannot be undone." data-confirm-title="Delete user permanently?" data-confirm-text="Delete permanently">
                     @csrf
                     @method('DELETE')
                     <button type="submit" class="bg-rose-600 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm hover:shadow-md hover:bg-rose-700 transition-all">

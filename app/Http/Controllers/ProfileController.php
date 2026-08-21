@@ -46,6 +46,18 @@ class ProfileController extends Controller
         return back()->with('profile_status', 'profile-updated');
     }
 
+
+    public function updateCurrency(Request $request): RedirectResponse
+    {
+        $settings = \App\Models\SiteSetting::current();
+        $allowed = collect($settings->currencyOptions())->pluck('code')->map(fn ($c) => strtoupper($c))->all();
+        $data = $request->validate([
+            'preferred_currency_code' => ['required', 'string', Rule::in($allowed)],
+        ]);
+        $request->user()->update(['preferred_currency_code' => strtoupper($data['preferred_currency_code'])]);
+        return back()->with('profile_status', 'currency-updated');
+    }
+
     public function updatePassword(Request $request): RedirectResponse
     {
         $data = $request->validate([
@@ -133,4 +145,27 @@ class ProfileController extends Controller
 
         return redirect('/');
     }
+    public function updatePersonalisation(Request $request): RedirectResponse
+    {
+        $allowedAi = ['planning','finance','goals','health','wellbeing','spiritual','notes','meetings','network','education','relationships'];
+        $allowedFocus = ['money','day','goals','health','work','growth','everything'];
+        $data = $request->validate([
+            'ai_data_permissions' => ['nullable','array'],
+            'ai_data_permissions.*' => ['string', Rule::in($allowedAi)],
+            'onboarding_focuses' => ['nullable','array','max:7'],
+            'onboarding_focuses.*' => ['string', Rule::in($allowedFocus)],
+            'engagement_notification_preferences' => ['nullable','array'],
+            'engagement_notification_preferences.*' => ['nullable','boolean'],
+        ]);
+
+        $request->user()->update([
+            'ai_data_permissions' => array_values(array_unique($data['ai_data_permissions'] ?? [])),
+            'onboarding_focuses' => array_values(array_unique($data['onboarding_focuses'] ?? [])),
+            'onboarding_completed_at' => now(),
+            'engagement_notification_preferences' => collect($data['engagement_notification_preferences'] ?? [])->map(fn ($v) => (bool) $v)->all(),
+        ]);
+
+        return back()->with('profile_status', 'personalisation-updated');
+    }
+
 }

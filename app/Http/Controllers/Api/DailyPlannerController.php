@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\DailyPlan;
 use App\Models\DailyPlanItem;
+use App\Models\Reminder;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
+use App\Services\OfflineConflictGuard;
 
 class DailyPlannerController extends Controller
 {
@@ -29,6 +32,8 @@ class DailyPlannerController extends Controller
                     'plan_date' => $dateString,
                     'title' => 'My Daily Plan',
                     'notes' => null,
+                    'achievements' => null,
+                    'challenges' => null,
                     'items' => [],
                 ],
                 'items' => [],
@@ -131,6 +136,8 @@ class DailyPlannerController extends Controller
             'plan_date' => 'required|date',
             'title' => 'required|string|max:255',
             'notes' => 'nullable|string',
+            'achievements' => 'nullable|string',
+            'challenges' => 'nullable|string',
         ]);
 
         $plan = DailyPlan::firstOrCreate(
@@ -141,9 +148,13 @@ class DailyPlannerController extends Controller
             ['title' => 'My Daily Plan']
         );
 
+        if ($conflict = OfflineConflictGuard::check($request, $plan)) return $conflict;
+
         $plan->update([
             'title' => $data['title'],
             'notes' => $data['notes'] ?? null,
+                'achievements' => $data['achievements'] ?? null,
+                'challenges' => $data['challenges'] ?? null,
         ]);
 
         return $this->respond($plan);
@@ -154,7 +165,10 @@ class DailyPlannerController extends Controller
         $data = $request->validate([
             'plan_date' => 'required|date',
             'title' => 'required|string|max:255',
+            'personal_goal_id' => 'nullable|integer|exists:personal_goals,id',
             'description' => 'nullable|string',
+            'achievements' => 'nullable|string',
+            'challenges' => 'nullable|string',
             'priority' => 'required|in:low,medium,high',
             'start_time' => 'nullable|date_format:H:i',
             'end_time' => 'nullable|date_format:H:i|after:start_time',
@@ -178,22 +192,42 @@ class DailyPlannerController extends Controller
     public function updateItem(Request $request, DailyPlanItem $item): JsonResponse
     {
         $this->owned($request, $item);
+        if ($conflict = OfflineConflictGuard::check($request, $item)) return $conflict;
 
         $data = $request->validate([
+            'plan_date' => 'nullable|date',
             'title' => 'required|string|max:255',
+            'personal_goal_id' => 'nullable|integer|exists:personal_goals,id',
             'description' => 'nullable|string',
+            'achievements' => 'nullable|string',
+            'challenges' => 'nullable|string',
             'priority' => 'required|in:low,medium,high',
             'start_time' => 'nullable|date_format:H:i',
             'end_time' => 'nullable|date_format:H:i|after:start_time',
         ]);
 
+        $oldDate = $item->plan->plan_date->toDateString();
+        $targetDate = isset($data['plan_date']) ? Carbon::parse($data['plan_date'])->toDateString() : null;
+        unset($data['plan_date']);
+        if ($targetDate && $targetDate !== $oldDate) {
+            if ($item->is_completed) {
+                return response()->json(['message' => 'Completed tasks cannot be moved. Reopen the task first if it needs rescheduling.'], 422);
+            }
+            $targetPlan = DailyPlan::firstOrCreate(['user_id' => $request->user()->id, 'plan_date' => $targetDate], ['title' => 'My Daily Plan']);
+            $data['daily_plan_id'] = $targetPlan->id;
+            $data['sort_order'] = ($targetPlan->items()->max('sort_order') ?? 0) + 1;
+        }
         $item->update($data);
-        return response()->json($item->fresh());
+        if ($targetDate && $targetDate !== $oldDate) {
+            $this->rescheduleReminderDate($request, $item, $targetDate);
+        }
+        return response()->json($item->fresh()->load('plan'));
     }
 
     public function toggle(Request $request, DailyPlanItem $item): JsonResponse
     {
         $this->owned($request, $item);
+        if ($conflict = OfflineConflictGuard::check($request, $item)) return $conflict;
         $completed = ! (bool) $item->is_completed;
         $item->update([
             'is_completed' => $completed,
@@ -203,11 +237,105 @@ class DailyPlannerController extends Controller
         return response()->json($item->fresh());
     }
 
+    public function moveItem(Request $request, DailyPlanItem $item): JsonResponse
+    {
+        $this->owned($request, $item);
+        if ($conflict = OfflineConflictGuard::check($request, $item)) return $conflict;
+
+        if ($item->is_completed) {
+            return response()->json(['message' => 'Completed tasks cannot be moved. Reopen the task first if it needs rescheduling.'], 422);
+        }
+
+        $data = $request->validate(['target_date' => ['required', 'date']]);
+        $targetDate = Carbon::parse($data['target_date'])->toDateString();
+        $this->movePendingItemToDate($request, $item, $targetDate);
+
+        return response()->json([
+            'message' => 'Task moved successfully.',
+            'item' => $item->fresh()->load('plan'),
+        ]);
+    }
+
+    public function bulkMove(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+            'target_date' => ['required', 'date'],
+        ]);
+
+        $targetDate = Carbon::parse($data['target_date'])->toDateString();
+        $items = DailyPlanItem::query()
+            ->with('plan')
+            ->whereIn('id', $data['ids'])
+            ->whereHas('plan', fn ($q) => $q->where('user_id', $request->user()->id))
+            ->get();
+
+        $moved = 0;
+        $skipped = 0;
+        foreach ($items as $item) {
+            if ($item->is_completed || $item->plan->plan_date->toDateString() === $targetDate) {
+                $skipped++;
+                continue;
+            }
+            $this->movePendingItemToDate($request, $item, $targetDate);
+            $moved++;
+        }
+
+        return response()->json([
+            'message' => $moved.' task'.($moved === 1 ? '' : 's').' moved.',
+            'moved' => $moved,
+            'skipped' => $skipped,
+            'target_date' => $targetDate,
+        ]);
+    }
+
+    private function movePendingItemToDate(Request $request, DailyPlanItem $item, string $targetDate): void
+    {
+        $targetPlan = DailyPlan::firstOrCreate(
+            ['user_id' => $request->user()->id, 'plan_date' => $targetDate],
+            ['title' => 'My Daily Plan']
+        );
+
+        $item->update([
+            'daily_plan_id' => $targetPlan->id,
+            'sort_order' => ($targetPlan->items()->max('sort_order') ?? 0) + 1,
+        ]);
+
+        $this->rescheduleReminderDate($request, $item, $targetDate);
+    }
+
+    private function rescheduleReminderDate(Request $request, DailyPlanItem $item, string $targetDate): void
+    {
+        if (!Schema::hasColumns('reminders', ['source_type', 'source_id'])) return;
+
+        Reminder::query()
+            ->where('user_id', $request->user()->id)
+            ->where('source_type', 'daily_plan_item')
+            ->where('source_id', $item->id)
+            ->where('is_active', true)
+            ->get()
+            ->each(function (Reminder $reminder) use ($targetDate) {
+                if (!$reminder->next_run_at) return;
+                $reminder->next_run_at = Carbon::parse($targetDate.' '.$reminder->next_run_at->format('H:i:s'));
+                $reminder->save();
+            });
+    }
+
     public function destroyItem(Request $request, DailyPlanItem $item): JsonResponse
     {
         $this->owned($request, $item);
+        if ($conflict = OfflineConflictGuard::check($request, $item)) return $conflict;
         $item->delete();
         return response()->json(['message' => 'Deleted.']);
+    }
+
+
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $ids = $request->validate(['ids' => ['required','array','min:1'], 'ids.*' => ['integer']])['ids'];
+        $deleted = DailyPlanItem::whereIn('id', $ids)->whereHas('plan', fn ($q) => $q->where('user_id', $request->user()->id))->delete();
+        return response()->json(['message' => "{$deleted} task(s) deleted.", 'deleted' => $deleted]);
     }
 
     private function owned(Request $request, DailyPlanItem $item): void

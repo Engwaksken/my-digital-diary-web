@@ -103,17 +103,28 @@ class AuthController extends Controller
             return response()->json(['message' => 'This account has been suspended.'], 403);
         }
 
-        try {
-            LoginOtp::createFor($user);
-        } catch (Throwable $e) {
-            Log::warning('Could not send mobile login OTP email.', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage(),
-            ]);
+        // Debounce duplicate mobile login requests. A second tap/network retry
+        // within this short window reuses the pending OTP instead of emailing
+        // another code. The explicit resend endpoint keeps its own 60s limit.
+        $otpSendKey = 'otp-login-send:' . $user->id;
 
-            return response()->json([
-                'message' => 'We could not send your login code right now. Please try again in a moment.',
-            ], 503);
+        if (! RateLimiter::tooManyAttempts($otpSendKey, 1)) {
+            RateLimiter::hit($otpSendKey, 15);
+
+            try {
+                LoginOtp::createFor($user);
+            } catch (Throwable $e) {
+                RateLimiter::clear($otpSendKey);
+
+                Log::warning('Could not send mobile login OTP email.', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return response()->json([
+                    'message' => 'We could not send your login code right now. Please try again in a moment.',
+                ], 503);
+            }
         }
 
         return response()->json([
@@ -245,6 +256,8 @@ class AuthController extends Controller
             'has_active_access' => $user->hasActiveAccess(),
             'email_verified' => ! is_null($user->email_verified_at),
             'alarms_muted' => (bool) $user->alarms_muted,
+            'onboarding_completed' => ! is_null($user->onboarding_completed_at),
+            'onboarding_focuses' => $user->onboarding_focuses ?? [],
         ];
     }
 }

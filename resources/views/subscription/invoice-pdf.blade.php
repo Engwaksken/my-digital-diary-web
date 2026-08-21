@@ -48,6 +48,14 @@
                 @endif
             </td>
         </tr>
+        @php
+            $invoicePhone = $invoice->payment?->paymentContactPhone()
+                ?: $invoice->user?->phone_number
+                ?: $invoice->enterpriseInquiry?->phone;
+        @endphp
+        @if ($invoicePhone)
+            <tr><td>Contact / Phone</td><td>{{ $invoicePhone }}</td></tr>
+        @endif
         <tr><td>{{ $invoice->plan ? 'Plan' : 'Description' }}</td><td>{{ $invoice->plan?->name ?? $invoice->description ?? '—' }}</td></tr>
         @if ($invoice->billing_period_start && $invoice->billing_period_end)
             <tr><td>Billing Period</td><td>{{ $invoice->billing_period_start->format('M j, Y') }} – {{ $invoice->billing_period_end->format('M j, Y') }}</td></tr>

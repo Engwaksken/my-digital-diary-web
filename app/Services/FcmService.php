@@ -60,8 +60,27 @@ class FcmService
                             'body' => $body,
                         ],
                         'data' => array_map('strval', $data), // FCM data payloads must be string => string
-                        'android' => ['priority' => 'high'],
-                        'apns' => ['headers' => ['apns-priority' => '10']],
+                        'android' => [
+                            'priority' => 'high',
+                            'notification' => [
+                                // Must match Flutter's channel. Using a new
+                                // channel id also avoids Android retaining an
+                                // older low-importance channel configuration.
+                                'channel_id' => 'reminders_v2',
+                                'sound' => 'default',
+                                'default_vibrate_timings' => true,
+                                'notification_priority' => 'PRIORITY_MAX',
+                            ],
+                        ],
+                        'apns' => [
+                            'headers' => ['apns-priority' => '10'],
+                            'payload' => [
+                                'aps' => [
+                                    'sound' => 'default',
+                                    'content-available' => 1,
+                                ],
+                            ],
+                        ],
                     ],
                 ]);
 

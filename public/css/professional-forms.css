@@ -1,0 +1,782 @@
+/* ========================================================================
+   MY DIGITAL DIARY — PROFESSIONAL FORM SYSTEM
+   Shared visual language for page forms, filter bars, CRUD cards, modals
+   and authentication screens.
+
+   Designed to work with existing Blade/Tailwind markup without requiring
+   every form to be rewritten. Existing brand variables are reused when
+   present and safe fallbacks are provided.
+   ======================================================================== */
+
+:root {
+    --form-brand: var(--brand-1, #0C3B2E);
+    --form-brand-hover: var(--brand-2, #6D9773);
+    --form-brand-soft: var(--brand-1-tint-10, rgba(12, 59, 46, .08));
+    --form-text: #172033;
+    --form-text-soft: #475569;
+    --form-muted: #718096;
+    --form-placeholder: #9aa6b2;
+    --form-surface: #ffffff;
+    --form-surface-soft: #f8fafc;
+    --form-surface-muted: #f1f5f9;
+    --form-border: #dce3ea;
+    --form-border-hover: #b9c5d1;
+    --form-danger: #dc2626;
+    --form-danger-soft: rgba(220, 38, 38, .10);
+    --form-success: #15803d;
+    --form-warning: #b45309;
+    --form-radius: 12px;
+    --form-radius-lg: 16px;
+    --form-height: 46px;
+    --form-shadow-xs: 0 1px 2px rgba(15, 23, 42, .04);
+    --form-shadow-sm: 0 8px 20px -14px rgba(15, 23, 42, .30);
+    --form-shadow-focus: 0 0 0 4px rgba(109, 151, 115, .18);
+    --form-ease: cubic-bezier(.16, 1, .3, 1);
+}
+
+/* ------------------------------------------------------------------------
+   FOUNDATION / SAFETY
+   ------------------------------------------------------------------------ */
+
+form,
+form *,
+.form-card,
+.form-section,
+.form-grid,
+.form-row,
+.field,
+.form-field,
+.input-group {
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+form {
+    max-width: 100%;
+}
+
+/* Consistent spacing without forcing old forms into a new layout. */
+.form-stack,
+.form-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+}
+
+.form-grid,
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem 1.125rem;
+    width: 100%;
+}
+
+.form-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.form-field,
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: .42rem;
+    width: 100%;
+}
+
+.form-field-full,
+.field-full,
+.col-span-full {
+    grid-column: 1 / -1;
+}
+
+/* ------------------------------------------------------------------------
+   FORM CARDS / SECTIONS
+   ------------------------------------------------------------------------ */
+
+.form-card,
+.form-panel,
+.form-section {
+    width: 100%;
+    background: var(--form-surface);
+    border: 1px solid #e7ecf1;
+    border-radius: var(--form-radius-lg);
+    box-shadow: 0 12px 34px -26px rgba(15, 23, 42, .30);
+}
+
+.form-card,
+.form-panel {
+    padding: clamp(1rem, 2.5vw, 1.5rem);
+}
+
+.form-section {
+    padding: clamp(.95rem, 2vw, 1.25rem);
+}
+
+.form-section + .form-section {
+    margin-top: 1rem;
+}
+
+.form-section-title,
+.form-title {
+    margin: 0;
+    color: var(--form-text);
+    font-size: 1rem;
+    font-weight: 750;
+    line-height: 1.35;
+    letter-spacing: -.01em;
+}
+
+.form-section-description,
+.form-description {
+    margin: .25rem 0 0;
+    color: var(--form-muted);
+    font-size: .8125rem;
+    line-height: 1.55;
+}
+
+/* ------------------------------------------------------------------------
+   LABELS / LEGENDS
+   ------------------------------------------------------------------------ */
+
+form label,
+.form-label,
+fieldset > legend {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    max-width: 100%;
+    color: #334155;
+    font-size: .8125rem;
+    font-weight: 650;
+    line-height: 1.35;
+    letter-spacing: .006em;
+}
+
+form label .required,
+.form-label .required,
+.required-marker {
+    color: var(--form-danger);
+    font-weight: 800;
+}
+
+fieldset {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+fieldset.form-fieldset {
+    padding: 1rem;
+    border: 1px solid var(--form-border);
+    border-radius: var(--form-radius-lg);
+    background: var(--form-surface);
+}
+
+fieldset.form-fieldset > legend {
+    padding-inline: .45rem;
+}
+
+/* ------------------------------------------------------------------------
+   TEXT-LIKE CONTROLS
+   ------------------------------------------------------------------------ */
+
+:where(
+    form input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="color"]):not([type="range"]),
+    form select,
+    form textarea,
+    .form-control,
+    .pm-input
+) {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    min-height: var(--form-height);
+    margin: 0;
+    padding: .70rem .875rem;
+    border: 1px solid var(--form-border);
+    border-radius: var(--form-radius);
+    background: var(--form-surface);
+    color: var(--form-text);
+    font: inherit;
+    font-size: .9rem;
+    line-height: 1.45;
+    box-shadow: var(--form-shadow-xs);
+    transition:
+        border-color .18s var(--form-ease),
+        box-shadow .18s var(--form-ease),
+        background-color .18s var(--form-ease),
+        color .18s var(--form-ease);
+}
+
+:where(
+    form input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="color"]):not([type="range"]),
+    form select,
+    form textarea,
+    .form-control,
+    .pm-input
+)::placeholder {
+    color: var(--form-placeholder);
+    opacity: 1;
+}
+
+:where(
+    form input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="color"]):not([type="range"]),
+    form select,
+    form textarea,
+    .form-control,
+    .pm-input
+):hover:not(:disabled):not(:focus) {
+    border-color: var(--form-border-hover);
+}
+
+:where(
+    form input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="color"]):not([type="range"]),
+    form select,
+    form textarea,
+    .form-control,
+    .pm-input
+):focus,
+:where(
+    form input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="color"]):not([type="range"]),
+    form select,
+    form textarea,
+    .form-control,
+    .pm-input
+):focus-visible {
+    outline: none;
+    border-color: var(--form-brand-hover);
+    box-shadow: var(--form-shadow-focus);
+}
+
+:where(form input, form select, form textarea, .form-control, .pm-input):disabled,
+:where(form input, form select, form textarea, .form-control, .pm-input)[readonly] {
+    background: var(--form-surface-muted);
+    border-color: #e2e8f0;
+    color: #64748b;
+    box-shadow: none;
+}
+
+:where(form input, form select, form textarea):disabled {
+    cursor: not-allowed;
+    opacity: .86;
+}
+
+:where(form input, form select, form textarea)[readonly] {
+    cursor: default;
+}
+
+/* Validation */
+:where(form input, form select, form textarea, .form-control, .pm-input)[aria-invalid="true"],
+:where(form input, form select, form textarea, .form-control, .pm-input).is-invalid,
+.was-validated :where(input, select, textarea):invalid {
+    border-color: var(--form-danger);
+    background-color: #fffdfd;
+}
+
+:where(form input, form select, form textarea, .form-control, .pm-input)[aria-invalid="true"]:focus,
+:where(form input, form select, form textarea, .form-control, .pm-input).is-invalid:focus,
+.was-validated :where(input, select, textarea):invalid:focus {
+    box-shadow: 0 0 0 4px var(--form-danger-soft);
+}
+
+:where(form input, form select, form textarea, .form-control, .pm-input).is-valid {
+    border-color: #65a30d;
+}
+
+/* ------------------------------------------------------------------------
+   TEXTAREA / SELECT / DATE / SEARCH
+   ------------------------------------------------------------------------ */
+
+form textarea,
+textarea.form-control {
+    min-height: 112px;
+    resize: vertical;
+    padding-top: .78rem;
+}
+
+form textarea.rows-sm {
+    min-height: 82px;
+}
+
+form textarea.rows-lg {
+    min-height: 160px;
+}
+
+form select,
+select.form-control {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 2.6rem;
+    background-image:
+        linear-gradient(45deg, transparent 50%, #64748b 50%),
+        linear-gradient(135deg, #64748b 50%, transparent 50%);
+    background-position:
+        calc(100% - 18px) calc(50% - 2px),
+        calc(100% - 13px) calc(50% - 2px);
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+}
+
+form select[multiple],
+select.form-control[multiple] {
+    min-height: 130px;
+    padding-right: .875rem;
+    background-image: none;
+}
+
+form input[type="date"],
+form input[type="time"],
+form input[type="datetime-local"],
+form input[type="month"],
+form input[type="week"] {
+    color-scheme: light;
+}
+
+form input[type="search"] {
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+form input[type="search"]::-webkit-search-cancel-button {
+    cursor: pointer;
+}
+
+/* ------------------------------------------------------------------------
+   FILE UPLOAD
+   ------------------------------------------------------------------------ */
+
+form input[type="file"],
+input.form-control[type="file"] {
+    min-height: var(--form-height);
+    padding: .32rem .4rem;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+form input[type="file"]::file-selector-button,
+input.form-control[type="file"]::file-selector-button {
+    min-height: 36px;
+    margin-right: .7rem;
+    padding: .48rem .8rem;
+    border: 0;
+    border-radius: 9px;
+    background: var(--form-brand-soft);
+    color: var(--form-brand);
+    font: inherit;
+    font-size: .8125rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color .18s var(--form-ease), color .18s var(--form-ease);
+}
+
+form input[type="file"]::file-selector-button:hover,
+input.form-control[type="file"]::file-selector-button:hover {
+    background: var(--form-brand);
+    color: #fff;
+}
+
+/* ------------------------------------------------------------------------
+   CHECKBOXES / RADIOS / SWITCHES
+   ------------------------------------------------------------------------ */
+
+form input[type="checkbox"],
+form input[type="radio"],
+.form-check-input {
+    width: 1.05rem;
+    height: 1.05rem;
+    flex: 0 0 1.05rem;
+    margin: 0;
+    accent-color: var(--form-brand);
+    cursor: pointer;
+}
+
+.form-check,
+.checkbox-row,
+.radio-row {
+    display: flex;
+    align-items: flex-start;
+    gap: .55rem;
+    min-width: 0;
+}
+
+.form-check label,
+.checkbox-row label,
+.radio-row label {
+    margin: 0;
+    font-weight: 500;
+    line-height: 1.45;
+    cursor: pointer;
+}
+
+.form-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: .65rem;
+}
+
+.form-switch input[type="checkbox"] {
+    position: relative;
+    appearance: none;
+    -webkit-appearance: none;
+    width: 2.6rem;
+    height: 1.45rem;
+    flex: 0 0 2.6rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    background: #cbd5e1;
+    cursor: pointer;
+    transition: background-color .18s ease, border-color .18s ease;
+}
+
+.form-switch input[type="checkbox"]::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: calc(1.45rem - 6px);
+    height: calc(1.45rem - 6px);
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .28);
+    transition: transform .18s var(--form-ease);
+}
+
+.form-switch input[type="checkbox"]:checked {
+    border-color: var(--form-brand);
+    background: var(--form-brand);
+}
+
+.form-switch input[type="checkbox"]:checked::after {
+    transform: translateX(1.14rem);
+}
+
+/* ------------------------------------------------------------------------
+   INPUT GROUPS / PREFIX / SUFFIX
+   ------------------------------------------------------------------------ */
+
+.input-group {
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+}
+
+.input-group > :where(input, select, textarea, .form-control) {
+    flex: 1 1 auto;
+    border-radius: 0;
+}
+
+.input-group > :first-child {
+    border-top-left-radius: var(--form-radius);
+    border-bottom-left-radius: var(--form-radius);
+}
+
+.input-group > :last-child {
+    border-top-right-radius: var(--form-radius);
+    border-bottom-right-radius: var(--form-radius);
+}
+
+.input-group-text,
+.input-prefix,
+.input-suffix {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-height: var(--form-height);
+    padding: .65rem .8rem;
+    border: 1px solid var(--form-border);
+    background: var(--form-surface-soft);
+    color: var(--form-text-soft);
+    font-size: .8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.input-group > * + * {
+    margin-left: -1px;
+}
+
+/* ------------------------------------------------------------------------
+   HINTS / ERRORS / SUCCESS
+   ------------------------------------------------------------------------ */
+
+.form-hint,
+.field-hint,
+.help-text,
+.pm-field-hint {
+    margin: .05rem 0 0;
+    color: var(--form-muted);
+    font-size: .75rem;
+    line-height: 1.5;
+}
+
+.form-error,
+.field-error,
+.invalid-feedback,
+.pm-field-error {
+    margin: .05rem 0 0;
+    color: var(--form-danger);
+    font-size: .75rem;
+    font-weight: 550;
+    line-height: 1.5;
+}
+
+.valid-feedback,
+.form-success {
+    margin: .05rem 0 0;
+    color: var(--form-success);
+    font-size: .75rem;
+    font-weight: 550;
+    line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------------
+   ACTIONS / BUTTONS
+   ------------------------------------------------------------------------ */
+
+.form-actions,
+.form-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: .625rem;
+    width: 100%;
+    margin-top: 1.15rem;
+    padding-top: 1rem;
+    border-top: 1px solid #edf1f5;
+}
+
+:where(form button, form input[type="submit"], form input[type="button"], form input[type="reset"]).btn,
+form .btn-form,
+form .btn-primary,
+form .btn-secondary,
+form .btn-danger,
+form .btn-light {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .45rem;
+    min-height: 42px;
+    max-width: 100%;
+    padding: .62rem 1rem;
+    border: 1px solid transparent;
+    border-radius: 11px;
+    font: inherit;
+    font-size: .85rem;
+    font-weight: 700;
+    line-height: 1.2;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+        transform .15s var(--form-ease),
+        box-shadow .18s var(--form-ease),
+        background-color .18s var(--form-ease),
+        border-color .18s var(--form-ease),
+        color .18s var(--form-ease);
+}
+
+form .btn-primary,
+form .btn-form-primary {
+    background: var(--form-brand);
+    border-color: var(--form-brand);
+    color: #fff;
+    box-shadow: 0 8px 18px -10px rgba(12, 59, 46, .55);
+}
+
+form .btn-primary:hover,
+form .btn-form-primary:hover {
+    background: var(--form-brand-hover);
+    border-color: var(--form-brand-hover);
+    transform: translateY(-1px);
+}
+
+form .btn-secondary,
+form .btn-light,
+form .btn-form-secondary {
+    background: #fff;
+    border-color: var(--form-border);
+    color: #334155;
+}
+
+form .btn-secondary:hover,
+form .btn-light:hover,
+form .btn-form-secondary:hover {
+    background: var(--form-surface-soft);
+    border-color: var(--form-border-hover);
+}
+
+form .btn-danger,
+form .btn-form-danger {
+    background: #fff;
+    border-color: #fecaca;
+    color: #b91c1c;
+}
+
+form .btn-danger:hover,
+form .btn-form-danger:hover {
+    background: #fef2f2;
+    border-color: #fca5a5;
+}
+
+:where(form button, form input[type="submit"], form input[type="button"], form input[type="reset"]):disabled {
+    cursor: not-allowed !important;
+    opacity: .56;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* ------------------------------------------------------------------------
+   FILTER / SEARCH FORMS
+   ------------------------------------------------------------------------ */
+
+.filter-form,
+.search-form,
+.toolbar-form {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: .75rem;
+    width: 100%;
+    padding: .85rem;
+    border: 1px solid #e7ecf1;
+    border-radius: var(--form-radius-lg);
+    background: #fff;
+}
+
+.filter-form > *,
+.search-form > *,
+.toolbar-form > * {
+    min-width: 0;
+}
+
+.filter-form .form-field,
+.search-form .form-field,
+.toolbar-form .form-field {
+    flex: 1 1 180px;
+}
+
+/* ------------------------------------------------------------------------
+   AUTOFILL / ACCESSIBILITY
+   ------------------------------------------------------------------------ */
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+    -webkit-text-fill-color: var(--form-text);
+    -webkit-box-shadow: 0 0 0 1000px #fff inset;
+    transition: background-color 9999s ease-out 0s;
+}
+
+form :focus-visible {
+    scroll-margin: 6rem;
+}
+
+/* ------------------------------------------------------------------------
+   RESPONSIVE
+   ------------------------------------------------------------------------ */
+
+@media (max-width: 900px) {
+    .form-grid-3,
+    .form-grid-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    :root {
+        --form-height: 44px;
+        --form-radius: 11px;
+    }
+
+    .form-grid,
+    .form-row,
+    .form-grid-3,
+    .form-grid-4 {
+        grid-template-columns: minmax(0, 1fr);
+        gap: .85rem;
+    }
+
+    .form-card,
+    .form-panel,
+    .form-section {
+        border-radius: 14px;
+    }
+
+    .form-card,
+    .form-panel {
+        padding: 1rem;
+    }
+
+    :where(
+        form input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="color"]):not([type="range"]),
+        form select,
+        form textarea,
+        .form-control,
+        .pm-input
+    ) {
+        font-size: 16px; /* prevents iOS Safari from zooming on focus */
+    }
+
+    form textarea,
+    textarea.form-control {
+        min-height: 100px;
+    }
+
+    .filter-form,
+    .search-form,
+    .toolbar-form {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+        padding: .75rem;
+    }
+
+    .form-actions,
+    .form-footer {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .form-actions > :only-child,
+    .form-footer > :only-child {
+        grid-column: 1 / -1;
+    }
+
+    .form-actions :where(button, .btn, input[type="submit"], input[type="button"]),
+    .form-footer :where(button, .btn, input[type="submit"], input[type="button"]) {
+        width: 100%;
+        white-space: normal;
+    }
+
+    .input-group-text,
+    .input-prefix,
+    .input-suffix {
+        padding-inline: .65rem;
+    }
+}
+
+@media (max-width: 420px) {
+    .form-actions,
+    .form-footer {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :where(form input, form select, form textarea, form button, .form-control, .pm-input),
+    .form-switch input[type="checkbox"],
+    .form-switch input[type="checkbox"]::after {
+        transition: none !important;
+    }
+}

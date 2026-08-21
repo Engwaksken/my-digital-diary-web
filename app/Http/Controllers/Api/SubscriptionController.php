@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\BillingEventLog;
+use App\Models\BusinessCard;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentGateway;
@@ -31,11 +32,24 @@ class SubscriptionController extends Controller
     {
         $user = $request->user();
 
+        $accountPhone = $user->phone_number
+            ?: BusinessCard::where('user_id', $user->id)->value('phone');
+
         return response()->json(['data' => [
             'subscription_status' => $user->subscription_status,
+            'days_remaining' => ($expiry = $user->relevantExpiryDate()) ? max(0, now()->diffInDays($expiry, false) + 1) : null,
+            'expiry_date' => $expiry?->toIso8601String(),
             'subscription_plan' => $user->subscriptionPlan?->name,
             'subscription_expires_at' => $user->subscription_expires_at?->toIso8601String(),
             'has_active_access' => $user->hasActiveAccess(),
+            'account_phone' => $accountPhone,
+            'value_summary' => [
+                'tasks_completed' => \App\Models\ProjectTask::where('user_id', $user->id)->where('status', 'completed')->whereMonth('updated_at', now()->month)->whereYear('updated_at', now()->year)->count(),
+                'expenses_tracked' => (float) \App\Models\Expense::where('user_id', $user->id)->whereMonth('spent_at', now()->month)->whereYear('spent_at', now()->year)->sum('amount'),
+                'saved' => (float) \App\Models\SavingsContribution::where('user_id', $user->id)->whereMonth('contributed_at', now()->month)->whereYear('contributed_at', now()->year)->sum('amount'),
+                'ai_plans' => \App\Models\AiPlan::where('user_id', $user->id)->whereMonth('created_at', now()->month)->whereYear('created_at', now()->year)->count(),
+                'meetings' => \App\Models\Meeting::where('user_id', $user->id)->whereMonth('start_at', now()->month)->whereYear('start_at', now()->year)->count(),
+            ],
         ]]);
     }
 
@@ -91,21 +105,59 @@ class SubscriptionController extends Controller
 
     public function payments(Request $request): JsonResponse
     {
-        $payments = $request->user()->payments()->with(['plan', 'invoice'])->orderByDesc('id')->limit(20)->get();
+        $user = $request->user();
 
-        return response()->json(['data' => $payments->map(fn ($p) => [
-            'id' => $p->id,
-            'plan' => $p->plan?->name,
-            'method' => $p->method,
-            'amount' => (float) $p->amount,
-            'currency' => $p->currency,
-            'status' => $p->status,
-            'receipt_number' => $p->receipt_number,
-            'has_invoice' => (bool) $p->invoice,
-            'created_at' => $p->created_at->toIso8601String(),
-            'receipt_download_url' => $p->status === 'completed' ? url('/subscription/receipt/' . $p->id) : null,
-            'invoice_download_url' => $p->invoice ? url('/subscription/invoice/' . $p->invoice->id) : null,
-        ])]);
+        $perPage = (int) $request->query('per_page', 10);
+        if (! in_array($perPage, [10, 25, 50, 100], true)) {
+            $perPage = 10;
+        }
+
+        $page = max(1, (int) $request->query('page', 1));
+
+        $query = $user->payments()
+            ->with(['gateway', 'plan', 'invoice', 'transactionLogs'])
+            ->orderByDesc('id');
+
+        $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+
+        $accountPhone = $user->phone_number
+            ?: BusinessCard::where('user_id', $user->id)->value('phone');
+
+        return response()->json([
+            'data' => collect($paginator->items())->map(function ($p) use ($accountPhone) {
+                $latestContactLog = $p->transactionLogs
+                    ->sortByDesc('id')
+                    ->first(fn ($log) => filled($log->phone_number));
+
+                return [
+                    'id' => $p->id,
+                    'plan_id' => $p->subscription_plan_id,
+                    'plan' => $p->plan?->name,
+                    'gateway_id' => $p->payment_gateway_id,
+                    'gateway_name' => $p->gateway?->display_name ?: $p->gateway?->name,
+                    'method' => $p->method,
+                    'amount' => (float) $p->amount,
+                    'currency' => $p->currency,
+                    'status' => $p->status,
+                    'contact_phone' => $latestContactLog?->phone_number ?: $accountPhone,
+                    'network' => $latestContactLog?->network,
+                    'receipt_number' => $p->receipt_number,
+                    'has_invoice' => (bool) $p->invoice,
+                    'invoice_status' => $p->invoice?->status,
+                    'created_at' => $p->created_at->toIso8601String(),
+                    'receipt_download_url' => $p->status === 'completed' ? url('/subscription/receipt/' . $p->id) : null,
+                    'invoice_download_url' => $p->invoice ? url('/subscription/invoice/' . $p->invoice->id) : null,
+                ];
+            })->values(),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
+        ]);
     }
 
     public function payWithCard(Request $request): JsonResponse
@@ -176,6 +228,7 @@ class SubscriptionController extends Controller
         ]);
 
         $plan = SubscriptionPlan::where('is_enabled', true)->findOrFail($data['plan_id']);
+        $request->user()->update(['phone_number' => $data['phone_number']]);
         $gateway = PaymentGateway::whereIn('type', ['mobile_money', 'aggregator'])->where('is_default', true)->where('is_enabled', true)->first();
 
         if (! $gateway || ! $gateway->collectsAutomatically()) {
@@ -210,6 +263,101 @@ class SubscriptionController extends Controller
 
             return response()->json(['message' => 'Could not start the mobile money request: ' . $e->getMessage()], 422);
         }
+    }
+
+    public function retryPendingMobileMoney(Request $request, Payment $payment): JsonResponse
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+        abort_unless(in_array($payment->status, ['pending', 'failed'], true), 422);
+
+        $data = $request->validate([
+            'phone_number' => ['required', 'string', 'max:30'],
+            'network' => ['required', 'in:mtn,airtel'],
+        ]);
+
+        $gateway = PaymentGateway::whereIn('type', ['mobile_money', 'aggregator'])
+            ->where('is_default', true)
+            ->where('is_enabled', true)
+            ->get()
+            ->first(fn ($candidate) => $candidate->collectsAutomatically());
+
+        if (! $gateway) {
+            return response()->json(['message' => 'Mobile money collection is not configured yet.'], 422);
+        }
+
+        $request->user()->update(['phone_number' => $data['phone_number']]);
+
+        $reference = 'sub_retry_' . $request->user()->id . '_' . now()->format('YmdHis') . '_' . random_int(1000, 9999);
+
+        $payment->update([
+            'payment_gateway_id' => $gateway->id,
+            'method' => 'mobile_money',
+            'status' => 'pending',
+            'reference' => $reference,
+        ]);
+
+        try {
+            $driver = PaymentGatewayDriverFactory::make($gateway);
+            $driver->initiateCollection(
+                $reference,
+                (float) $payment->amount,
+                $payment->currency,
+                $data['phone_number'],
+                $data['network'],
+                $request->user()->id,
+                $payment->id
+            );
+
+            BillingEventLog::record('payment_prompt_resent', $request->user()->id, [
+                'payment_id' => $payment->id,
+                'phone_number' => $data['phone_number'],
+                'network' => $data['network'],
+            ]);
+
+            return response()->json([
+                'message' => 'A new payment prompt was sent to ' . $data['phone_number'] . '. Approve it on your phone.',
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Pending mobile money retry failed (mobile)', [
+                'payment_id' => $payment->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json(['message' => 'Could not resend the payment prompt: ' . $e->getMessage()], 422);
+        }
+    }
+
+    public function submitPendingBankPayment(Request $request, Payment $payment): JsonResponse
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+        abort_unless(in_array($payment->status, ['pending', 'failed'], true), 422);
+
+        $data = $request->validate([
+            'payment_gateway_id' => ['required', 'exists:payment_gateways,id'],
+            'reference' => ['required', 'string', 'max:255'],
+        ]);
+
+        $gateway = PaymentGateway::whereKey($data['payment_gateway_id'])
+            ->where('is_enabled', true)
+            ->where('type', 'bank')
+            ->firstOrFail();
+
+        $payment->update([
+            'payment_gateway_id' => $gateway->id,
+            'method' => 'bank',
+            'status' => 'pending',
+            'reference' => $data['reference'],
+        ]);
+
+        BillingEventLog::record('pending_payment_bank_reference_submitted', $request->user()->id, [
+            'payment_id' => $payment->id,
+            'payment_gateway_id' => $gateway->id,
+            'reference' => $data['reference'],
+        ]);
+
+        return response()->json([
+            'message' => 'Bank payment reference submitted. Your payment is awaiting verification.',
+        ]);
     }
 
     /**

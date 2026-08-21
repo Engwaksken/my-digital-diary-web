@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Expense;
+use App\Services\ReceiptExtractionService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ExpenseController extends CrudController
@@ -16,7 +18,7 @@ class ExpenseController extends CrudController
 
     protected array $fields = [
         ['name' => 'category', 'label' => 'Category', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g. Groceries, Rent, Transport'],
-        ['name' => 'amount', 'label' => 'Amount', 'type' => 'number', 'required' => true, 'placeholder' => '0.00', 'money' => true, 'hint' => 'Leave blank if you add itemized line items below instead — the total is computed from those.'],
+        ['name' => 'amount', 'label' => 'Amount', 'type' => 'number', 'required' => false, 'placeholder' => '0.00', 'money' => true, 'hint' => 'Leave blank if you add itemized line items below instead — the total is computed from those.'],
         ['name' => 'spent_at', 'label' => 'Date', 'type' => 'date', 'required' => true],
         ['name' => 'payment_method', 'label' => 'Payment Method', 'type' => 'text', 'placeholder' => 'e.g. Cash, Card, Mobile Money'],
         ['name' => 'notes', 'label' => 'Notes', 'type' => 'textarea'],
@@ -31,7 +33,7 @@ class ExpenseController extends CrudController
         'items' => 'nullable|array',
         'items.*.description' => 'required_with:items|string|max:255',
         'items.*.quantity' => 'required_with:items|numeric|min:0.01',
-        'items.*.unit_price' => 'required_with:items|numeric|min:0',
+        'items.*.unit_price' => 'required_with:items|numeric',
     ];
 
     /**
@@ -45,6 +47,10 @@ class ExpenseController extends CrudController
      */
     public function store(Request $request)
     {
+        if ($request->boolean('receipt_extract')) {
+            return $this->extractReceipt($request);
+        }
+
         $data = $request->validate($this->rules);
         $data['user_id'] = $request->user()->id;
         $items = $data['items'] ?? [];
@@ -112,6 +118,21 @@ class ExpenseController extends CrudController
                 'unit_price' => $item['unit_price'],
                 'total_price' => $item['quantity'] * $item['unit_price'],
             ]);
+        }
+    }
+
+    private function extractReceipt(Request $request): JsonResponse
+    {
+        $request->validate([
+            'receipt_file' => 'required|file|max:12288|mimes:pdf,jpg,jpeg,png,webp',
+        ]);
+
+        try {
+            $data = app(ReceiptExtractionService::class)->extract($request->user(), $request->file('receipt_file'));
+            return response()->json(['message' => 'Receipt extracted. Review the details, then save the expense.', 'data' => $data]);
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['message' => $e->getMessage()], 422);
         }
     }
 

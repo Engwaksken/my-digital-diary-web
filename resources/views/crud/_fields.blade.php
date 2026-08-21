@@ -18,8 +18,26 @@
         $errorId = $fieldId . '-error';
         $rawDefault = data_get($item, $name, $field['default'] ?? '');
         $old = old($name, $rawDefault);
+
+        // Keep HTML source values canonical even when the database stores
+        // seconds (e.g. 21:00:00). The global 12-hour control then presents
+        // 9:00 PM while Laravel still receives H:i safely.
         if (is_object($old) && method_exists($old, 'format')) {
-            $old = $field['type'] === 'datetime-local' ? $old->format('Y-m-d\TH:i') : $old->format('Y-m-d');
+            if ($field['type'] === 'datetime-local') {
+                $old = $old->format('Y-m-d\TH:i');
+            } elseif ($field['type'] === 'time') {
+                $old = $old->format('H:i');
+            } else {
+                $old = $old->format('Y-m-d');
+            }
+        } elseif ($field['type'] === 'time' && is_string($old) && $old !== '') {
+            $old = substr($old, 0, 5);
+        } elseif ($field['type'] === 'datetime-local' && is_string($old) && $old !== '') {
+            try {
+                $old = \Illuminate\Support\Carbon::parse($old)->format('Y-m-d\TH:i');
+            } catch (\Throwable $e) {
+                $old = str_replace(' ', 'T', substr($old, 0, 16));
+            }
         }
         $hasError = $errors->has($name);
         $isRequired = !empty($field['required']);

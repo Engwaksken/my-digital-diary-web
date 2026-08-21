@@ -21,9 +21,6 @@
             <a href="{{ route('activity') }}" class="inline-flex items-center gap-2 py-3 text-sm font-semibold text-[var(--brand-1)] border-b-2" style="border-color: var(--brand-1);">
                 <i class="fa-solid fa-clock-rotate-left"></i> Activity Log
             </a>
-            <a href="{{ route('login-activity.index') }}" class="inline-flex items-center gap-2 py-3 text-sm text-slate-500 hover:text-[var(--brand-1)] border-b-2 border-transparent">
-                <i class="fa-solid fa-shield-halved"></i> Login Activity
-            </a>
         </nav>
     </div>
 
@@ -55,6 +52,23 @@
         </div>
 
         <div>
+            <label for="activity-type" class="sr-only">Filter by activity type</label>
+            <select id="activity-type" name="type" class="pm-input text-sm">
+                <option value="" @selected(!$type)>All activity types</option>
+                <option value="expense" @selected($type === 'expense')>Expenses</option>
+                <option value="income" @selected($type === 'income')>Income</option>
+                <option value="planner" @selected($type === 'planner')>Planner</option>
+                <option value="task" @selected($type === 'task')>Tasks</option>
+                <option value="meeting" @selected($type === 'meeting')>Meetings</option>
+                <option value="reminder" @selected($type === 'reminder')>Reminders</option>
+                <option value="signature" @selected($type === 'signature')>Signed Documents</option>
+                <option value="business_card" @selected($type === 'business_card')>Business Card</option>
+                <option value="sleep" @selected($type === 'sleep')>Sleep</option>
+                <option value="diet" @selected($type === 'diet')>Diet</option>
+            </select>
+        </div>
+
+        <div>
             <label for="activity-period" class="sr-only">Filter by period</label>
             <select id="activity-period" name="period" onchange="pmToggleActivityDateRange(this)" class="pm-input text-sm">
                 <option value="" @selected(!$period)>All time</option>
@@ -74,7 +88,7 @@
         <button type="submit" class="btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
             Filter
         </button>
-        @if ($search || $period)
+        @if ($search || $type || $period)
             <a href="{{ route('activity') }}" class="text-sm text-slate-500 hover:text-slate-700 transition-colors pb-2.5">Clear</a>
         @endif
     </form>

@@ -25,6 +25,8 @@ class AdminSettingsController extends Controller
             'settings' => SiteSetting::current(),
             'aiProviders' => $aiProviders,
             'meetingPlatforms' => $meetingPlatforms,
+            'backupSetting' => \App\Models\BackupSetting::current(),
+            'backupHistory' => \App\Models\BackupHistory::with('creator')->latest()->limit(20)->get(),
         ]);
     }
 
@@ -50,6 +52,8 @@ class AdminSettingsController extends Controller
             'default_ai_free_limit_per_month' => ['required', 'integer', 'min:0', 'max:1000'],
             'privacy_policy_content' => ['nullable', 'string'],
             'privacy_policy_version' => ['nullable', 'string', 'max:20'],
+            'terms_of_use_content' => ['nullable', 'string'],
+            'terms_of_use_version' => ['nullable', 'string', 'max:20'],
         ]);
 
         // $request->validate()'s 'integer' rule checks the FORMAT but
@@ -80,6 +84,14 @@ class AdminSettingsController extends Controller
         $settings->privacy_policy_version = filled($data['privacy_policy_version'] ?? null)
             ? $data['privacy_policy_version']
             : ($settings->privacy_policy_version ?: '1.0');
+        if (array_key_exists('terms_of_use_content', $data)) {
+            $settings->terms_of_use_content = filled($data['terms_of_use_content'])
+                ? $data['terms_of_use_content']
+                : null;
+        }
+        $settings->terms_of_use_version = filled($data['terms_of_use_version'] ?? null)
+            ? $data['terms_of_use_version']
+            : ($settings->terms_of_use_version ?: '1.0');
 
         // Builds [{code, symbol, rate}, ...] from three parallel arrays
         // (one row per currency in the form) rather than asking an admin
@@ -146,4 +158,45 @@ class AdminSettingsController extends Controller
 
         return back()->with('success', $message);
     }
+    public function updatePrivacy(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'privacy_policy_content' => ['nullable', 'string'],
+            'privacy_policy_version' => ['required', 'string', 'max:20'],
+        ]);
+
+        $settings = SiteSetting::current();
+        $settings->privacy_policy_content = filled($data['privacy_policy_content'] ?? null)
+            ? trim($data['privacy_policy_content'])
+            : null;
+        $settings->privacy_policy_version = trim($data['privacy_policy_version']);
+        $settings->save();
+
+        // Ensure the singleton is read fresh when the admin immediately previews it.
+        $settings->refresh();
+
+        return redirect()
+            ->route('admin.settings.edit', ['tab' => 'privacy'])
+            ->with('success', 'Privacy Policy updated successfully.');
+    }
+
+    public function updateTerms(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'terms_of_use_content' => ['nullable', 'string'],
+            'terms_of_use_version' => ['required', 'string', 'max:20'],
+        ]);
+
+        $settings = SiteSetting::current();
+        $settings->terms_of_use_content = filled($data['terms_of_use_content'] ?? null)
+            ? trim($data['terms_of_use_content'])
+            : null;
+        $settings->terms_of_use_version = trim($data['terms_of_use_version']);
+        $settings->save();
+
+        return redirect()
+            ->route('admin.settings.edit', ['tab' => 'terms'])
+            ->with('success', 'Terms of Use updated successfully.');
+    }
+
 }

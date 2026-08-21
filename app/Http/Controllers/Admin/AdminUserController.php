@@ -4,9 +4,13 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\UserRecycleBinItem;
+use App\Services\UserDataVaultService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 
 /**
@@ -51,6 +55,11 @@ class AdminUserController extends Controller
 
         $users = $query->orderByDesc('id')->paginate(20)->withQueryString();
 
+        $usageByUser = [];
+        foreach ($users as $listedUser) {
+            $usageByUser[$listedUser->id] = $this->usageProgress((int) $listedUser->id);
+        }
+
         $stats = [
             ['label' => 'Total users', 'value' => (string) User::count(), 'icon' => 'fa-solid fa-users', 'color' => 'blue'],
             ['label' => 'New this week', 'value' => (string) User::where('created_at', '>=', now()->startOfWeek())->count(), 'icon' => 'fa-solid fa-user-plus', 'color' => 'emerald'],
@@ -59,7 +68,7 @@ class AdminUserController extends Controller
             ['label' => 'Suspended', 'value' => (string) User::whereNotNull('suspended_at')->count(), 'icon' => 'fa-solid fa-user-slash', 'color' => 'rose'],
         ];
 
-        return view('admin.users.index', compact('users', 'stats', 'search', 'period', 'from', 'to'));
+        return view('admin.users.index', compact('users', 'stats', 'search', 'period', 'from', 'to', 'usageByUser'));
     }
 
     public function create(): View
@@ -69,7 +78,14 @@ class AdminUserController extends Controller
 
     public function show(User $user): View
     {
-        return view('admin.users.show', compact('user'));
+        $usageProgress = $this->usageProgress((int) $user->id);
+        $recoverableCount = Schema::hasTable('user_recycle_bin_items')
+            ? UserRecycleBinItem::where('user_id', $user->id)
+                ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+                ->count()
+            : 0;
+
+        return view('admin.users.show', compact('user', 'usageProgress', 'recoverableCount'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -173,6 +189,83 @@ class AdminUserController extends Controller
         $user->delete();
 
         return redirect()->route('admin.users.index')->with('success', 'User deleted.');
+    }
+
+
+    /**
+     * Restore all still-recoverable records for a user without exposing the
+     * record payloads to the administrator. The account holder is emailed a
+     * simple confirmation after recovery.
+     */
+    public function restoreData(Request $request, User $user, UserDataVaultService $vault): RedirectResponse
+    {
+        if (! Schema::hasTable('user_recycle_bin_items')) {
+            return back()->withErrors(['restore' => 'The recycle bin is not available yet. Run the data-recovery migration first.']);
+        }
+
+        $items = UserRecycleBinItem::where('user_id', $user->id)
+            ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+            ->orderBy('deleted_at')
+            ->get();
+
+        if ($items->isEmpty()) {
+            return back()->with('status', 'There is no recoverable data for this user.');
+        }
+
+        $restored = 0;
+        $failed = 0;
+        foreach ($items as $item) {
+            try {
+                $vault->restore($item);
+                $restored++;
+            } catch (\Throwable $e) {
+                report($e);
+                $failed++;
+            }
+        }
+
+        if ($restored > 0 && filter_var($user->email, FILTER_VALIDATE_EMAIL)) {
+            try {
+                Mail::raw(
+                    "Hello {$user->name},\n\nAn administrator restored {$restored} recoverable record(s) to your My Digital Diary account.\n\nPlease sign in and review your information. If you did not request this recovery, contact support.\n\nMy Digital Diary Support",
+                    fn ($message) => $message->to($user->email)->subject('Your My Digital Diary data was restored')
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        $message = "{$restored} record(s) restored for {$user->name}. A confirmation was sent to {$user->email}.";
+        if ($failed > 0) {
+            $message .= " {$failed} item(s) could not be restored and were left in the recycle bin.";
+        }
+
+        return back()->with('success', $message);
+    }
+
+    private function usageProgress(int $userId): int
+    {
+        $total = 0;
+        $used = 0;
+
+        foreach (UserDataVaultService::MODELS as $class) {
+            if (! class_exists($class) || ! method_exists($class, 'query')) {
+                continue;
+            }
+
+            try {
+                $hasRecords = $class::where('user_id', $userId)->exists();
+            } catch (\Throwable $e) {
+                continue;
+            }
+
+            $total++;
+            if ($hasRecords) {
+                $used++;
+            }
+        }
+
+        return $total > 0 ? (int) round(($used / $total) * 100) : 0;
     }
 
     /**

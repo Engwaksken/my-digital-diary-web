@@ -17,6 +17,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'subscribed' => EnsureUserHasAccess::class,
             'admin' => EnsureUserIsAdmin::class,
+            'support.staff' => \App\Http\Middleware\EnsureUserIsSupportStaff::class,
+            'mobile.idempotent' => \App\Http\Middleware\EnsureIdempotentMobileWrite::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

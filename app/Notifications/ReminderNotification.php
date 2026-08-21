@@ -3,38 +3,59 @@
 namespace App\Notifications;
 
 use App\Models\Reminder;
+use App\Models\SiteSetting;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class ReminderNotification extends Notification implements ShouldQueue
+class ReminderNotification extends Notification
 {
     use Queueable;
 
-    public function __construct(public Reminder $reminder)
+    public function __construct(public Reminder $reminder, private ?array $channels = null)
     {
     }
 
     public function via(object $notifiable): array
     {
-        // 'database' is always included so every reminder shows up in
-        // the in-app notification list (mobile's Notifications tab,
-        // and any web equivalent) regardless of which delivery channel
-        // the user actually chose — otherwise a user who picked "Email"
-        // would never see their reminder history in-app at all, since
-        // nothing would ever get recorded to the notifications table.
-        return array_unique(['database', $this->reminder->channel]);
+        // SendReminders may deliberately dispatch channels separately so a
+        // failure in mail cannot prevent the in-app notification (or vice
+        // versa). Outside that command, preserve the normal combined behavior.
+        if ($this->channels !== null) {
+            return $this->channels;
+        }
+
+        return $this->reminder->channel === 'mail' ? ['mail', 'database'] : ['database'];
     }
 
     public function toMail(object $notifiable): MailMessage
     {
+        $site = SiteSetting::current();
+
+        // Use the same primary colour the user sees throughout My Digital Diary.
+        // themeColor() already provides the application default when the user has
+        // not selected a custom colour. Validate again here before placing it into
+        // inline email CSS.
+        $primaryColor = method_exists($notifiable, 'themeColor')
+            ? (string) $notifiable->themeColor()
+            : '#00897B';
+
+        if (! preg_match('/^#[0-9A-Fa-f]{6}$/', $primaryColor)) {
+            $primaryColor = '#00897B';
+        }
+
         return (new MailMessage)
             ->subject('Reminder: ' . $this->reminder->title)
-            ->greeting('Hi ' . $notifiable->name . ',')
-            ->line($this->reminder->message ?: 'This is your scheduled reminder.')
-            ->action('Open Personal Monitor', url('/dashboard'))
-            ->line('You are receiving this because you set up a ' . $this->reminder->frequency . ' reminder.');
+            ->view('emails.reminder-notification', [
+                'siteName' => $site->site_name ?: 'My Digital Diary',
+                'logoUrl' => $site->logoUrl(),
+                'primaryColor' => $primaryColor,
+                'recipientName' => trim((string) ($notifiable->name ?? '')),
+                'reminderTitle' => (string) $this->reminder->title,
+                'reminderMessage' => $this->reminder->message ?: 'This is your scheduled reminder.',
+                'frequency' => (string) $this->reminder->frequency,
+                'dashboardUrl' => url('/dashboard'),
+            ]);
     }
 
     public function toArray(object $notifiable): array
@@ -44,6 +65,9 @@ class ReminderNotification extends Notification implements ShouldQueue
             'title' => $this->reminder->title,
             'module' => $this->reminder->module,
             'message' => $this->reminder->message,
+            'url' => \Illuminate\Support\Facades\Route::has('reminders.index')
+                ? route('reminders.index')
+                : url('/reminders'),
         ];
     }
 }

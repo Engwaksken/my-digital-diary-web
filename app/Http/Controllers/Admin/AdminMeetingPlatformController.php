@@ -26,17 +26,32 @@ class AdminMeetingPlatformController extends Controller
             'is_enabled' => ['nullable', 'boolean'],
         ]);
 
-        if (! empty($data['client_id'])) {
-            $meetingPlatformConfig->client_id = $data['client_id'];
+        $clientId = trim((string) ($data['client_id'] ?? ''));
+        $clientSecret = trim((string) ($data['client_secret'] ?? ''));
+
+        // Client IDs are displayed back to the administrator, so allow an
+        // explicitly supplied value to replace the existing value. An empty
+        // field keeps the current value to avoid accidental credential loss.
+        if ($clientId !== '') {
+            $meetingPlatformConfig->client_id = $clientId;
         }
 
-        if (! empty($data['client_secret'])) {
-            $meetingPlatformConfig->client_secret = $data['client_secret'];
+        // Never send the stored secret back to the browser. Leaving this field
+        // blank means "keep the existing encrypted secret".
+        if ($clientSecret !== '') {
+            $meetingPlatformConfig->client_secret = $clientSecret;
         }
 
-        $meetingPlatformConfig->is_enabled = $request->boolean('is_enabled') && $meetingPlatformConfig->isConfigured();
+        $requestedEnabled = $request->boolean('is_enabled');
+        $meetingPlatformConfig->is_enabled = $requestedEnabled && $meetingPlatformConfig->isConfigured();
         $meetingPlatformConfig->save();
 
-        return back()->with('success', "{$meetingPlatformConfig->name} settings updated.");
+        $message = $meetingPlatformConfig->isConfigured()
+            ? "{$meetingPlatformConfig->name} credentials saved" . ($meetingPlatformConfig->is_enabled ? ' and enabled for users.' : '. Turn on Enable when you are ready for users to authorize it.')
+            : "{$meetingPlatformConfig->name} settings saved, but both Client ID and Client Secret are required before it can be enabled.";
+
+        return back()
+            ->with('success', $message)
+            ->with('settings_tab', 'meetings');
     }
 }

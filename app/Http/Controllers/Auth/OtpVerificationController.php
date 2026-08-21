@@ -62,10 +62,18 @@ class OtpVerificationController extends Controller
             ]);
         }
 
+        // Verification must ONLY consume the code and authenticate the user.
+        // It must never create/send a fresh OTP. Resending is handled exclusively
+        // by the separate resend() endpoint/form.
         $otp->update(['consumed_at' => now()]);
 
         $user = User::findOrFail($userId);
         Auth::login($user, (bool) session('otp.remember', false));
+
+        // Clear temporary OTP throttles after a successful verification so a
+        // future, separate login starts from a clean state. This does NOT send mail.
+        RateLimiter::clear('otp-login-send:' . $userId);
+        RateLimiter::clear('otp-resend:' . $userId);
 
         session()->forget(['otp.user.id', 'otp.remember']);
         $request->session()->regenerate();

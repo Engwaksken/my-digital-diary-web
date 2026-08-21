@@ -1,12 +1,5 @@
 <x-guest-layout>
     <style>
-        /*
-        |--------------------------------------------------------------------------
-        | OTP secondary actions
-        |--------------------------------------------------------------------------
-        | These are POST buttons, not primary actions. The shared authentication
-        | styles target submit buttons globally, so reset them explicitly here.
-        */
         .otp-secondary-action,
         .otp-secondary-action:hover,
         .otp-secondary-action:focus,
@@ -49,25 +42,20 @@
     </style>
 
     <div class="space-y-1">
-        <h1 class="text-lg font-semibold text-slate-800">
-            Enter your code
-        </h1>
-
+        <h1 class="text-lg font-semibold text-slate-800">Enter your code</h1>
         <p class="text-sm text-slate-500 leading-relaxed">
             We emailed a 6-digit code to your address. It expires in 10 minutes.
         </p>
     </div>
 
-    <x-auth-session-status
-        class="mt-4 mb-4"
-        :status="session('status')"
-    />
+    <x-auth-session-status class="mt-4 mb-4" :status="session('status')" />
 
-    <form
-        method="POST"
-        action="{{ route('otp.verify.submit') }}"
-        class="mt-6"
-    >
+    {{--
+        IMPORTANT: Verify has its own form. Do not put Resend in this form and do
+        not use formaction here. Some mobile browsers can retain/reuse a clicked
+        submit button's formaction and accidentally call the resend endpoint.
+    --}}
+    <form method="POST" action="{{ route('otp.verify.submit') }}" class="mt-6" id="otpVerifyForm">
         @csrf
 
         <x-auth-field
@@ -86,46 +74,46 @@
             style="letter-spacing: 0.5em;"
         />
 
-        {{--
-            Keep Verify first in the HTML so pressing Enter verifies the OTP.
-            Resend uses formaction and formnovalidate, but remains a plain text
-            action visually.
-        --}}
-        <div class="flex flex-wrap items-center justify-between gap-4 mt-6">
-
-            <button
-                type="submit"
-                formaction="{{ route('otp.resend') }}"
-                formnovalidate
-                class="otp-secondary-action order-1"
-            >
-                Resend code
-            </button>
-
-            <x-primary-button class="order-2 gap-2">
-                <i
-                    class="fa-solid fa-check text-xs"
-                    aria-hidden="true"
-                ></i>
+        <div class="flex justify-end mt-6">
+            <x-primary-button class="gap-2" id="otpVerifyButton">
+                <i class="fa-solid fa-check text-xs" aria-hidden="true"></i>
                 Verify &amp; Sign In
             </x-primary-button>
-
         </div>
     </form>
 
-    <form
-        method="POST"
-        action="{{ route('otp.cancel') }}"
-        class="mt-5 text-center"
-    >
-        @csrf
+    <div class="flex flex-wrap items-center justify-between gap-4 mt-5">
+        {{-- Resend is a completely separate POST request. --}}
+        <form method="POST" action="{{ route('otp.resend') }}" id="otpResendForm">
+            @csrf
+            <button type="submit" class="otp-secondary-action">
+                Resend code
+            </button>
+        </form>
 
-        <button
-            type="submit"
-            class="otp-secondary-action otp-start-over"
-        >
-            <span class="text-slate-500">Not you?</span>
-            <span>Start over</span>
-        </button>
-    </form>
+        <form method="POST" action="{{ route('otp.cancel') }}" id="otpCancelForm">
+            @csrf
+            <button type="submit" class="otp-secondary-action otp-start-over">
+                <span class="text-slate-500">Not you?</span>
+                <span>Start over</span>
+            </button>
+        </form>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.getElementById('otpVerifyForm');
+            const button = document.getElementById('otpVerifyButton');
+
+            if (!form || !button) return;
+
+            form.addEventListener('submit', function () {
+                if (button.disabled) return;
+
+                button.disabled = true;
+                button.dataset.originalHtml = button.innerHTML;
+                button.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs" aria-hidden="true"></i> Verifying...';
+            });
+        });
+    </script>
 </x-guest-layout>

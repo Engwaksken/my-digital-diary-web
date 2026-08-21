@@ -12,6 +12,28 @@
 --}}
 <div id="pm-a11y-widget">
     <style>
+
+        /*
+         * The children themselves are position:fixed, so the wrapper does
+         * not need zero-size containment. Keeping the wrapper ordinary and
+         * unclipped avoids Safari/Android browsers suppressing its fixed
+         * descendants.
+         */
+        #pm-a11y-widget {
+            display: block !important;
+            position: static !important;
+            width: auto !important;
+            height: auto !important;
+            min-width: 0 !important;
+            min-height: 0 !important;
+            max-width: none !important;
+            max-height: none !important;
+            overflow: visible !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+        }
+
         /* Plain CSS rather than Tailwind's bg-[var(--brand-1)] bracket
            syntax the same reliability fix already applied to primary
            buttons elsewhere, since this toggle is a fixed, always-present
@@ -23,7 +45,10 @@
            was already fine, but tightened up further below on very
            narrow screens). */
         .pm-a11y-toggle {
-            position: fixed;
+            position: fixed !important;
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
             right: max(1.25rem, env(safe-area-inset-right));
             bottom: max(1.25rem, env(safe-area-inset-bottom));
             z-index: 50;
@@ -49,8 +74,12 @@
            becoming impossible to fully see or scroll. Capping max-height
            with its own overflow-y:auto, and widening more generously on
            tablets, fixes both. */
+        .pm-a11y-panel[hidden] { display: none !important; }
+
         .pm-a11y-panel {
-            position: fixed;
+            position: fixed !important;
+            visibility: visible !important;
+            opacity: 1 !important;
             right: max(1.25rem, env(safe-area-inset-right));
             bottom: calc(56px + 1.25rem + 12px + env(safe-area-inset-bottom));
             z-index: 50;
@@ -63,6 +92,42 @@
             border: 1px solid #e2e8f0;
             padding: 1.25rem;
         }
+
+        @media (max-width: 767.98px) {
+            .pm-a11y-toggle {
+                position: fixed !important;
+                right: max(12px, env(safe-area-inset-right)) !important;
+                bottom: max(12px, env(safe-area-inset-bottom)) !important;
+                width: 48px !important;
+                height: 48px !important;
+                min-width: 48px !important;
+                min-height: 48px !important;
+                max-width: 48px !important;
+                max-height: 48px !important;
+                margin: 0 !important;
+                z-index: 9999 !important;
+            }
+
+            .pm-a11y-panel {
+                position: fixed !important;
+                top: auto !important;
+                right: 12px !important;
+                bottom: calc(72px + env(safe-area-inset-bottom)) !important;
+                left: 12px !important;
+                width: auto !important;
+                min-width: 0 !important;
+                max-width: none !important;
+                height: auto !important;
+                max-height: min(72dvh, 34rem) !important;
+                margin: 0 !important;
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
+                overscroll-behavior: contain !important;
+                z-index: 9999 !important;
+                box-sizing: border-box !important;
+            }
+        }
+
         @media (max-width: 380px) {
             /* Very narrow phones: let the panel use nearly the full width
                and sit flush with both edges instead of only the right,
@@ -253,6 +318,14 @@
             var toggle = document.getElementById('pm-a11y-toggle');
             var isHidden = panel.hasAttribute('hidden');
             if (isHidden) {
+                const supportPanel = document.getElementById('pm-support-panel');
+                const supportToggle = document.getElementById('pm-support-toggle');
+
+                if (supportPanel && !supportPanel.hidden) {
+                    supportPanel.hidden = true;
+                    supportToggle?.setAttribute('aria-expanded', 'false');
+                }
+
                 panel.removeAttribute('hidden');
                 toggle.setAttribute('aria-expanded', 'true');
             } else {

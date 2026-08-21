@@ -5,6 +5,7 @@
     $isToday = $date->isToday();
     $isPast = $date->lt(today());
     $isFuture = $date->gt(today());
+    $tomorrowDate = $date->copy()->addDay()->toDateString();
 
     $formatTime = static function ($time) {
         if (!$time) return null;
@@ -52,10 +53,28 @@
         box-shadow: 0 24px 70px rgba(15,23,42,.22);
     }
     .dp-stat-card {
+        --dp-stat-accent: var(--brand-1);
+        --dp-stat-soft: var(--brand-1-tint-10);
         background: #fff;
         border: 1px solid #e2e8f0;
-        border-radius: 1rem;
-        padding: 1rem;
+        border-left: 4px solid var(--dp-stat-accent);
+        border-radius: .85rem;
+        padding: .8rem .9rem;
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        box-shadow: 0 3px 10px rgba(15,23,42,.04);
+    }
+    .dp-stat-icon {
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: .65rem;
+        background: var(--dp-stat-soft);
+        color: var(--dp-stat-accent);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
     }
     .dp-time-badge {
         display: inline-flex;
@@ -206,21 +225,21 @@
 
     {{-- Statistics --}}
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div class="dp-stat-card">
-            <div class="text-xs uppercase tracking-wide text-slate-500">Total Tasks</div>
-            <div class="mt-1 text-2xl font-bold text-slate-900">{{ $total }}</div>
+        <div class="dp-stat-card" style="--dp-stat-accent:#0f766e;--dp-stat-soft:#f0fdfa">
+            <div class="dp-stat-icon"><i class="fa-solid fa-list-check"></i></div>
+            <div class="min-w-0"><div class="text-[11px] uppercase tracking-wide text-slate-500 truncate">Total Tasks</div><div class="text-xl font-bold text-slate-900">{{ $total }}</div></div>
         </div>
-        <div class="dp-stat-card">
-            <div class="text-xs uppercase tracking-wide text-slate-500">Completed</div>
-            <div class="mt-1 text-2xl font-bold dp-primary-text">{{ $done }}</div>
+        <div class="dp-stat-card" style="--dp-stat-accent:#059669;--dp-stat-soft:#ecfdf5">
+            <div class="dp-stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+            <div class="min-w-0"><div class="text-[11px] uppercase tracking-wide text-slate-500 truncate">Completed</div><div class="text-xl font-bold text-slate-900">{{ $done }}</div></div>
         </div>
-        <div class="dp-stat-card">
-            <div class="text-xs uppercase tracking-wide text-slate-500">Pending</div>
-            <div class="mt-1 text-2xl font-bold text-amber-600">{{ $pending }}</div>
+        <div class="dp-stat-card" style="--dp-stat-accent:#d97706;--dp-stat-soft:#fffbeb">
+            <div class="dp-stat-icon"><i class="fa-solid fa-hourglass-half"></i></div>
+            <div class="min-w-0"><div class="text-[11px] uppercase tracking-wide text-slate-500 truncate">Pending</div><div class="text-xl font-bold text-slate-900">{{ $pending }}</div></div>
         </div>
-        <div class="dp-stat-card">
-            <div class="text-xs uppercase tracking-wide text-slate-500">Timed Tasks</div>
-            <div class="mt-1 text-2xl font-bold text-slate-900">{{ $scheduled }}</div>
+        <div class="dp-stat-card" style="--dp-stat-accent:#2563eb;--dp-stat-soft:#eff6ff">
+            <div class="dp-stat-icon"><i class="fa-solid fa-clock"></i></div>
+            <div class="min-w-0"><div class="text-[11px] uppercase tracking-wide text-slate-500 truncate">Timed Tasks</div><div class="text-xl font-bold text-slate-900">{{ $scheduled }}</div></div>
         </div>
     </div>
 
@@ -262,11 +281,25 @@
             </div>
 
             @if($total)
-                <button type="submit" form="bulkDailyDelete"
-                        class="inline-flex items-center gap-2 text-sm text-rose-700 border border-rose-200 rounded-lg px-3 py-2 bg-white hover:bg-rose-50"
-                        onclick="return confirm('Delete selected tasks?')">
-                    <i class="fa-solid fa-trash"></i> Delete selected
-                </button>
+                <div class="flex flex-wrap items-center gap-2">
+                    @if($pending)
+                        <button type="button"
+                                onclick="openBulkMoveModal('{{ $tomorrowDate }}', true)"
+                                class="inline-flex items-center gap-2 text-sm dp-primary-text border dp-primary-border rounded-lg px-3 py-2 bg-white hover:bg-slate-50">
+                            <i class="fa-solid fa-calendar-arrow-up"></i> Move selected
+                        </button>
+                        <button type="button"
+                                onclick="moveAllPendingTomorrow()"
+                                class="inline-flex items-center gap-2 text-sm text-amber-700 border border-amber-200 rounded-lg px-3 py-2 bg-amber-50 hover:bg-amber-100">
+                            <i class="fa-solid fa-forward"></i> Move unfinished to tomorrow
+                        </button>
+                    @endif
+                    <button type="submit" form="bulkDailyDelete"
+                            class="inline-flex items-center gap-2 text-sm text-rose-700 border border-rose-200 rounded-lg px-3 py-2 bg-white hover:bg-rose-50"
+                            data-confirm-click="Delete selected tasks? This action cannot be undone." data-confirm-title="Delete selected tasks?" data-confirm-text="Delete selected">
+                        <i class="fa-solid fa-trash"></i> Delete selected
+                    </button>
+                </div>
             @endif
         </div>
 
@@ -301,7 +334,7 @@
                                 @endphp
                                 <tr class="dp-timeline-row border-t border-slate-100 {{ $item->is_completed ? 'bg-slate-50/70' : '' }}">
                                     <td class="px-4 py-4">
-                                        <input class="daily-row" type="checkbox" name="ids[]" value="{{ $item->id }}">
+                                        <input class="daily-row" type="checkbox" name="ids[]" value="{{ $item->id }}" data-pending="{{ $item->is_completed ? '0' : '1' }}">
                                     </td>
                                     <td class="px-3 py-4 w-40">
                                         @if($start)
@@ -341,6 +374,8 @@
                                             $editTaskPayload = [
                                                 'id' => $item->id,
                                                 'title' => $item->title,
+                                                'plan_date' => $item->plan->plan_date->toDateString(),
+                                                'personal_goal_id' => $item->personal_goal_id,
                                                 'description' => $item->description,
                                                 'priority' => $item->priority,
                                                 'start_time' => $item->start_time ? substr((string) $item->start_time, 0, 5) : '',
@@ -356,6 +391,15 @@
                                             <i class="fa-solid fa-pen"></i>
                                         </button>
 
+                                        @if(!$item->is_completed)
+                                            <button type="button"
+                                                    onclick="openMoveTaskModal({{ $item->id }}, @js($item->title), @js(route('daily-planner.items.move', $item)), @js($item->plan->plan_date->copy()->addDay()->toDateString()))"
+                                                    class="px-2.5 py-2 rounded-lg border border-amber-200 text-amber-700 bg-white"
+                                                    title="Move task to another date">
+                                                <i class="fa-solid fa-calendar-days"></i>
+                                            </button>
+                                        @endif
+
                                         <button type="submit" form="toggle-{{ $item->id }}"
                                                 class="px-2.5 py-2 rounded-lg border border-slate-200 bg-white"
                                                 title="{{ $item->is_completed ? 'Reopen task' : 'Mark complete' }}">
@@ -363,7 +407,7 @@
                                         </button>
 
                                         <button type="submit" form="delete-{{ $item->id }}"
-                                                onclick="return confirm('Delete this task?')"
+                                                data-confirm-click="Delete this task? This action cannot be undone." data-confirm-title="Delete task?" data-confirm-text="Delete"
                                                 class="px-2.5 py-2 rounded-lg border border-rose-200 text-rose-700 bg-white"
                                                 title="Delete task">
                                             <i class="fa-solid fa-trash"></i>
@@ -573,7 +617,15 @@
                 <textarea name="description" rows="3" class="pm-input mt-1 w-full" placeholder="Optional details">{{ old('description') }}</textarea>
             </label>
 
-            <div class="grid sm:grid-cols-3 gap-3">
+            <label class="block text-sm font-medium">Linked Goal <span class="text-slate-400 font-normal">(optional)</span>
+                <select name="personal_goal_id" class="pm-input mt-1 w-full">
+                    <option value="">No linked goal</option>
+                    @foreach(($goalOptions ?? collect()) as $goalId => $goalTitle)<option value="{{ $goalId }}">{{ $goalTitle }}</option>@endforeach
+                </select>
+            </label>
+
+            <div class="grid md:grid-cols-2 gap-3 mb-3"><div><label class="block text-sm font-medium text-slate-700 mb-1">Task Achievement</label><textarea name="achievements" rows="2" class="pm-input"></textarea></div><div><label class="block text-sm font-medium text-slate-700 mb-1">Task Challenge</label><textarea name="challenges" rows="2" class="pm-input"></textarea></div></div>
+<div class="grid sm:grid-cols-3 gap-3">
                 <label class="block text-sm font-medium">Priority
                     <select name="priority" class="pm-input mt-1 w-full">
                         <option value="high">High</option>
@@ -616,6 +668,18 @@
                 <textarea id="editTaskDescription" name="description" rows="3" class="pm-input mt-1 w-full"></textarea>
             </label>
 
+            <label class="block text-sm font-medium">Task Date
+                <input id="editTaskDate" type="date" name="plan_date" class="pm-input mt-1 w-full" required>
+                <span class="block text-xs text-slate-500 mt-1">Change the date to move this pending task to another day.</span>
+            </label>
+
+            <label class="block text-sm font-medium">Linked Goal <span class="text-slate-400 font-normal">(optional)</span>
+                <select id="editTaskGoal" name="personal_goal_id" class="pm-input mt-1 w-full">
+                    <option value="">No linked goal</option>
+                    @foreach(($goalOptions ?? collect()) as $goalId => $goalTitle)<option value="{{ $goalId }}">{{ $goalTitle }}</option>@endforeach
+                </select>
+            </label>
+
             <div class="grid sm:grid-cols-3 gap-3">
                 <label class="block text-sm font-medium">Priority
                     <select id="editTaskPriority" name="priority" class="pm-input mt-1 w-full">
@@ -640,6 +704,71 @@
     </div>
 </div>
 
+{{-- Move One Task Modal --}}
+<div id="moveTaskModal" class="dp-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="moveTaskTitle">
+    <div class="dp-modal-panel max-w-lg">
+        <div class="flex items-center justify-between px-5 py-4 border-b">
+            <div>
+                <h3 id="moveTaskTitle" class="font-bold text-lg">Move Pending Task</h3>
+                <p id="moveTaskName" class="text-xs text-slate-500 mt-1"></p>
+            </div>
+            <button type="button" class="p-2 text-slate-500" onclick="closeDpModal('moveTaskModal')"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <form id="moveTaskForm" method="POST" action="" class="p-5 space-y-4">
+            @csrf
+            @method('PATCH')
+            <label class="block text-sm font-medium">Move to date
+                <input id="moveTaskDate" type="date" name="target_date" min="{{ today()->toDateString() }}" class="pm-input mt-1 w-full" required>
+            </label>
+            <div class="rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+                The existing task will be rescheduled, not duplicated. Its times, priority and linked goal stay unchanged.
+            </div>
+            <div class="flex flex-wrap justify-end gap-2">
+                <button id="moveTaskTomorrowButton" type="button" class="px-4 py-2.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 font-medium">Move to Tomorrow</button>
+                <button type="button" onclick="closeDpModal('moveTaskModal')" class="px-4 py-2.5 rounded-lg border bg-white">Cancel</button>
+                <button type="submit" class="px-4 py-2.5 rounded-lg dp-btn-primary font-medium"><i class="fa-solid fa-calendar-check mr-1"></i>Move Task</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{-- Bulk Move Pending Tasks Modal --}}
+<div id="bulkMoveTaskModal" class="dp-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="bulkMoveTaskTitle">
+    <div class="dp-modal-panel max-w-lg">
+        <div class="flex items-center justify-between px-5 py-4 border-b">
+            <div>
+                <h3 id="bulkMoveTaskTitle" class="font-bold text-lg">Move Pending Tasks</h3>
+                <p id="bulkMoveCount" class="text-xs text-slate-500 mt-1"></p>
+            </div>
+            <button type="button" class="p-2 text-slate-500" onclick="closeDpModal('bulkMoveTaskModal')"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+        <form id="bulkMoveTaskForm" method="POST" action="{{ route('daily-planner.items.bulk-move') }}" class="p-5 space-y-4">
+            @csrf
+            @method('PATCH')
+            <div id="bulkMoveIds"></div>
+            <label class="block text-sm font-medium">Move selected pending tasks to
+                <input id="bulkMoveDate" type="date" name="target_date" min="{{ today()->toDateString() }}" class="pm-input mt-1 w-full" required>
+            </label>
+            <div class="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm text-slate-600">
+                Completed tasks are left on their original date to preserve your history.
+            </div>
+            <div class="flex justify-end gap-2">
+                <button type="button" onclick="closeDpModal('bulkMoveTaskModal')" class="px-4 py-2.5 rounded-lg border bg-white">Cancel</button>
+                <button id="bulkMoveSubmit" type="submit" class="px-4 py-2.5 rounded-lg dp-btn-primary font-medium"><i class="fa-solid fa-forward mr-1"></i>Move Tasks</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<form id="moveAllPendingTomorrowForm" method="POST" action="{{ route('daily-planner.items.bulk-move') }}" class="hidden">
+    @csrf
+    @method('PATCH')
+    <input type="hidden" name="target_date" value="{{ $tomorrowDate }}">
+    @foreach($plan->items->where('is_completed', false) as $pendingItem)
+        <input type="hidden" name="ids[]" value="{{ $pendingItem->id }}">
+    @endforeach
+</form>
+
 {{-- Save Day Plan Modal --}}
 <div id="dayPlanModal" class="dp-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="dayPlanTitle">
     <div class="dp-modal-panel">
@@ -661,6 +790,10 @@
 
             <label class="block text-sm font-medium">Day Notes
                 <textarea name="notes" rows="5" class="pm-input mt-1 w-full" placeholder="Focus, reminders, reflections or anything important for this day...">{{ old('notes', $plan->notes) }}</textarea>
+                        <div class="grid md:grid-cols-2 gap-4 mt-4">
+                            <div><label class="block text-sm font-medium text-slate-700 mb-1">Achievements</label><textarea name="achievements" rows="3" class="pm-input" placeholder="What did you achieve today?">{{ old('achievements', $plan->achievements) }}</textarea></div>
+                            <div><label class="block text-sm font-medium text-slate-700 mb-1">Challenges</label><textarea name="challenges" rows="3" class="pm-input" placeholder="What challenges did you face?">{{ old('challenges', $plan->challenges) }}</textarea></div>
+                        </div>
             </label>
 
             <div class="flex justify-end gap-2 pt-2">
@@ -690,11 +823,58 @@
         document.getElementById('editTaskForm').action = task.action;
         document.getElementById('editTaskName').value = task.title || '';
         document.getElementById('editTaskDescription').value = task.description || '';
+        document.getElementById('editTaskDate').value = task.plan_date || '{{ $date->toDateString() }}';
+        document.getElementById('editTaskGoal').value = task.personal_goal_id ? String(task.personal_goal_id) : '';
         document.getElementById('editTaskPriority').value = task.priority || 'medium';
         document.getElementById('editTaskStart').value = task.start_time || '';
         document.getElementById('editTaskEnd').value = task.end_time || '';
         openDpModal('editTaskModal');
     }
+
+    window.openMoveTaskModal = function(id, title, action, tomorrow) {
+        document.getElementById('moveTaskForm').action = action;
+        document.getElementById('moveTaskName').textContent = title || 'Pending task';
+        document.getElementById('moveTaskDate').value = tomorrow;
+        document.getElementById('moveTaskTomorrowButton').onclick = function() {
+            document.getElementById('moveTaskDate').value = tomorrow;
+            document.getElementById('moveTaskForm').requestSubmit();
+        };
+        openDpModal('moveTaskModal');
+    };
+
+    window.openBulkMoveModal = function(defaultDate, selectedOnly) {
+        const boxes = [...document.querySelectorAll('.daily-row')].filter(box => box.checked && box.dataset.pending === '1');
+        const submit = document.getElementById('bulkMoveSubmit');
+        if (boxes.length === 0) {
+            document.getElementById('bulkMoveCount').textContent = 'Select at least one pending task first.';
+            document.getElementById('bulkMoveIds').innerHTML = '';
+            submit.disabled = true;
+            submit.classList.add('opacity-50', 'cursor-not-allowed');
+            openDpModal('bulkMoveTaskModal');
+            return;
+        }
+        submit.disabled = false;
+        submit.classList.remove('opacity-50', 'cursor-not-allowed');
+        const holder = document.getElementById('bulkMoveIds');
+        holder.innerHTML = '';
+        boxes.forEach(box => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'ids[]';
+            input.value = box.value;
+            holder.appendChild(input);
+        });
+        document.getElementById('bulkMoveDate').value = defaultDate;
+        document.getElementById('bulkMoveCount').textContent = `${boxes.length} pending task${boxes.length === 1 ? '' : 's'} selected`;
+        openDpModal('bulkMoveTaskModal');
+    };
+
+    window.moveAllPendingTomorrow = function() {
+        const pending = [...document.querySelectorAll('.daily-row')].filter(box => box.dataset.pending === '1');
+        if (pending.length === 0) return;
+        pending.forEach(box => { box.checked = true; });
+        openBulkMoveModal('{{ $tomorrowDate }}', false);
+    };
 
     document.querySelectorAll('[data-dp-tab]').forEach(button => {
         button.addEventListener('click', function () {

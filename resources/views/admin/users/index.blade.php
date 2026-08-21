@@ -10,11 +10,16 @@
             </div>
             <h1 class="text-2xl font-bold text-slate-800 tracking-tight">Manage Users</h1>
         </div>
-        <button type="button" onclick="document.getElementById('user-create-modal').showModal()"
-                class="inline-flex items-center justify-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
-            <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
-            <span>Add User</span>
-        </button>
+        <div class="flex flex-wrap gap-2">
+            <a href="{{ route('admin.login-activities.index') }}" class="apple-btn">
+                <i class="fa-solid fa-shield-halved text-[var(--brand-1)]"></i> Login Activities
+            </a>
+            <button type="button" onclick="document.getElementById('user-create-modal').showModal()"
+                    class="inline-flex items-center justify-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
+                <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
+                <span>Add User</span>
+            </button>
+        </div>
     </div>
 
     <p class="text-sm text-slate-500 mb-4 flex items-start gap-2">
@@ -87,16 +92,16 @@
             <span class="text-sm text-amber-800"><span id="admin-users-selected-count">0</span> selected</span>
             <div class="flex items-center gap-3">
                 <button type="submit" name="action" value="suspend" class="text-sm text-amber-800 hover:underline"
-                        onclick="return confirm('Suspend all selected users?');">Suspend</button>
+                        data-confirm-click="Suspend all selected users?" data-confirm-title="Suspend selected users?" data-confirm-text="Suspend">Suspend</button>
                 <button type="submit" name="action" value="unsuspend" class="text-sm text-emerald-700 hover:underline">Reactivate</button>
                 <button type="submit" name="action" value="delete" class="text-sm text-rose-600 hover:underline"
-                        onclick="return confirm('Permanently delete all selected users and their data? This cannot be undone.');">Delete</button>
+                        data-confirm-click="Permanently delete all selected users and their data? This cannot be undone." data-confirm-title="Delete selected users?" data-confirm-text="Delete permanently">Delete</button>
             </div>
         </div>
 
-        <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 overflow-x-auto" role="region" aria-label="Users table" tabindex="0">
-        <table class="min-w-full text-sm">
-            <caption class="sr-only">All registered users, with role, subscription status, and a link to manage each.</caption>
+        <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 overflow-x-auto pm-admin-table-scroll" role="region" aria-label="Users table" tabindex="0">
+        <table class="min-w-full text-sm pm-admin-horizontal-table">
+            <caption class="sr-only">All registered users, with role, subscription status, usage progress, and a link to manage each.</caption>
             <thead class="bg-slate-50 text-left border-b border-slate-100">
                 <tr>
                     <th scope="col" class="px-4 py-3 w-8">
@@ -107,6 +112,7 @@
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Email</th>
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Role</th>
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Status</th>
+                    <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide min-w-[150px]">Usage</th>
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Joined</th>
                     <th scope="col" class="px-4 py-3"><span class="sr-only">Actions</span></th>
                 </tr>
@@ -146,12 +152,18 @@
                                 <span class="text-slate-600">{{ ucfirst($user->subscription_status) }}</span>
                             @endif
                         </td>
+                        <td class="px-4 py-3">
+                            @php $usagePercent = (int) ($usageByUser[$user->id] ?? 0); @endphp
+                            <div class="flex items-center gap-2 min-w-[130px]">
+                                <div class="h-2 flex-1 rounded-full bg-slate-100 overflow-hidden" aria-hidden="true">
+                                    <div class="h-full rounded-full bg-[var(--brand-1)] transition-all duration-500" style="width: {{ $usagePercent }}%"></div>
+                                </div>
+                                <span class="text-xs font-bold text-slate-600 w-9 text-right">{{ $usagePercent }}%</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-1">App usage progress</p>
+                        </td>
                         <td class="px-4 py-3 text-slate-600">{{ $user->created_at->format('Y-m-d') }}</td>
                         <td class="px-4 py-3 text-right whitespace-nowrap">
-                            <a href="{{ route('admin.users.show', $user->id) }}" class="inline-flex items-center gap-1 text-slate-500 hover:text-slate-800 mr-3 transition-colors">
-                                <i class="fa-solid fa-eye text-xs" aria-hidden="true"></i>
-                                View<span class="sr-only"> {{ $user->name }}</span>
-                            </a>
                             <a href="{{ route('admin.users.show', $user->id) }}" class="inline-flex items-center gap-1 text-[var(--brand-1)] hover:text-[var(--brand-1-dark)] transition-colors">
                                 <i class="fa-solid fa-gear text-xs" aria-hidden="true"></i>
                                 Manage<span class="sr-only"> {{ $user->name }}</span>

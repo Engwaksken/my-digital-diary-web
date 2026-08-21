@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Project;
 use App\Models\ProjectTask;
+use App\Models\PersonalGoal;
 use Illuminate\Http\Request;
 
 class ProjectTaskController extends CrudController
@@ -16,6 +17,7 @@ class ProjectTaskController extends CrudController
 
     protected array $fields = [
         ['name' => 'project_id', 'label' => 'Project', 'type' => 'select', 'required' => true],
+        ['name' => 'personal_goal_id', 'label' => 'Linked Goal', 'type' => 'select'],
         ['name' => 'title', 'label' => 'Task', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g. Buy paint'],
         ['name' => 'status', 'label' => 'Status', 'type' => 'select', 'required' => true, 'options' => [
             'todo' => 'To Do', 'in_progress' => 'In Progress', 'done' => 'Done',
@@ -25,6 +27,7 @@ class ProjectTaskController extends CrudController
 
     protected array $rules = [
         'project_id' => 'required|exists:projects,id',
+        'personal_goal_id' => 'nullable|exists:personal_goals,id',
         'title' => 'required|string|max:255',
         'status' => 'required|in:todo,in_progress,done',
         'due_date' => 'nullable|date',
@@ -36,6 +39,8 @@ class ProjectTaskController extends CrudController
         $fields = $this->fields;
         $projects = Project::where('user_id', $request->user()->id)->pluck('name', 'id')->toArray();
         $fields[0]['options'] = $projects;
+        $goals = PersonalGoal::where('user_id', $request->user()->id)->where('is_archived',false)->whereIn('status',['not_started','in_progress'])->pluck('title','id')->toArray();
+        $fields[1]['options'] = $goals;
 
         return $fields;
     }

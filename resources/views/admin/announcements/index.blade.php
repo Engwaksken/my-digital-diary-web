@@ -38,7 +38,7 @@
                         </p>
                     </div>
                     <form method="POST" action="{{ route('admin.announcements.destroy', $announcement->id) }}"
-                          onsubmit="return confirm('Delete this announcement record? This does not un-send it from anyone\'s notifications.');">
+                          data-confirm="Delete this announcement record? This does not remove notifications already delivered to users." data-confirm-title="Delete announcement?" data-confirm-text="Delete">
                         @csrf
                         @method('DELETE')
                         <button type="submit" class="text-rose-500 hover:text-rose-700 text-sm">
@@ -62,6 +62,6 @@
 <script>
 function pmToggleAllAnnouncements(master){document.querySelectorAll('.pm-announcement-checkbox').forEach(function(cb){cb.checked=master.checked;});pmUpdateAnnouncementBulkBar();}
 function pmUpdateAnnouncementBulkBar(){var all=Array.from(document.querySelectorAll('.pm-announcement-checkbox')),checked=all.filter(function(cb){return cb.checked;}),count=document.getElementById('pm-announcement-bulk-count'),master=document.getElementById('pm-announcement-select-all');if(count)count.textContent=checked.length+(checked.length===1?' selected':' selected');if(master){master.checked=all.length>0&&checked.length===all.length;master.indeterminate=checked.length>0&&checked.length<all.length;}}
-function pmSubmitAnnouncementBulkDelete(){var checked=document.querySelectorAll('.pm-announcement-checkbox:checked');if(!checked.length){alert('Select at least one announcement.');return;}if(!confirm('Delete '+checked.length+' selected announcement record(s)?'))return;var form=document.createElement('form');form.method='POST';form.action=@json(route('admin.announcements.bulk-destroy'));form.innerHTML='<input type="hidden" name="_token" value="'+@json(csrf_token())+'"><input type="hidden" name="_method" value="DELETE">';checked.forEach(function(cb){var i=document.createElement('input');i.type='hidden';i.name='ids[]';i.value=cb.value;form.appendChild(i);});document.body.appendChild(form);form.submit();}
+function pmSubmitAnnouncementBulkDelete(){var checked=document.querySelectorAll('.pm-announcement-checkbox:checked');if(!checked.length){return;}pmConfirmAction({title:'Delete selected announcements?',message:'Delete '+checked.length+' selected announcement record(s)? This action cannot be undone.',confirmText:'Delete selected',onConfirm:function(){var form=document.createElement('form');form.method='POST';form.action=@json(route('admin.announcements.bulk-destroy'));form.innerHTML='<input type="hidden" name="_token" value="'+@json(csrf_token())+'"><input type="hidden" name="_method" value="DELETE">';checked.forEach(function(cb){var i=document.createElement('input');i.type='hidden';i.name='ids[]';i.value=cb.value;form.appendChild(i);});document.body.appendChild(form);form.submit();}});}
 </script>
 @endsection

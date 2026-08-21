@@ -49,8 +49,11 @@ class AiPlanController extends Controller
 
     public function store(Request $request, AiPlannerService $planner)
     {
+        $data = $request->validate(['custom_prompt' => ['nullable','string','max:3000']]);
+        $customPrompt = trim((string) ($data['custom_prompt'] ?? ''));
+
         try {
-            $result = $planner->generate($request->user());
+            $result = $planner->generate($request->user(), null, $customPrompt);
         } catch (Throwable $e) {
             return back()->withErrors(['ai' => $e->getMessage()]);
         }
@@ -59,6 +62,7 @@ class AiPlanController extends Controller
 
         $request->user()->aiPlans()->create([
             'content' => $result['content'],
+            'custom_prompt' => $customPrompt !== '' ? $customPrompt : null,
             'provider' => $credential?->provider ?? \App\Models\SiteSetting::current()->default_ai_provider,
             'used_shared_key' => $result['used_shared_key'],
         ]);
@@ -66,14 +70,51 @@ class AiPlanController extends Controller
         return redirect()->route('ai-plans.index')->with('success', 'New plan generated.');
     }
 
+    /**
+     * Preview a generated AI plan PDF in the browser instead of forcing a
+     * download. The plan is always resolved through the authenticated user's
+     * relationship so one user can never preview another user's plan.
+     */
+    public function previewPdf(Request $request, int $aiPlan)
+    {
+        $plan = $request->user()->aiPlans()->findOrFail($aiPlan);
+
+        $pdf = Pdf::loadView('ai-plans.pdf', [
+            'plan' => $plan,
+            'user' => $request->user(),
+        ])->setPaper('a4');
+
+        return $pdf->stream('ai-plan-' . $plan->created_at->format('Y-m-d') . '.pdf');
+    }
+
+    /**
+     * Download the exact same PDF shown by previewPdf().
+     */
     public function downloadPdf(Request $request, int $aiPlan)
     {
         $plan = $request->user()->aiPlans()->findOrFail($aiPlan);
 
-        $pdf = Pdf::loadView('ai-plans.pdf', ['plan' => $plan, 'user' => $request->user()])
-            ->setPaper('a4');
+        $pdf = Pdf::loadView('ai-plans.pdf', [
+            'plan' => $plan,
+            'user' => $request->user(),
+        ])->setPaper('a4');
 
         return $pdf->download('ai-plan-' . $plan->created_at->format('Y-m-d') . '.pdf');
+    }
+
+
+    public function bulkDestroy(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ]);
+
+        $deleted = $request->user()->aiPlans()
+            ->whereIn('id', $data['ids'])
+            ->delete();
+
+        return back()->with('success', $deleted . ' AI plan' . ($deleted === 1 ? '' : 's') . ' deleted.');
     }
 
     public function destroy(Request $request, int $aiPlan): RedirectResponse
