@@ -896,7 +896,7 @@
     </dialog>
 
     {{-- Shared read-only View modal. --}}
-    <dialog id="crud-view-modal" aria-labelledby="crud-view-modal-title" class="pm-dialog pm-modal-shell">
+    <dialog id="crud-view-modal" aria-labelledby="crud-view-modal-title" class="pm-dialog-lg pm-modal-shell">
         <div class="pm-modal-content">
             <header class="pm-modal-header">
                 <div class="pm-modal-heading">
@@ -1108,14 +1108,18 @@
                     }
                 }
 
+                var isEmpty = value === null || value === undefined || value === '';
+                var displayText = isEmpty ? 'Not provided' : String(value);
+                var isLongValue = field.type === 'textarea' || displayText.length > 80;
+
                 var wrap = document.createElement('div');
-                wrap.className = field.type === 'textarea' ? 'sm:col-span-2' : '';
+                wrap.className = 'pm-view-field' + (isLongValue ? ' pm-view-field--wide' : '');
                 var dt = document.createElement('dt');
-                dt.className = 'text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1';
+                dt.className = 'pm-view-field-label';
                 dt.textContent = field.label;
                 var dd = document.createElement('dd');
-                dd.className = 'text-sm text-slate-700 whitespace-pre-wrap break-words';
-                dd.textContent = String(value);
+                dd.className = 'pm-view-field-value' + (isEmpty ? ' is-empty' : '');
+                dd.textContent = displayText;
                 wrap.appendChild(dt);
                 wrap.appendChild(dd);
                 container.appendChild(wrap);

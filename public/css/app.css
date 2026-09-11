@@ -135,6 +135,66 @@ body {
 
 a { text-decoration: none !important; }
 
+/* Shared CRUD view modal: readable label/value cards across all modules. */
+.pm-modal-read-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.pm-view-field {
+    min-width: 0;
+    width: 100%;
+    border: 1px solid rgba(148, 163, 184, .28);
+    border-radius: 18px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    box-shadow: 0 10px 28px rgba(15, 23, 42, .05);
+    padding: 14px 16px;
+}
+
+.pm-view-field--wide {
+    grid-column: 1 / -1;
+}
+
+.pm-view-field-label {
+    display: block;
+    margin: 0 0 7px;
+    color: #64748b;
+    font-size: .72rem;
+    font-weight: 800;
+    letter-spacing: .085em;
+    line-height: 1.25;
+    text-transform: uppercase;
+}
+
+.pm-view-field-value {
+    margin: 0;
+    color: #0f172a;
+    font-size: .98rem;
+    font-weight: 600;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.pm-view-field-value.is-empty {
+    color: #94a3b8;
+    font-weight: 500;
+    font-style: italic;
+}
+
+@media (max-width: 640px) {
+    .pm-modal-read-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .pm-view-field {
+        border-radius: 15px;
+        padding: 12px 13px;
+    }
+}
+
 .apple-page { max-width: 1500px; margin: 0 auto; }
 
 .apple-hero {
