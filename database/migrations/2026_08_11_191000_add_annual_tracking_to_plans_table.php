@@ -21,8 +21,12 @@ return new class extends Migration
             });
         }
 
+        $yearExpr = DB::getDriverName() === 'sqlite'
+            ? 'strftime(\'%Y\', COALESCE(target_date, created_at))'
+            : 'YEAR(COALESCE(target_date, created_at))';
+
         DB::table('plans')->whereNull('plan_year')->update([
-            'plan_year' => DB::raw('strftime(\'%Y\', COALESCE(target_date, created_at))'),
+            'plan_year' => DB::raw($yearExpr),
         ]);
         DB::table('plans')->where('status', 'completed')->update(['progress_percent' => 100]);
     }
