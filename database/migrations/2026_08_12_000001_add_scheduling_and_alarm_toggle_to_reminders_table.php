@@ -22,40 +22,48 @@ return new class extends Migration
             $table->boolean('alarm_enabled')->default(true)->after('is_active');
         });
 
-        // Recreate the table with widened enum
-        DB::statement("
-            CREATE TABLE reminders_new (
-                id INTEGER NOT NULL PRIMARY KEY,
-                -- other columns would be here, we only handle frequency
-                frequency TEXT NOT NULL DEFAULT 'once',
-                is_active tinyint(1) NOT NULL DEFAULT 1,
-                alarm_enabled tinyint(1) NOT NULL DEFAULT 1,
-                interval_minutes INTEGER NULL,
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL
-            );
-            INSERT INTO reminders_new SELECT id, frequency, is_active, alarm_enabled, interval_minutes, created_at, updated_at FROM reminders;
-            DROP TABLE reminders;
-            ALTER TABLE reminders_new RENAME TO reminders;
-        ");
+        if (DB::getDriverName() === 'sqlite') {
+            // Recreate the table with widened enum (SQLite has no MODIFY COLUMN)
+            DB::statement("
+                CREATE TABLE reminders_new (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    -- other columns would be here, we only handle frequency
+                    frequency TEXT NOT NULL DEFAULT 'once',
+                    is_active tinyint(1) NOT NULL DEFAULT 1,
+                    alarm_enabled tinyint(1) NOT NULL DEFAULT 1,
+                    interval_minutes INTEGER NULL,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                );
+                INSERT INTO reminders_new SELECT id, frequency, is_active, alarm_enabled, interval_minutes, created_at, updated_at FROM reminders;
+                DROP TABLE reminders;
+                ALTER TABLE reminders_new RENAME TO reminders;
+            ");
+        } else {
+            DB::statement("ALTER TABLE reminders MODIFY frequency ENUM('once', 'daily', 'weekly', 'monthly', 'annually', 'every_n_minutes') NOT NULL DEFAULT 'once'");
+        }
     }
 
     public function down(): void
     {
-        // Revert: narrow the enum back and remove new columns
-        DB::statement("
-            CREATE TABLE reminders_old (
-                id INTEGER NOT NULL PRIMARY KEY,
-                frequency TEXT NOT NULL DEFAULT 'once',
-                is_active tinyint(1) NOT NULL DEFAULT 1,
-                -- interval_minutes removed in down migration
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL
-            );
-            INSERT INTO reminders_old SELECT id, frequency, is_active, created_at, updated_at FROM reminders;
-            DROP TABLE reminders;
-            ALTER TABLE reminders_old RENAME TO reminders;
-        ");
+        if (DB::getDriverName() === 'sqlite') {
+            // Revert: narrow the enum back and remove new columns
+            DB::statement("
+                CREATE TABLE reminders_old (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    frequency TEXT NOT NULL DEFAULT 'once',
+                    is_active tinyint(1) NOT NULL DEFAULT 1,
+                    -- interval_minutes removed in down migration
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                );
+                INSERT INTO reminders_old SELECT id, frequency, is_active, created_at, updated_at FROM reminders;
+                DROP TABLE reminders;
+                ALTER TABLE reminders_old RENAME TO reminders;
+            ");
+        } else {
+            DB::statement("ALTER TABLE reminders MODIFY frequency ENUM('once', 'daily', 'weekly', 'monthly', 'annually') NOT NULL DEFAULT 'once'");
+        }
 
         Schema::table('reminders', function (Blueprint $table) {
             $table->dropColumn(['interval_minutes', 'alarm_enabled']);

@@ -24,18 +24,22 @@ return new class extends Migration
          * On SQLite, ENUM is not supported — status is stored as TEXT,
          * so we recreate the table with a TEXT column that accepts all values.
          */
-        DB::statement("
-            CREATE TABLE debts_new (
-                id INTEGER NOT NULL PRIMARY KEY,
-                status TEXT NOT NULL DEFAULT 'outstanding',
-                -- other columns from original debts table preserved via INSERT SELECT
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL
-            );
-            INSERT INTO debts_new SELECT id, status, created_at, updated_at FROM debts;
-            DROP TABLE debts;
-            ALTER TABLE debts_new RENAME TO debts;
-        ");
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement("
+                CREATE TABLE debts_new (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    status TEXT NOT NULL DEFAULT 'outstanding',
+                    -- other columns from original debts table preserved via INSERT SELECT
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                );
+                INSERT INTO debts_new SELECT id, status, created_at, updated_at FROM debts;
+                DROP TABLE debts;
+                ALTER TABLE debts_new RENAME TO debts;
+            ");
+        } else {
+            DB::statement("ALTER TABLE debts MODIFY status ENUM('outstanding', 'paid', 'overdue') NOT NULL DEFAULT 'outstanding'");
+        }
     }
 
     public function down(): void
@@ -49,17 +53,21 @@ return new class extends Migration
             ->where('status', 'overdue')
             ->update(['status' => 'outstanding']);
 
-        DB::statement("
-            CREATE TABLE debts_new (
-                id INTEGER NOT NULL PRIMARY KEY,
-                status TEXT NOT NULL DEFAULT 'outstanding',
-                -- other columns from original debts table preserved via INSERT SELECT
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL
-            );
-            INSERT INTO debts_new SELECT id, status, created_at, updated_at FROM debts;
-            DROP TABLE debts;
-            ALTER TABLE debts_new RENAME TO debts;
-        ");
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement("
+                CREATE TABLE debts_new (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    status TEXT NOT NULL DEFAULT 'outstanding',
+                    -- other columns from original debts table preserved via INSERT SELECT
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                );
+                INSERT INTO debts_new SELECT id, status, created_at, updated_at FROM debts;
+                DROP TABLE debts;
+                ALTER TABLE debts_new RENAME TO debts;
+            ");
+        } else {
+            DB::statement("ALTER TABLE debts MODIFY status ENUM('outstanding', 'paid') NOT NULL DEFAULT 'outstanding'");
+        }
     }
 };
