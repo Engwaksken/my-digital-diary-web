@@ -40,6 +40,9 @@
         @endif
         <tr><td>Payment Method</td><td>{{ ucfirst(str_replace('_', ' ', $payment->method)) }}</td></tr>
         <tr><td>Transaction Reference</td><td>{{ $payment->reference }}</td></tr>
+        @if ($payment->gateway_transaction_id)
+            <tr><td>Gateway Transaction ID</td><td>{{ $payment->gateway_transaction_id }}</td></tr>
+        @endif
         <tr><td>Status</td><td>{{ ucfirst($payment->status) }}</td></tr>
         <tr><td class="total">Amount Paid</td><td class="total">{{ format_money_in($payment->amount, $payment->currency) }}</td></tr>
     </table>

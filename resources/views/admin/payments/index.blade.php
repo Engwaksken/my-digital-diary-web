@@ -43,7 +43,7 @@
         <div class="flex-1 min-w-[220px] max-w-sm">
             <label for="payment-q" class="sr-only">Search payments</label>
             <input type="search" id="payment-q" name="q" value="{{ $search }}"
-                   placeholder="Search user, email, phone or reference..." class="pm-input text-sm">
+                   placeholder="Search user, email, phone, reference or gateway transaction..." class="pm-input text-sm">
         </div>
 
         <div>
@@ -96,6 +96,7 @@
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Method</th>
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Amount</th>
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Reference</th>
+                    <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Gateway Txn ID</th>
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Status</th>
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Date</th>
                     <th scope="col" class="px-4 py-3"><span class="sr-only">Actions</span></th>
@@ -117,6 +118,7 @@
                         </td>
                         <td class="px-4 py-3">{{ format_money_in($payment->amount, $payment->currency) }}</td>
                         <td class="px-4 py-3 font-mono text-xs">{{ $payment->reference ?? '—' }}</td>
+                        <td class="px-4 py-3 font-mono text-xs break-all">{{ $payment->gateway_transaction_id ?? '—' }}</td>
                         <td class="px-4 py-3">
                             @php
                                 $badgeColor = match($payment->status) {
@@ -162,7 +164,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" class="px-4 py-6 text-center text-slate-500">No payments yet.</td>
+                        <td colspan="9" class="px-4 py-6 text-center text-slate-500">No payments yet.</td>
                     </tr>
                 @endforelse
             </tbody>

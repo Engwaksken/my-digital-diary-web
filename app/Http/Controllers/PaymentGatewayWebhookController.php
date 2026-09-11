@@ -87,7 +87,13 @@ class PaymentGatewayWebhookController extends Controller
         }
 
         if ($status === 'completed') {
-            $log->payment->update(['status' => 'completed']);
+            $updates = ['status' => 'completed'];
+
+            if (\Illuminate\Support\Facades\Schema::hasColumn('payments', 'gateway_transaction_id')) {
+                $updates['gateway_transaction_id'] = $log->external_reference;
+            }
+
+            $log->payment->update($updates);
             $log->payment->assignReceiptNumber();
             $log->payment->invoice?->update(['status' => 'paid']);
 
@@ -143,7 +149,13 @@ class PaymentGatewayWebhookController extends Controller
                 }
             }
         } elseif ($status === 'failed') {
-            $log->payment->update(['status' => 'failed']);
+            $updates = ['status' => 'failed'];
+
+            if (\Illuminate\Support\Facades\Schema::hasColumn('payments', 'gateway_transaction_id')) {
+                $updates['gateway_transaction_id'] = $log->external_reference;
+            }
+
+            $log->payment->update($updates);
             \App\Models\BillingEventLog::record('payment_status_changed', $log->payment->user_id, ['payment_id' => $log->payment->id, 'status' => 'failed', 'details' => 'mobile money collection failed']);
 
             $log->payment->user?->notify(new \App\Notifications\PaymentFailedNotification($log->payment, 'Mobile money collection failed.'));

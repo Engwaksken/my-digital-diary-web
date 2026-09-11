@@ -31,6 +31,10 @@ class AdminPaymentsController extends Controller
         $query = Payment::with(['user', 'gateway', 'plan', 'latestTransaction'])
             ->when($search, fn ($query) => $query->where(function ($sub) use ($search) {
                 $sub->where('reference', 'like', "%{$search}%")
+                    ->when(
+                        \Illuminate\Support\Facades\Schema::hasColumn('payments', 'gateway_transaction_id'),
+                        fn ($query) => $query->orWhere('gateway_transaction_id', 'like', "%{$search}%")
+                    )
                     ->orWhereHas('user', fn ($u) => $u->where('name', 'like', "%{$search}%")->orWhere('email', 'like', "%{$search}%"))
                     ->orWhereHas('latestTransaction', fn ($tx) => $tx->where('phone_number', 'like', "%{$search}%"));
             }))

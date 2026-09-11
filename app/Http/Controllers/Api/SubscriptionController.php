@@ -212,6 +212,7 @@ class SubscriptionController extends Controller
             'currency' => $settings->default_currency_code,
             'status' => 'pending',
             'reference' => $response->json('id'),
+            'gateway_transaction_id' => $response->json('payment_intent') ?: $response->json('id'),
         ]);
 
         $this->createAndSendInvoice($payment, $plan, $request->user());
@@ -254,7 +255,11 @@ class SubscriptionController extends Controller
 
         try {
             $driver = PaymentGatewayDriverFactory::make($gateway);
-            $driver->initiateCollection($reference, $price, $settings->default_currency_code, $data['phone_number'], $data['network'], $request->user()->id, $payment->id);
+            $log = $driver->initiateCollection($reference, $price, $settings->default_currency_code, $data['phone_number'], $data['network'], $request->user()->id, $payment->id);
+
+            if (\Illuminate\Support\Facades\Schema::hasColumn('payments', 'gateway_transaction_id') && $log->external_reference) {
+                $payment->update(['gateway_transaction_id' => $log->external_reference]);
+            }
 
             return response()->json(['message' => 'A payment prompt has been sent to ' . $data['phone_number'] . ' — approve it on your phone.']);
         } catch (\Throwable $e) {
@@ -298,7 +303,7 @@ class SubscriptionController extends Controller
 
         try {
             $driver = PaymentGatewayDriverFactory::make($gateway);
-            $driver->initiateCollection(
+            $log = $driver->initiateCollection(
                 $reference,
                 (float) $payment->amount,
                 $payment->currency,
@@ -307,6 +312,10 @@ class SubscriptionController extends Controller
                 $request->user()->id,
                 $payment->id
             );
+
+            if (\Illuminate\Support\Facades\Schema::hasColumn('payments', 'gateway_transaction_id') && $log->external_reference) {
+                $payment->update(['gateway_transaction_id' => $log->external_reference]);
+            }
 
             BillingEventLog::record('payment_prompt_resent', $request->user()->id, [
                 'payment_id' => $payment->id,

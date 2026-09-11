@@ -50,6 +50,7 @@ class SubscriptionPaymentActivationTest extends TestCase
             'method' => 'mobile_money',
             'status' => 'completed',
             'reference' => $externalId,
+            'gateway_transaction_id' => $externalId,
         ]);
 
         $paymentId = $transaction->fresh()->payment_id;

@@ -63,6 +63,10 @@ class AdminInvoiceController extends Controller
             ->when($receiptSearch, fn ($q) => $q->where(function ($sub) use ($receiptSearch) {
                 $sub->where('receipt_number', 'like', "%{$receiptSearch}%")
                     ->orWhere('reference', 'like', "%{$receiptSearch}%")
+                    ->when(
+                        \Illuminate\Support\Facades\Schema::hasColumn('payments', 'gateway_transaction_id'),
+                        fn ($query) => $query->orWhere('gateway_transaction_id', 'like', "%{$receiptSearch}%")
+                    )
                     ->orWhereHas('user', fn ($u) => $u->where('email', 'like', "%{$receiptSearch}%"))
                     ->orWhereHas('latestTransaction', fn ($tx) => $tx->where('phone_number', 'like', "%{$receiptSearch}%"));
             }));

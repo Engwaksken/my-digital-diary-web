@@ -898,7 +898,7 @@
                 <input type="hidden" name="tab" value="billing">
                 <div class="flex-1 min-w-[180px] max-w-xs">
                     <label for="billing_q" class="sr-only">Search</label>
-                    <input type="search" id="billing_q" name="billing_q" value="{{ $billingSearch }}" placeholder="Search plan or reference..." class="pm-input text-sm">
+                    <input type="search" id="billing_q" name="billing_q" value="{{ $billingSearch }}" placeholder="Search plan, reference or gateway transaction..." class="pm-input text-sm">
                 </div>
                 <div>
                     <label for="billing_period" class="sr-only">Period</label>
@@ -939,6 +939,7 @@
                                 <th scope="col" class="py-2 pr-4">Method</th>
                                 <th scope="col" class="py-2 pr-4">Phone / Account</th>
                                 <th scope="col" class="py-2 pr-4">Amount</th>
+                                <th scope="col" class="py-2 pr-4">Gateway Txn ID</th>
                                 <th scope="col" class="py-2 pr-4">Status</th>
                                 <th scope="col" class="py-2 pr-4">Date</th>
                                 <th scope="col" class="py-2 pr-4">Documents</th>
@@ -975,8 +976,9 @@
                                             <span class="text-slate-400">—</span>
                                         @endif
                                     </td>
-                                    <td class="py-3 pr-4 whitespace-nowrap">{{ format_money_in($payment->amount, $payment->currency) }}</td>
-                                    <td class="py-3 pr-4">
+                                     <td class="py-3 pr-4 whitespace-nowrap">{{ format_money_in($payment->amount, $payment->currency) }}</td>
+                                     <td class="py-3 pr-4 font-mono text-xs break-all max-w-[220px]">{{ $payment->gateway_transaction_id ?: '—' }}</td>
+                                     <td class="py-3 pr-4">
                                         <span class="{{ $statusColor }} font-medium">{{ ucfirst($payment->status) }}</span>
                                     </td>
                                     <td class="py-3 pr-4 whitespace-nowrap">{{ $payment->created_at->format('Y-m-d') }}</td>
@@ -1176,7 +1178,7 @@
                                 @endif
                             @empty
                                 <tr>
-                                    <td colspan="8" class="py-8 text-center text-slate-500">No invoices or payments yet.</td>
+                                     <td colspan="9" class="py-8 text-center text-slate-500">No invoices or payments yet.</td>
                                 </tr>
                             @endforelse
                         </tbody>

@@ -185,7 +185,7 @@
             <input type="hidden" name="tab" value="receipts">
             <div class="flex-1 min-w-[200px] max-w-xs">
                 <label for="receipt_q" class="sr-only">Search</label>
-                <input type="search" id="receipt_q" name="receipt_q" value="{{ $receiptSearch }}" placeholder="Receipt #, reference, email or phone..." class="pm-input text-sm">
+                <input type="search" id="receipt_q" name="receipt_q" value="{{ $receiptSearch }}" placeholder="Receipt #, reference, gateway txn, email or phone..." class="pm-input text-sm">
             </div>
             <div>
                 <label for="receipt_period" class="sr-only">Period</label>
@@ -231,6 +231,7 @@
                         <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Contact / Phone</th>
                         <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Plan</th>
                         <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Amount</th>
+                        <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Gateway Txn ID</th>
                         <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Date</th>
                         <th scope="col" class="px-4 py-3"><span class="sr-only">Download</span></th>
                     </tr>
@@ -249,6 +250,7 @@
                             </td>
                             <td class="px-4 py-3">{{ $payment->plan?->name ?? '—' }}</td>
                             <td class="px-4 py-3">{{ format_money_in($payment->amount, $payment->currency) }}</td>
+                            <td class="px-4 py-3 font-mono text-xs break-all">{{ $payment->gateway_transaction_id ?? '—' }}</td>
                             <td class="px-4 py-3 whitespace-nowrap">{{ $payment->created_at->format('Y-m-d') }}</td>
                             <td class="px-4 py-3 text-right whitespace-nowrap">
                                 <a href="{{ route('subscription.receipt', $payment->id) }}" class="text-[var(--brand-1)] hover:underline">
@@ -258,7 +260,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="px-4 py-6 text-center text-slate-500">No receipts yet.</td>
+                            <td colspan="8" class="px-4 py-6 text-center text-slate-500">No receipts yet.</td>
                         </tr>
                     @endforelse
                 </tbody>

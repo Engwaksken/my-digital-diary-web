@@ -98,7 +98,7 @@ class SubscriptionPaymentActivationService
 
         $payment ??= new Payment();
 
-        $payment->forceFill([
+        $paymentData = [
             'user_id' => $user->id,
             'payment_gateway_id' => $this->iotecPaymentGatewayId(),
             'subscription_plan_id' => $transaction->subscription_plan_id,
@@ -110,7 +110,13 @@ class SubscriptionPaymentActivationService
             'status' => 'completed',
             'reference' => $reference,
             'notes' => 'Confirmed automatically from ioTec gateway status.',
-        ])->save();
+        ];
+
+        if (Schema::hasColumn('payments', 'gateway_transaction_id')) {
+            $paymentData['gateway_transaction_id'] = $reference;
+        }
+
+        $payment->forceFill($paymentData)->save();
 
         $payment->assignReceiptNumber();
         $invoice = $this->syncInvoice($payment, $transaction, $user, $expiresAt);

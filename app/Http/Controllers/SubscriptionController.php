@@ -103,6 +103,10 @@ class SubscriptionController extends Controller
                             $sub->where('reference', 'like', "%{$search}%");
                         }
 
+                        if (Schema::hasColumn((new Payment())->getTable(), 'gateway_transaction_id')) {
+                            $sub->orWhere('gateway_transaction_id', 'like', "%{$search}%");
+                        }
+
                         try {
                             $sub->orWhereHas(
                                 'plan',
@@ -682,6 +686,7 @@ class SubscriptionController extends Controller
             'currency' => $settings->default_currency_code,
             'status' => 'pending',
             'reference' => $response->json('id'),
+            'gateway_transaction_id' => $response->json('payment_intent') ?: $response->json('id'),
         ]);
 
         $this->createAndSendInvoice($payment, $plan, $request->user());
@@ -744,6 +749,10 @@ class SubscriptionController extends Controller
                 $payment->id
             );
 
+            if (Schema::hasColumn('payments', 'gateway_transaction_id') && $log->external_reference) {
+                $payment->update(['gateway_transaction_id' => $log->external_reference]);
+            }
+
             return redirect()->route('subscription.show')->with(
                 'success',
                 'A payment prompt has been sent to ' . $data['phone_number'] . ' — approve it on your phone to activate your subscription.'
@@ -794,7 +803,7 @@ class SubscriptionController extends Controller
 
         try {
             $driver = \App\PaymentGateways\PaymentGatewayDriverFactory::make($gateway);
-            $driver->initiateCollection(
+            $log = $driver->initiateCollection(
                 $reference,
                 (float) $payment->amount,
                 $payment->currency,
@@ -803,6 +812,10 @@ class SubscriptionController extends Controller
                 $request->user()->id,
                 $payment->id
             );
+
+            if (Schema::hasColumn('payments', 'gateway_transaction_id') && $log->external_reference) {
+                $payment->update(['gateway_transaction_id' => $log->external_reference]);
+            }
 
             BillingEventLog::record('payment_prompt_resent', $request->user()->id, [
                 'payment_id' => $payment->id,
@@ -912,7 +925,13 @@ class SubscriptionController extends Controller
         }
 
         if ($response->json('payment_status') === 'paid') {
-            $payment->update(['status' => 'completed']);
+            $updates = ['status' => 'completed'];
+
+            if (Schema::hasColumn('payments', 'gateway_transaction_id')) {
+                $updates['gateway_transaction_id'] = $response->json('payment_intent') ?: $sessionId;
+            }
+
+            $payment->update($updates);
             $payment->assignReceiptNumber();
             $payment->invoice?->update(['status' => 'paid']);
 
