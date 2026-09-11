@@ -27,7 +27,9 @@ class SubscriptionController extends Controller
     public function show(Request $request, MonthlyReviewService $monthlyReviewService): View
     {
         $user = $request->user();
-        $settings = SiteSetting::current();
+        $settings = Schema::hasTable((new SiteSetting())->getTable())
+            ? SiteSetting::current()
+            : new SiteSetting(['site_name' => 'My Digital Diary']);
 
         /*
          * Production-safe schema handling.
@@ -37,36 +39,44 @@ class SubscriptionController extends Controller
          * at least one legacy table in this flow without that column.
          */
         $gatewayTable = (new PaymentGateway())->getTable();
-        $gatewayQuery = PaymentGateway::query();
+        $gateways = collect();
 
-        if (Schema::hasColumn($gatewayTable, 'is_enabled')) {
-            $gatewayQuery->where('is_enabled', true);
+        if (Schema::hasTable($gatewayTable)) {
+            $gatewayQuery = PaymentGateway::query();
+
+            if (Schema::hasColumn($gatewayTable, 'is_enabled')) {
+                $gatewayQuery->where('is_enabled', true);
+            }
+
+            $gatewayQuery->orderBy(
+                Schema::hasColumn($gatewayTable, 'type') ? 'type' : 'id'
+            );
+
+            $gateways = $gatewayQuery->get();
         }
-
-        $gatewayQuery->orderBy(
-            Schema::hasColumn($gatewayTable, 'type') ? 'type' : 'id'
-        );
-
-        $gateways = $gatewayQuery->get();
 
         $planTable = (new SubscriptionPlan())->getTable();
-        $planQuery = SubscriptionPlan::query();
+        $plans = collect();
 
-        if (Schema::hasColumn($planTable, 'is_enabled')) {
-            $planQuery->where('is_enabled', true);
+        if (Schema::hasTable($planTable)) {
+            $planQuery = SubscriptionPlan::query();
+
+            if (Schema::hasColumn($planTable, 'is_enabled')) {
+                $planQuery->where('is_enabled', true);
+            }
+
+            if (Schema::hasColumn($planTable, 'sort_order')) {
+                $planQuery->orderBy('sort_order');
+            } elseif (Schema::hasColumn($planTable, 'display_order')) {
+                $planQuery->orderBy('display_order');
+            } elseif (Schema::hasColumn($planTable, 'name')) {
+                $planQuery->orderBy('name');
+            } else {
+                $planQuery->orderBy('id');
+            }
+
+            $plans = $planQuery->get();
         }
-
-        if (Schema::hasColumn($planTable, 'sort_order')) {
-            $planQuery->orderBy('sort_order');
-        } elseif (Schema::hasColumn($planTable, 'display_order')) {
-            $planQuery->orderBy('display_order');
-        } elseif (Schema::hasColumn($planTable, 'name')) {
-            $planQuery->orderBy('name');
-        } else {
-            $planQuery->orderBy('id');
-        }
-
-        $plans = $planQuery->get();
 
         $search = $request->query('billing_q');
         $period = $request->query('billing_period');
