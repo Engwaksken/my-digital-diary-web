@@ -3,6 +3,7 @@
 @section('title', 'My Profile')
 
 @section('content')
+<div id="profile-page" class="pm-profile-page min-w-0 max-w-full">
 <div class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
     <div class="flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -17,7 +18,7 @@
         </div>
 
         <a href="{{ route('profile.social-media') }}"
-           class="btn-primary rounded-xl px-4 py-2 text-sm font-bold text-white">
+           class="btn-primary inline-flex w-full sm:w-auto items-center justify-center rounded-xl px-4 py-2.5 text-sm font-bold text-white">
             Manage Social Media
         </a>
     </div>
@@ -78,7 +79,7 @@
         <h1 class="text-2xl font-bold text-slate-800 tracking-tight">My Profile</h1>
     </div>
 
-    <div class="max-w-xl">
+    <div class="w-full max-w-5xl min-w-0">
 
         @if (session('profile_status') === 'avatar-updated')
             <div role="status" class="rounded-md bg-emerald-100 text-emerald-800 px-4 py-3 text-sm mb-4">
@@ -103,7 +104,7 @@
         @endif
 
         {{-- Tab list --}}
-        <div role="tablist" aria-label="Profile settings" class="flex gap-1 border-b border-slate-200 mb-6">
+        <div role="tablist" aria-label="Profile settings" class="pm-profile-tabs border-b border-slate-200 mb-6">
             @foreach ($tabs as $key => $tab)
                 <button
                     type="button"
@@ -115,7 +116,7 @@
                     data-tab="{{ $key }}"
                     onclick="pmSelectProfileTab('{{ $key }}')"
                     onkeydown="pmProfileTabKeydown(event, '{{ $key }}')"
-                    class="pm-profile-tab flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors
+                    class="pm-profile-tab inline-flex shrink-0 items-center gap-2 px-3.5 sm:px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap
                         {{ $activeTab === $key
                             ? 'border-[var(--brand-1)] text-[var(--brand-1)]'
                             : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }}"
@@ -128,7 +129,7 @@
 
         {{-- Profile photo --}}
         <div role="tabpanel" id="panel-photo" aria-labelledby="tab-photo" tabindex="0"
-             class="pm-profile-panel pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6" @if ($activeTab !== 'photo') hidden @endif>
+             class="pm-profile-panel pm-card-bg min-w-0 shadow-sm border border-slate-100 rounded-xl p-4 sm:p-6" @if ($activeTab !== 'photo') hidden @endif>
             <div class="flex items-center gap-4 mb-4">
                 @if ($user->avatarUrl())
                     <img src="{{ $user->avatarUrl() }}" alt="Your profile photo"
@@ -178,7 +179,7 @@
 
         {{-- Profile information --}}
         <div role="tabpanel" id="panel-info" aria-labelledby="tab-info" tabindex="0"
-             class="pm-profile-panel pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6" @if ($activeTab !== 'info') hidden @endif>
+             class="pm-profile-panel pm-card-bg min-w-0 shadow-sm border border-slate-100 rounded-xl p-4 sm:p-6" @if ($activeTab !== 'info') hidden @endif>
             <form method="POST" action="{{ route('profile.update') }}" class="space-y-4">
                 @csrf
                 @method('PATCH')
@@ -213,7 +214,7 @@
 
         {{-- Password --}}
         <div role="tabpanel" id="panel-password" aria-labelledby="tab-password" tabindex="0"
-             class="pm-profile-panel pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6" @if ($activeTab !== 'password') hidden @endif>
+             class="pm-profile-panel pm-card-bg min-w-0 shadow-sm border border-slate-100 rounded-xl p-4 sm:p-6" @if ($activeTab !== 'password') hidden @endif>
             <form method="POST" action="{{ route('profile.password') }}" class="space-y-4">
                 @csrf
                 @method('PUT')
@@ -255,7 +256,7 @@
 
         {{-- Colors --}}
         <div role="tabpanel" id="panel-colors" aria-labelledby="tab-colors" tabindex="0"
-             class="pm-profile-panel pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6" @if ($activeTab !== 'colors') hidden @endif>
+             class="pm-profile-panel pm-card-bg min-w-0 shadow-sm border border-slate-100 rounded-xl p-4 sm:p-6" @if ($activeTab !== 'colors') hidden @endif>
             <p class="text-sm text-slate-500 mb-4">
                 Pick both gradient colors for your sidebar, buttons, and highlights  everyone else's app keeps
                 using the site default; this only changes what you see. Leave the second one blank to have it
@@ -465,6 +466,170 @@
         </section>
     </div>
 
+
+    <style>
+        /* ================================================================
+           MY DIGITAL DIARY — PROFILE PHONE RESPONSIVENESS
+           Isolated from global label/span/grid rules.
+        ================================================================= */
+
+        #profile-page,
+        #profile-page * {
+            box-sizing: border-box;
+        }
+
+        #profile-page {
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+            overflow-x: clip;
+        }
+
+        #profile-page .pm-profile-tabs {
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            align-items: stretch !important;
+            gap: .25rem !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            white-space: nowrap !important;
+            scrollbar-width: thin;
+            -webkit-overflow-scrolling: touch;
+            scroll-snap-type: x proximity;
+            overscroll-behavior-inline: contain;
+        }
+
+        #profile-page .pm-profile-tab {
+            display: inline-flex !important;
+            flex: 0 0 auto !important;
+            width: auto !important;
+            min-width: max-content !important;
+            max-width: none !important;
+            white-space: nowrap !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+            writing-mode: horizontal-tb !important;
+            text-orientation: mixed !important;
+            scroll-snap-align: start;
+        }
+
+        #profile-page .pm-profile-tab span,
+        #profile-page .pm-profile-tab i {
+            display: inline !important;
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            white-space: nowrap !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+            writing-mode: horizontal-tb !important;
+        }
+
+        #profile-page .pm-profile-panel {
+            display: block;
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
+        }
+
+        #profile-page .pm-profile-panel[hidden] {
+            display: none !important;
+        }
+
+        #profile-page .pm-profile-panel form,
+        #profile-page .pm-profile-panel fieldset,
+        #profile-page .pm-profile-panel > div {
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        #profile-page input:not([type="checkbox"]):not([type="radio"]),
+        #profile-page select,
+        #profile-page textarea {
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
+        }
+
+        #profile-page label,
+        #profile-page p,
+        #profile-page h1,
+        #profile-page h2,
+        #profile-page h3,
+        #profile-page span:not(.sr-only) {
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+            writing-mode: horizontal-tb !important;
+            text-orientation: mixed !important;
+        }
+
+        #profile-page img {
+            max-width: 100%;
+            height: auto;
+        }
+
+        #profile-page .apple-btn {
+            min-width: 0 !important;
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: anywhere !important;
+        }
+
+        @media (max-width: 767px) {
+            #profile-page {
+                padding-inline: .25rem;
+            }
+
+            #profile-page .pm-profile-tabs {
+                margin-inline: 0 !important;
+                padding-bottom: .35rem;
+            }
+
+            #profile-page .pm-profile-panel {
+                padding: 1rem !important;
+                border-radius: 1rem !important;
+            }
+
+            #profile-page .pm-profile-panel .grid {
+                grid-template-columns: minmax(0, 1fr) !important;
+            }
+
+            #profile-page .pm-profile-panel .flex:not(.pm-profile-tab):not(.pm-profile-tabs) {
+                min-width: 0;
+            }
+
+            #profile-page .pm-profile-panel button[type="submit"],
+            #profile-page .pm-profile-panel a.apple-btn {
+                max-width: 100%;
+            }
+
+            #profile-page input[type="file"] {
+                font-size: .82rem;
+            }
+
+            #profile-page .profile-photo-row {
+                align-items: flex-start !important;
+            }
+        }
+
+        @media (max-width: 420px) {
+            #profile-page .pm-profile-tab {
+                padding-left: .7rem !important;
+                padding-right: .7rem !important;
+                font-size: .78rem !important;
+            }
+
+            #profile-page .pm-profile-tab i {
+                font-size: .78rem !important;
+            }
+        }
+    </style>
+
     <script>
         function pmUpdateGradientPreview() {
             var preview = document.getElementById('theme-gradient-preview');
@@ -583,7 +748,16 @@
                 btn.classList.toggle('text-[var(--brand-1)]', isSelected);
                 btn.classList.toggle('border-transparent', !isSelected);
                 btn.classList.toggle('text-slate-500', !isSelected);
-                if (isSelected) { btn.focus(); }
+                if (isSelected) {
+                    btn.focus();
+                    if (typeof btn.scrollIntoView === 'function') {
+                        btn.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'nearest',
+                            inline: 'center'
+                        });
+                    }
+                }
             });
             document.querySelectorAll('.pm-profile-panel').forEach(function (panel) {
                 var shouldHide = panel.id !== 'panel-' + key;
@@ -610,4 +784,5 @@
             pmSelectProfileTab(tabs[nextIndex]);
         }
     </script>
+</div>
 @endsection

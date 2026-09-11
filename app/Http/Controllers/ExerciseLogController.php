@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ExerciseLog;
 use Illuminate\Http\Request;
+use App\Services\DailyWellbeingSyncService;
 
 class ExerciseLogController extends CrudController
 {
@@ -69,4 +70,32 @@ class ExerciseLogController extends CrudController
             'datasets' => [['label' => 'Minutes', 'data' => $totals->all()]],
         ];
     }
+
+    protected function afterSave(Request $request, $item, bool $wasCreated): void
+    {
+        try {
+            app(DailyWellbeingSyncService::class)->sync(
+                $request->user(),
+                $item->performed_at ?? now()
+            );
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+    }
+
+    public function destroy(Request $request, int $id)
+    {
+        $item=ExerciseLog::where('user_id',$request->user()->id)->findOrFail($id);
+        $performedAt=$item->performed_at;
+        $item->delete();
+
+        try {
+            app(DailyWellbeingSyncService::class)->sync($request->user(),$performedAt??now());
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+
+        return back()->with('success','Exercise Log deleted.');
+    }
+
 }

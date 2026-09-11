@@ -140,7 +140,16 @@ class GrowthStrategyService
     private function activation(User $user): array
     {
         $steps = [
-            ['key' => 'plan', 'label' => 'Plan your day', 'complete' => Schema::hasTable('daily_plan_items') && DB::table('daily_plan_items')->where('user_id', $user->id)->exists()],
+            [
+                'key' => 'plan',
+                'label' => 'Plan your day',
+                'complete' => Schema::hasTable('daily_plan_items')
+                    && Schema::hasTable('daily_plans')
+                    && DB::table('daily_plan_items as dpi')
+                        ->join('daily_plans as dp', 'dp.id', '=', 'dpi.daily_plan_id')
+                        ->where('dp.user_id', $user->id)
+                        ->exists(),
+            ],
             ['key' => 'goal', 'label' => 'Create a goal', 'complete' => Schema::hasTable('personal_goals') && DB::table('personal_goals')->where('user_id', $user->id)->exists()],
             ['key' => 'money', 'label' => 'Record money', 'complete' => (Schema::hasTable('expenses') && DB::table('expenses')->where('user_id', $user->id)->exists()) || (Schema::hasTable('incomes') && DB::table('incomes')->where('user_id', $user->id)->exists())],
         ];

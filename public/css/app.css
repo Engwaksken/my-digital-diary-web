@@ -1,0 +1,588 @@
+/*
+ * My Digital Diary — Base Styles
+ *
+ * Extracted from layouts/app.blade.php (Phase 3 cleanup).
+ * Contains: design token overrides, typography, buttons, inputs, cards,
+ * Apple-inspired 2026 visual language, motion system, and layout shell.
+ *
+ * Keep modal-responsive.css and professional-forms.css as separate files.
+ * Keep responsive.css for all media queries.
+ */
+
+/* ==========================================================================
+   1. BRAND / DESIGN TOKENS (dynamic — set by <x-design-tokens /> in layout)
+   ========================================================================== */
+
+/*
+   The --brand-* variables are set dynamically in the layout <head> via PHP.
+   This file references them. The design-tokens component provides
+   --color-*, --radius-*, --shadow-*, --spacing-* tokens for new components.
+*/
+
+/* ==========================================================================
+   2. TYPOGRAPHY
+   ========================================================================== */
+
+body {
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6, .pm-heading {
+    font-family: 'Outfit', 'Poppins', sans-serif;
+}
+
+/* ==========================================================================
+   3. ACCESSIBILITY
+   ========================================================================== */
+
+.sr-only-focusable:not(:focus) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 3px solid #FFBA00;
+    outline-offset: 2px;
+}
+
+/* ==========================================================================
+   4. SIDEBAR SCROLLBAR
+   ========================================================================== */
+
+/* Thin, unobtrusive scrollbar for the sidebar nav on desktop */
+#sidebar nav::-webkit-scrollbar { width: 6px; }
+#sidebar nav::-webkit-scrollbar-thumb { background-color: rgba(148, 163, 184, 0.3); border-radius: 3px; }
+
+/* ==========================================================================
+   5. BUTTONS
+   ========================================================================== */
+
+/*
+ * Plain CSS rather than Tailwind's bracket-arbitrary-value gradient
+ * classes — every primary button app-wide is a SOLID color, not a gradient.
+ * Hover swaps to the SECONDARY brand color outright.
+ */
+.btn-primary {
+    background-color: var(--brand-1);
+}
+
+.btn-primary:hover {
+    background-color: var(--brand-2);
+}
+
+/* ==========================================================================
+   6. FORM INPUTS
+   ========================================================================== */
+
+/*
+ * Plain CSS rather than Tailwind utilities — form inputs were reported as
+ * rendering with no visible border/background on some pages.
+ */
+.pm-input {
+    display: block;
+    width: 100%;
+    border: 1px solid #94a3b8;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background-color: #ffffff;
+    color: #1e293b;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pm-input:focus {
+    outline: none;
+    border-color: var(--brand-2);
+    box-shadow: 0 0 0 3px var(--brand-2-tint-25);
+}
+
+/* ==========================================================================
+   7. CARDS / SURFACES
+   ========================================================================== */
+
+/* Light sage-tinted page background; cards/tables sit on top in white. */
+.pm-card-bg {
+    background-color: #ffffff;
+}
+
+/* ==========================================================================
+   8. APPLE-INSPIRED 2026 VISUAL LANGUAGE
+   ========================================================================== */
+
+:root {
+    --apple-ink: #111827;
+    --apple-muted: #667085;
+    --apple-bg: #f4f6f8;
+    --apple-line: rgba(15, 23, 42, .08);
+    --apple-shadow: 0 14px 38px rgba(15, 23, 42, .08);
+}
+
+body {
+    background: radial-gradient(circle at 18% 0%, rgba(0, 137, 123, .08), transparent 30%),
+                linear-gradient(180deg, #f8fafc 0%, #f2f5f7 100%) !important;
+}
+
+main a { text-decoration: none !important; }
+
+.apple-page { max-width: 1500px; margin: 0 auto; }
+
+.apple-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 24px 26px;
+    border: 1px solid rgba(255, 255, 255, .7);
+    border-radius: 24px;
+    background: rgba(255, 255, 255, .76);
+    box-shadow: var(--apple-shadow);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+}
+
+.apple-hero h1 {
+    font-size: clamp(1.7rem, 3vw, 2.35rem);
+    font-weight: 800;
+    letter-spacing: -.035em;
+    color: var(--apple-ink);
+    margin: .15rem 0;
+}
+
+.apple-hero p {
+    color: var(--apple-muted);
+    max-width: 760px;
+    font-size: .92rem;
+}
+
+.apple-eyebrow {
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    font-size: .68rem;
+    font-weight: 800;
+    color: #7c8798;
+}
+
+.apple-surface {
+    background: rgba(255, 255, 255, .84);
+    border: 1px solid rgba(255, 255, 255, .88);
+    border-radius: 22px;
+    padding: 20px;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, .055);
+    backdrop-filter: blur(18px);
+}
+
+.apple-surface h2,
+.apple-surface h3 {
+    color: var(--apple-ink);
+    font-weight: 800;
+    letter-spacing: -.02em;
+}
+
+.apple-surface p {
+    color: var(--apple-muted);
+    font-size: .88rem;
+    line-height: 1.6;
+}
+
+.apple-dark-card {
+    background: linear-gradient(145deg, #17191d, #252a31);
+    color: white;
+    border-color: rgba(255, 255, 255, .08);
+    box-shadow: 0 18px 42px rgba(15, 23, 42, .18);
+}
+
+.apple-dark-card .apple-muted,
+.apple-dark-card .apple-caption {
+    color: #aeb7c4;
+}
+
+.apple-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.apple-big {
+    font-size: 2.25rem;
+    line-height: 1;
+    font-weight: 850;
+    letter-spacing: -.05em;
+    margin: .4rem 0;
+}
+
+.apple-big.small {
+    font-size: 1.7rem;
+    color: #111827;
+}
+
+.apple-muted {
+    font-size: .78rem;
+    color: var(--apple-muted);
+    margin-top: .9rem;
+}
+
+.apple-caption {
+    font-size: .76rem;
+    color: #98a2b3;
+    margin-top: .55rem;
+}
+
+.apple-progress {
+    height: 7px;
+    background: rgba(255, 255, 255, .14);
+    border-radius: 99px;
+    overflow: hidden;
+    margin-top: 14px;
+}
+
+.apple-progress span {
+    display: block;
+    height: 100%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, #66e3c4, #8da8ff);
+}
+
+.apple-icon-chip {
+    width: 42px;
+    height: 42px;
+    border-radius: 13px;
+    display: grid;
+    place-items: center;
+    background: rgba(255, 255, 255, .1);
+    color: white;
+    font-size: 1rem;
+}
+
+.apple-icon-chip.light {
+    background: #eef2f6;
+    color: #4b5563;
+}
+
+.apple-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    min-height: 40px;
+    padding: 0 15px;
+    border-radius: 12px;
+    border: 1px solid rgba(15, 23, 42, .1);
+    background: #fff;
+    color: #1f2937;
+    font-size: .82rem;
+    font-weight: 750;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, .05);
+    transition: .16s ease;
+}
+
+.apple-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, .09);
+}
+
+.apple-btn-primary {
+    background: #16191e;
+    color: #fff;
+    border-color: #16191e;
+}
+
+.apple-btn-small {
+    min-height: 34px;
+    padding: 0 11px;
+    font-size: .75rem;
+}
+
+.apple-btn.danger {
+    color: #c92a4c;
+    background: #fff4f6;
+    border-color: #ffd6df;
+}
+
+.apple-link {
+    font-size: .82rem;
+    font-weight: 750;
+    color: var(--brand-1);
+}
+
+.apple-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.apple-table-wrap {
+    overflow: auto;
+    border: 1px solid #edf0f3;
+    border-radius: 16px;
+}
+
+.apple-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .82rem;
+}
+
+.apple-table th {
+    text-align: left;
+    padding: 11px 13px;
+    background: #f8fafc;
+    color: #778195;
+    font-size: .68rem;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+}
+
+.apple-table td {
+    padding: 13px;
+    border-top: 1px solid #eef1f4;
+    color: #455064;
+}
+
+.apple-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 7px;
+}
+
+.apple-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 34px;
+    color: #98a2b3;
+}
+
+.apple-empty i {
+    font-size: 1.8rem;
+    color: #43b89e;
+    margin-bottom: 8px;
+}
+
+.apple-empty strong {
+    color: #344054;
+}
+
+.apple-empty span {
+    font-size: .8rem;
+    margin-top: 3px;
+}
+
+.apple-alert {
+    background: #ecfdf5;
+    color: #087f5b;
+    border: 1px solid #bbf7d0;
+    border-radius: 14px;
+    padding: 12px 15px;
+    font-size: .82rem;
+}
+
+/* Apple-influenced overrides for inputs, buttons, cards */
+.pm-input,
+input:not([type=checkbox]):not([type=radio]),
+select,
+textarea {
+    border-radius: 12px !important;
+    border-color: #dce2e8 !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7) !important;
+}
+
+.btn-primary {
+    border-radius: 12px !important;
+    box-shadow: 0 7px 18px rgba(0, 137, 123, .18) !important;
+}
+
+.pm-card-bg {
+    border-radius: 20px !important;
+    box-shadow: 0 8px 26px rgba(15, 23, 42, .055) !important;
+}
+
+/* ==========================================================================
+   9. MOTION SYSTEM
+   ========================================================================== */
+
+#pm-motion-system,
+:root {
+    --pm-motion-fast: 180ms;
+    --pm-motion-normal: 420ms;
+    --pm-motion-slow: 760ms;
+    --pm-motion-spring: cubic-bezier(.2, .8, .2, 1);
+}
+
+@keyframes pmFloatIn {
+    from { opacity: 0; transform: translateY(14px) scale(.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes pmIconPop {
+    0% { transform: scale(.92) rotate(-3deg); }
+    55% { transform: scale(1.12) rotate(2deg); }
+    100% { transform: scale(1) rotate(0); }
+}
+
+@keyframes pmChartReveal {
+    from { opacity: 0; transform: translateY(12px) scale(.985); filter: blur(2px); }
+    to { opacity: 1; transform: none; filter: none; }
+}
+
+.pm-motion-enter {
+    opacity: 0;
+    transform: translateY(14px);
+}
+
+.pm-motion-enter.pm-motion-visible {
+    animation: pmFloatIn var(--pm-motion-normal) var(--pm-motion-spring) both;
+}
+
+button, .btn, .btn-primary, .btn-secondary, a[class*="btn-"] {
+    transition: transform var(--pm-motion-fast) var(--pm-motion-spring),
+                box-shadow var(--pm-motion-fast) ease,
+                filter var(--pm-motion-fast) ease !important;
+    will-change: transform;
+}
+
+button:hover, .btn:hover, .btn-primary:hover, .btn-secondary:hover, a[class*="btn-"]:hover {
+    transform: translateY(-1px);
+}
+
+button:active, .btn:active, .btn-primary:active, .btn-secondary:active, a[class*="btn-"]:active {
+    transform: translateY(0) scale(.97);
+}
+
+.quick-card, .stat-card, .pm-stat-card, .card, [class*="summary-card"] {
+    transition: transform var(--pm-motion-fast) var(--pm-motion-spring),
+                box-shadow var(--pm-motion-fast) ease !important;
+}
+
+.quick-card:hover .quick-icon,
+.card:hover .fa-solid,
+.card:hover .fa-regular,
+.card:hover .fa-brands {
+    animation: pmIconPop 460ms var(--pm-motion-spring);
+}
+
+canvas, .chart-container, .apexcharts-canvas, .chartjs-render-monitor, .recharts-wrapper {
+    opacity: 0;
+}
+
+canvas.pm-motion-visible,
+.chart-container.pm-motion-visible,
+.apexcharts-canvas.pm-motion-visible,
+.chartjs-render-monitor.pm-motion-visible,
+.recharts-wrapper.pm-motion-visible {
+    animation: pmChartReveal var(--pm-motion-slow) var(--pm-motion-spring) both;
+}
+
+.chart-container svg path,
+.apexcharts-canvas svg path {
+    transition: stroke-dashoffset .9s ease, opacity .5s ease;
+}
+
+.chart-container svg rect,
+.apexcharts-canvas svg rect {
+    transform-box: fill-box;
+    transform-origin: center bottom;
+    transition: transform .65s var(--pm-motion-spring), opacity .45s ease;
+}
+
+.pm-counting {
+    font-variant-numeric: tabular-nums;
+    display: inline-block;
+    min-width: 1ch;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: .001ms !important;
+    }
+    .pm-motion-enter, canvas, .chart-container, .apexcharts-canvas, .chartjs-render-monitor, .recharts-wrapper {
+        opacity: 1 !important;
+        transform: none !important;
+        filter: none !important;
+    }
+}
+
+/* ==========================================================================
+   10. PROFESSIONAL LAYOUT SHELL
+   ========================================================================== */
+
+:root {
+    --pm-page-bg: #f5f7f8;
+    --pm-surface: rgba(255, 255, 255, .94);
+    --pm-border: rgba(15, 23, 42, .08);
+    --pm-text: #172033;
+    --pm-muted: #667085;
+    --pm-radius: 18px;
+    --pm-shadow: 0 12px 34px rgba(15, 23, 42, .07);
+}
+
+body.pm-professional-shell {
+    margin: 0;
+    color: var(--pm-text);
+    background: radial-gradient(circle at 12% 0%, var(--brand-1-tint-10), transparent 30%),
+                var(--pm-page-bg) !important;
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+#main-content {
+    position: relative;
+}
+
+#main-content > .pm-flash-message {
+    border-radius: 14px !important;
+    box-shadow: 0 6px 20px rgba(15, 23, 42, .045);
+}
+
+#sidebar {
+    background: linear-gradient(180deg, var(--brand-1) 0%, var(--brand-1-dark) 100%) !important;
+    box-shadow: 12px 0 30px rgba(15, 23, 42, .08);
+}
+
+#sidebar a, #sidebar button {
+    text-decoration: none !important;
+}
+
+#sidebar-toggle {
+    position: sticky;
+    top: 10px;
+    z-index: 45;
+    min-height: 42px;
+    border: 1px solid rgba(255, 255, 255, .22);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .14);
+}
+
+.pm-layout-footer {
+    color: #7b8794;
+}
+
+.pm-layout-footer a {
+    color: #5f6b7a;
+    font-weight: 600;
+    text-decoration: none !important;
+}
+
+.pm-layout-footer a:hover {
+    color: var(--brand-1);
+}
+
+@media (max-width: 767.98px) {
+    #main-content { padding: 12px !important; }
+    #sidebar-toggle { margin: 10px 12px 2px !important; }
+    .pm-layout-footer { padding: 22px 14px 28px !important; }
+}

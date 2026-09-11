@@ -3,6 +3,7 @@
 @section('title', 'AI Planner')
 
 @section('content')
+<div id="ai-plans-page" class="pm-ai-plans-page min-w-0 max-w-full">
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div class="flex items-center gap-3">
             <div class="w-12 h-12 rounded-xl bg-violet-100 text-violet-600 flex items-center justify-center shadow-sm shrink-0">
@@ -10,17 +11,18 @@
             </div>
             <h1 class="text-2xl font-bold text-slate-800 tracking-tight">AI Planner</h1>
         </div>
-        <button type="button" onclick="document.getElementById('ai-generate-modal').showModal()" class="inline-flex items-center justify-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
+        <button type="button" onclick="document.getElementById('ai-generate-modal').showModal()" class="inline-flex w-full sm:w-auto items-center justify-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
             <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span>Generate New Plan</span>
         </button>
     </div>
 
     @if ($plans->isEmpty() && !$search)
-        <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6 text-sm text-slate-500">
-            No plans generated yet. Add an <a href="{{ route('api-credentials.index') }}" class="text-[var(--brand-1)] hover:underline">API key</a>
-            first, then click "Generate New Plan" it looks across every module (plans, income, budget,
-            expenses, diet, sleep, health checkups, projects, education, network, and relationships) and
-            writes a short, prioritized action plan for the next 7 and 30 days.
+        <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl">
+            <x-empty-state icon="fa-solid fa-robot" title="No plans generated yet" message="Add an API key first, then click Generate New Plan for a short, prioritized action plan.">
+                <x-slot name="action">
+                    <a href="{{ route('api-credentials.index') }}" class="text-sm font-semibold text-[var(--brand-1)] hover:underline">Add API key</a>
+                </x-slot>
+            </x-empty-state>
         </div>
     @else
         {{-- Stats always visible, never tabbed same reasoning as
@@ -43,18 +45,18 @@
         @php $pmShowTabs = !empty($chart); @endphp
 
         @if ($pmShowTabs)
-            <div role="tablist" aria-label="AI Planner sections" class="flex gap-1 border-b border-slate-200 mb-6">
+            <div role="tablist" aria-label="AI Planner sections" class="pm-ai-tabs border-b border-slate-200 mb-6">
                 <button type="button" role="tab" id="pm-ai-tab-chart" aria-controls="pm-ai-panel-chart"
                         aria-selected="false" tabindex="-1" data-tab="chart"
                         onclick="pmSelectAiTab('chart')" onkeydown="pmAiTabKeydown(event, 'chart')"
-                        class="pm-ai-tab flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300">
+                        class="pm-ai-tab inline-flex shrink-0 items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300">
                     <i class="fa-solid fa-chart-simple" aria-hidden="true"></i>
                     <span>Chart</span>
                 </button>
                 <button type="button" role="tab" id="pm-ai-tab-table" aria-controls="pm-ai-panel-table"
                         aria-selected="true" tabindex="0" data-tab="table"
                         onclick="pmSelectAiTab('table')" onkeydown="pmAiTabKeydown(event, 'table')"
-                        class="pm-ai-tab flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors border-[var(--brand-1)] text-[var(--brand-1)]">
+                        class="pm-ai-tab inline-flex shrink-0 items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors border-[var(--brand-1)] text-[var(--brand-1)]">
                     <i class="fa-solid fa-table-list" aria-hidden="true"></i>
                     <span>Plans</span>
                 </button>
@@ -102,7 +104,7 @@
         @endif
 
         <div role="tabpanel" id="pm-ai-panel-table" aria-labelledby="pm-ai-tab-table" tabindex="0" class="pm-ai-panel">
-        <form method="GET" action="{{ route('ai-plans.index') }}" class="mb-4 max-w-sm">
+        <form method="GET" action="{{ route('ai-plans.index') }}" class="mb-4 w-full max-w-xl">
             <label for="q" class="sr-only">Search your plans</label>
             <div class="relative">
                 <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm" aria-hidden="true"></i>
@@ -112,8 +114,12 @@
         </form>
 
         @if ($plans->isEmpty())
-            <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6 text-sm text-slate-500">
-                No plans match "{{ $search }}". <a href="{{ route('ai-plans.index') }}" class="text-[var(--brand-1)] hover:underline">Clear search</a>.
+            <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl">
+                <x-empty-state icon="fa-solid fa-magnifying-glass" title="No plans match your search" message="No plans match your current search.">
+                    <x-slot name="action">
+                        <a href="{{ route('ai-plans.index') }}" class="text-sm font-semibold text-[var(--brand-1)] hover:underline">Clear search</a>
+                    </x-slot>
+                </x-empty-state>
             </div>
         @else
             <form id="ai-plan-bulk-form" method="POST" action="{{ route('ai-plans.bulk-destroy') }}" class="hidden">
@@ -126,8 +132,94 @@
                     <i class="fa-solid fa-trash-can" aria-hidden="true"></i> Delete Selected
                 </button>
             </div>
-            <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto" role="region" aria-label="AI plans table" tabindex="0">
-                <table class="min-w-full text-sm">
+            {{-- Mobile plan cards: prevents table columns from collapsing vertically. --}}
+            <div class="pm-ai-mobile-cards space-y-3" aria-label="AI plans">
+                @foreach ($plans as $plan)
+                    <article class="pm-card-bg min-w-0 rounded-xl border border-slate-200 p-4 shadow-sm">
+                        <div class="flex min-w-0 items-start gap-3">
+                            <input
+                                type="checkbox"
+                                name="ids[]"
+                                value="{{ $plan->id }}"
+                                form="ai-plan-bulk-form"
+                                onchange="pmUpdateAiPlanBulkBar(this)"
+                                class="ai-plan-row-checkbox mt-1 shrink-0 rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]"
+                                aria-label="Select AI plan from {{ $plan->created_at->format('Y-m-d H:i') }}"
+                            >
+
+                            <div class="min-w-0 flex-1">
+                                <div class="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <p class="truncate font-bold text-slate-800">
+                                            {{ $plan->created_at->format('d M Y, g:i A') }}
+                                        </p>
+                                        <p class="mt-0.5 truncate text-xs text-slate-500">
+                                            {{ $plan->provider === 'anthropic' ? 'Claude' : ($plan->provider === 'openai' ? 'ChatGPT' : ucfirst((string) $plan->provider)) }}
+                                        </p>
+                                    </div>
+
+                                    <span class="shrink-0 rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700">
+                                        AI Plan
+                                    </span>
+                                </div>
+
+                                <p class="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">
+                                    {{ \Illuminate\Support\Str::limit(trim($plan->cleanContent()), 220) }}
+                                </p>
+
+                                <div class="mt-4 grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        onclick='pmOpenAiPlanViewModal(
+                                            @json($plan->created_at->format("d M Y, g:i A")),
+                                            @json($plan->cleanContent()),
+                                            @json(route("ai-plans.pdf", $plan->id)),
+                                            @json(route("ai-plans.pdf", $plan->id))
+                                        )'
+                                        class="inline-flex min-w-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                                    >
+                                        <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                                        <span>View</span>
+                                    </button>
+
+                                    <a
+                                        href="{{ route('ai-plans.pdf', $plan->id) }}"
+                                        class="inline-flex min-w-0 items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700"
+                                    >
+                                        <i class="fa-solid fa-download" aria-hidden="true"></i>
+                                        <span>PDF</span>
+                                    </a>
+
+                                    <a
+                                        href="{{ route('ai-plans.pdf', $plan->id) }}"
+                                        target="_blank"
+                                        rel="noopener"
+                                        class="inline-flex min-w-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                                    >
+                                        <i class="fa-solid fa-file-pdf" aria-hidden="true"></i>
+                                        <span>Preview</span>
+                                    </a>
+
+                                    <button
+                                        type="button"
+                                        onclick='pmOpenAiPlanDeleteModal(
+                                            @json(route("ai-plans.destroy", $plan->id)),
+                                            @json($plan->created_at->format("d M Y, g:i A"))
+                                        )'
+                                        class="inline-flex min-w-0 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700"
+                                    >
+                                        <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+                                        <span>Delete</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </article>
+                @endforeach
+            </div>
+
+            <div class="pm-ai-desktop-table pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto" role="region" aria-label="AI plans table" tabindex="0">
+                <table class="min-w-[760px] w-full text-sm">
                     <caption class="sr-only">Your generated AI plans, with view, download, and delete actions for each.</caption>
                     <thead class="bg-slate-50 text-left border-b border-slate-100">
                         <tr>
@@ -144,7 +236,7 @@
                         @foreach ($plans as $plan)
                             <tr class="hover:bg-slate-50 transition-colors">
                                 <td class="px-4 py-3 align-top">
-                                    <input type="checkbox" name="ids[]" value="{{ $plan->id }}" form="ai-plan-bulk-form" onchange="pmUpdateAiPlanBulkBar()" class="ai-plan-row-checkbox rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]" aria-label="Select AI plan from {{ $plan->created_at->format('Y-m-d H:i') }}">
+                                    <input type="checkbox" name="ids[]" value="{{ $plan->id }}" form="ai-plan-bulk-form" onchange="pmUpdateAiPlanBulkBar(this)" class="ai-plan-row-checkbox rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]" aria-label="Select AI plan from {{ $plan->created_at->format('Y-m-d H:i') }}">
                                 </td>
                                 <td class="px-4 py-3 text-slate-700 whitespace-nowrap">{{ $plan->created_at->format('Y-m-d H:i') }}</td>
                                 <td class="px-4 py-3 text-slate-600">
@@ -156,13 +248,13 @@
                                 <td class="px-4 py-3 align-top">
                                     <div class="flex flex-wrap justify-end gap-2 min-w-[330px]">
                                         <button type="button"
-                                                onclick="pmOpenAiPlanViewModal({{ json_encode($plan->created_at->format('Y-m-d H:i')) }}, {{ json_encode($plan->cleanContent()) }}, {{ json_encode(route('ai-plans.preview', $plan->id)) }}, {{ json_encode(route('ai-plans.pdf', $plan->id)) }})"
+                                                onclick="pmOpenAiPlanViewModal({{ json_encode($plan->created_at->format('Y-m-d H:i')) }}, {{ json_encode($plan->cleanContent()) }}, {{ json_encode(route('ai-plans.pdf', $plan->id)) }}, {{ json_encode(route('ai-plans.pdf', $plan->id)) }})"
                                                 class="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-100 transition-colors">
                                             <i class="fa-solid fa-eye" aria-hidden="true"></i>
                                             View Plan
                                         </button>
 
-                                        <a href="{{ route('ai-plans.preview', $plan->id) }}" target="_blank" rel="noopener"
+                                        <a href="{{ route('ai-plans.pdf', $plan->id) }}" target="_blank" rel="noopener"
                                            class="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 hover:bg-sky-100 transition-colors">
                                             <i class="fa-solid fa-file-pdf" aria-hidden="true"></i>
                                             View PDF
@@ -196,19 +288,156 @@
     @endif
 
 
-    <dialog id="ai-generate-modal" class="rounded-2xl p-0 pm-dialog-xl shadow-2xl backdrop:bg-slate-900/50">
+
+    <style>
+        /* ================================================================
+           MY DIGITAL DIARY — AI PLANNER RESPONSIVE LAYOUT
+        ================================================================= */
+
+        #ai-plans-page,
+        #ai-plans-page * {
+            box-sizing: border-box;
+        }
+
+        #ai-plans-page {
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+            overflow-x: clip;
+        }
+
+        #ai-plans-page .pm-ai-tabs {
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            gap: .25rem !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            white-space: nowrap !important;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+        }
+
+        #ai-plans-page .pm-ai-tab {
+            flex: 0 0 auto !important;
+            width: auto !important;
+            min-width: max-content !important;
+            white-space: nowrap !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+            writing-mode: horizontal-tb !important;
+        }
+
+        #ai-plans-page table th,
+        #ai-plans-page table td {
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+            writing-mode: horizontal-tb !important;
+            text-orientation: mixed !important;
+        }
+
+        #ai-plans-page .pm-ai-mobile-cards {
+            display: none;
+        }
+
+        #ai-plans-page .pm-ai-desktop-table {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .pm-ai-dialog {
+            width: min(94vw, 760px);
+            max-width: 760px;
+            max-height: calc(100dvh - 24px);
+            overflow: hidden;
+        }
+
+        .pm-ai-dialog > form,
+        .pm-ai-dialog > div {
+            max-height: calc(100dvh - 24px);
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        @media (max-width: 767px) {
+            #ai-plans-page .pm-ai-mobile-cards {
+                display: block;
+            }
+
+            #ai-plans-page .pm-ai-desktop-table {
+                display: none;
+            }
+
+            #ai-plans-page .grid.sm\:grid-cols-3 {
+                grid-template-columns: minmax(0, 1fr) !important;
+            }
+
+            #ai-plans-page form input,
+            #ai-plans-page form select,
+            #ai-plans-page form textarea {
+                min-width: 0 !important;
+                max-width: 100% !important;
+            }
+
+            #ai-plans-page #ai-plan-bulk-bar {
+                align-items: stretch !important;
+            }
+
+            #ai-plans-page #ai-plan-bulk-bar button {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .pm-ai-dialog {
+                width: calc(100vw - 16px);
+                max-width: calc(100vw - 16px);
+                max-height: calc(100dvh - 16px);
+                border-radius: 18px !important;
+            }
+
+            .pm-ai-dialog > form,
+            .pm-ai-dialog > div {
+                max-height: calc(100dvh - 16px);
+                padding: 1rem !important;
+            }
+
+            .pm-ai-modal-actions {
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) !important;
+                width: 100%;
+            }
+
+            .pm-ai-modal-actions > * {
+                width: 100% !important;
+                min-width: 0 !important;
+                justify-content: center !important;
+                text-align: center !important;
+            }
+
+            #ai-plan-view-content {
+                max-height: 48dvh !important;
+            }
+        }
+    </style>
+
+    <dialog id="ai-generate-modal" class="pm-ai-dialog rounded-2xl p-0 pm-dialog-xl shadow-2xl backdrop:bg-slate-900/50">
         <form method="POST" action="{{ route('ai-plans.store') }}" class="p-6">
             @csrf
             <div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold text-slate-800">What should the AI Planner generate?</h2><button type="button" onclick="this.closest('dialog').close()" class="text-slate-400"><i class="fa-solid fa-xmark"></i></button></div>
             <label for="custom_prompt" class="block text-sm font-medium text-slate-700 mb-1">Your request</label>
             <textarea id="custom_prompt" name="custom_prompt" rows="5" maxlength="3000" class="pm-input" placeholder="Example: Build a realistic 7-day plan focused on saving UGX 100,000, completing my overdue project tasks, exercising three times, and making time for prayer.">{{ old('custom_prompt') }}</textarea>
             <p class="text-xs text-slate-500 mt-2">Optional. If left blank, the standard personalized planner will be used.</p>
-            <div class="flex justify-end gap-3 mt-5"><button type="button" onclick="this.closest('dialog').close()" class="px-4 py-2 text-sm text-slate-600">Cancel</button><button type="submit" class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Generate</button></div>
+            <div class="pm-ai-modal-actions flex flex-wrap justify-end gap-3 mt-5"><button type="button" onclick="this.closest('dialog').close()" class="px-4 py-2 text-sm text-slate-600">Cancel</button><button type="submit" class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Generate</button></div>
         </form>
     </dialog>
 
     {{-- View full plan modal read-only. --}}
-    <dialog id="ai-plan-view-modal" aria-labelledby="ai-plan-view-title" class="rounded-2xl p-0 pm-dialog-xl shadow-2xl backdrop:bg-slate-900/50">
+    <dialog id="ai-plan-view-modal" aria-labelledby="ai-plan-view-title" class="pm-ai-dialog rounded-2xl p-0 pm-dialog-xl shadow-2xl backdrop:bg-slate-900/50">
         <div class="p-6">
             <div class="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
                 <h2 id="ai-plan-view-title" class="text-lg font-bold text-slate-800">Plan</h2>
@@ -218,19 +447,16 @@
                 </button>
             </div>
             <div id="ai-plan-view-content" class="text-sm whitespace-pre-line leading-relaxed max-h-[58vh] overflow-y-auto pr-1"></div>
-            <div class="mt-5 pt-4 border-t border-slate-100 flex flex-wrap justify-end gap-2">
+            <div class="pm-ai-modal-actions mt-5 pt-4 border-t border-slate-100 flex flex-wrap justify-end gap-2">
                 <button type="button" onclick="document.getElementById('ai-plan-view-modal').close()"
                         class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">
                     Close
                 </button>
                 <a id="ai-plan-view-pdf-link" href="#" target="_blank" rel="noopener"
-                   class="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100">
-                    <i class="fa-solid fa-eye"></i> View PDF
-                </a>
-                <a id="ai-plan-download-pdf-link" href="#"
                    class="inline-flex items-center gap-2 btn-primary text-white px-4 py-2 rounded-lg text-sm font-semibold">
-                    <i class="fa-solid fa-download"></i> Download PDF
+                    <i class="fa-solid fa-file-pdf"></i> Open PDF
                 </a>
+                <a id="ai-plan-download-pdf-link" href="#" class="hidden" aria-hidden="true" tabindex="-1"></a>
             </div>
         </div>
     </dialog>
@@ -291,17 +517,40 @@
             document.getElementById('ai-plan-delete-modal').showModal();
         }
 
-        function pmUpdateAiPlanBulkBar() {
-            var boxes = Array.prototype.slice.call(document.querySelectorAll('.ai-plan-row-checkbox'));
-            var selected = boxes.filter(function (box) { return box.checked; });
+        function pmUpdateAiPlanBulkBar(changedBox) {
+            var boxes = Array.prototype.slice.call(
+                document.querySelectorAll('.ai-plan-row-checkbox')
+            );
+
+            if (changedBox && changedBox.value) {
+                document
+                    .querySelectorAll(
+                        '.ai-plan-row-checkbox[value="' + changedBox.value + '"]'
+                    )
+                    .forEach(function (peer) {
+                        peer.checked = changedBox.checked;
+                    });
+            }
+
+            var selectedValues = {};
+            boxes.forEach(function (box) {
+                if (box.checked) {
+                    selectedValues[String(box.value)] = true;
+                }
+            });
+
+            var selected = Object.keys(selectedValues);
             var bar = document.getElementById('ai-plan-bulk-bar');
             var counter = document.getElementById('ai-plan-selected-count');
             var selectAll = document.getElementById('ai-plan-select-all');
             if (counter) { counter.textContent = selected.length; }
             if (bar) { bar.classList.toggle('hidden', selected.length === 0); }
             if (selectAll) {
-                selectAll.checked = boxes.length > 0 && selected.length === boxes.length;
-                selectAll.indeterminate = selected.length > 0 && selected.length < boxes.length;
+                var uniqueIds = {};
+                boxes.forEach(function (box) { uniqueIds[String(box.value)] = true; });
+                var totalUnique = Object.keys(uniqueIds).length;
+                selectAll.checked = totalUnique > 0 && selected.length === totalUnique;
+                selectAll.indeterminate = selected.length > 0 && selected.length < totalUnique;
             }
         }
 
@@ -313,11 +562,29 @@
         }
 
         function pmOpenAiPlanBulkDeleteModal() {
-            var selected = document.querySelectorAll('.ai-plan-row-checkbox:checked').length;
-            if (!selected) { return; }
+            var selectedIds = {};
+            document
+                .querySelectorAll('.ai-plan-row-checkbox:checked')
+                .forEach(function (box) {
+                    selectedIds[String(box.value)] = true;
+                });
+
+            var selected = Object.keys(selectedIds).length;
+
+            if (!selected) {
+                return;
+            }
+
             document.getElementById('ai-plan-bulk-delete-desc').textContent =
-                'You are about to delete ' + selected + ' selected AI plan' + (selected === 1 ? '' : 's') + '. This action cannot be undone.';
-            document.getElementById('ai-plan-bulk-delete-modal').showModal();
+                'You are about to delete '
+                + selected
+                + ' selected AI plan'
+                + (selected === 1 ? '' : 's')
+                + '. This action cannot be undone.';
+
+            document
+                .getElementById('ai-plan-bulk-delete-modal')
+                .showModal();
         }
 
         function pmSelectAiTab(key) {
@@ -354,4 +621,5 @@
             pmSelectAiTab(tabs[nextIndex]);
         }
     </script>
+</div>
 @endsection

@@ -1,18 +1,40 @@
+@php
+    $pmRawMethods = old('supported_payment_methods', $gateway->supported_payment_methods ?? []);
+
+    if (is_string($pmRawMethods)) {
+        $pmDecodedMethods = json_decode($pmRawMethods, true);
+        $pmRawMethods = is_array($pmDecodedMethods)
+            ? $pmDecodedMethods
+            : preg_split('/\s*,\s*/', trim($pmRawMethods), -1, PREG_SPLIT_NO_EMPTY);
+    }
+
+    $pmMethodSet = collect(is_array($pmRawMethods) ? $pmRawMethods : [])
+        ->map(fn ($method) => strtolower(trim((string) $method)))
+        ->filter()
+        ->values()
+        ->all();
+
+    $pmSupportsMobileMoney = in_array('mobile_money', $pmMethodSet, true)
+        || ($pmMethodSet === [] && in_array($gateway->type, ['mobile_money', 'aggregator'], true));
+    $pmSupportsVisa = in_array('visa', $pmMethodSet, true) || in_array('card', $pmMethodSet, true);
+    $pmSupportsMastercard = in_array('mastercard', $pmMethodSet, true) || in_array('card', $pmMethodSet, true);
+@endphp
+
 {{--
     Shared markup for both the create modal and each gateway's own edit
     modal (see index.blade.php's @foreach) — $gateway is either a fresh
     `new PaymentGateway` (create) or an existing row (edit), $modalId is
     unique per dialog, $action/$method drive the form target.
 --}}
-<dialog id="{{ $modalId }}" data-gateway-action="{{ $action }}" aria-labelledby="{{ $modalId }}-title" class="rounded-2xl p-0 pm-dialog shadow-2xl backdrop:bg-slate-900/50">
-    <form method="POST" action="{{ $action }}" class="p-6 space-y-5 max-h-[85vh] overflow-y-auto">
+<dialog id="{{ $modalId }}" data-gateway-action="{{ $action }}" aria-labelledby="{{ $modalId }}-title" class="pm-gateway-dialog rounded-2xl p-0 shadow-2xl backdrop:bg-slate-900/50">
+    <form method="POST" action="{{ $action }}" class="pm-gateway-dialog-form">
         @csrf
         @if ($method)
             @method($method)
         @endif
         <input type="hidden" name="_dialog_action" value="{{ $action }}">
 
-        <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+        <div class="pm-gateway-dialog-header flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
                     <i class="fa-solid fa-credit-card text-sm" aria-hidden="true"></i>
@@ -25,6 +47,7 @@
             </button>
         </div>
 
+        <div class="pm-gateway-dialog-body space-y-5">
         <div>
             <label for="type-{{ $modalId }}" class="block text-sm font-medium text-slate-700 mb-1">Type</label>
             <select id="type-{{ $modalId }}" name="type" onchange="pmToggleGatewayFields('{{ $modalId }}')" class="pm-input">
@@ -214,6 +237,47 @@
                     Airtel
                 </label>
             </div>
+
+            <div class="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 mt-2">
+                <div class="flex items-start gap-3 mb-3">
+                    <div class="w-9 h-9 rounded-lg bg-white text-indigo-600 border border-indigo-100 flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-credit-card" aria-hidden="true"></i>
+                    </div>
+                    <div>
+                        <p class="text-sm font-semibold text-slate-800">ioTec Payment Channels</p>
+                        <p class="text-xs text-slate-500 mt-0.5">
+                            Select every channel this aggregator account supports. Visa/MasterCard will use ioTec's hosted secure card checkout; raw card details are never stored here.
+                        </p>
+                    </div>
+                </div>
+
+                <input type="hidden" id="supported_payment_methods-{{ $modalId }}" name="supported_payment_methods" value="">
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <label class="pm-payment-channel-option flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3 cursor-pointer">
+                        <input type="checkbox" class="pm-method-checkbox rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]" data-method="mobile_money" @checked($pmSupportsMobileMoney)>
+                        <span class="flex items-center gap-2 text-sm font-medium text-slate-700">
+                            <i class="fa-solid fa-mobile-screen-button text-amber-500" aria-hidden="true"></i> Mobile Money
+                        </span>
+                    </label>
+                    <label class="pm-payment-channel-option flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3 cursor-pointer">
+                        <input type="checkbox" class="pm-method-checkbox rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]" data-method="visa" @checked($pmSupportsVisa)>
+                        <span class="flex items-center gap-2 text-sm font-medium text-slate-700">
+                            <i class="fa-brands fa-cc-visa text-blue-700 text-xl" aria-hidden="true"></i> Visa
+                        </span>
+                    </label>
+                    <label class="pm-payment-channel-option flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3 cursor-pointer">
+                        <input type="checkbox" class="pm-method-checkbox rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]" data-method="mastercard" @checked($pmSupportsMastercard)>
+                        <span class="flex items-center gap-2 text-sm font-medium text-slate-700">
+                            <i class="fa-brands fa-cc-mastercard text-orange-600 text-xl" aria-hidden="true"></i> MasterCard
+                        </span>
+                    </label>
+                </div>
+
+                <p class="text-xs text-slate-400 mt-2">
+                    Saving Visa or MasterCard automatically includes the generic <code>card</code> capability used by the ioTec subscription service.
+                </p>
+            </div>
         </div>
 
         <div id="fields-card-{{ $modalId }}" class="pm-gateway-fields space-y-4 border-t pt-4" data-type="card">
@@ -242,19 +306,41 @@
                       class="pm-input">{{ old('instructions', $gateway->instructions) }}</textarea>
         </div>
 
-        <div class="flex items-center gap-3 pt-2 border-t border-slate-100 mt-2">
+        </div>
+
+        <div class="pm-gateway-dialog-footer flex items-center justify-end gap-3">
+            <button type="button" onclick="document.getElementById('{{ $modalId }}').close()" class="inline-flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-medium border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 transition-colors">
+                Cancel
+            </button>
             <button type="submit" class="inline-flex items-center gap-2 btn-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
                 <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
                 <span>Save</span>
-            </button>
-            <button type="button" onclick="document.getElementById('{{ $modalId }}').close()" class="text-sm text-slate-500 hover:text-slate-700 transition-colors">
-                Cancel
             </button>
         </div>
     </form>
 </dialog>
 
 <script>
+    function pmSyncPaymentMethods(modalId) {
+        var dialog = document.getElementById(modalId);
+        if (!dialog) return;
+
+        var hidden = dialog.querySelector('#supported_payment_methods-' + modalId);
+        if (!hidden) return;
+
+        var methods = [];
+        dialog.querySelectorAll('.pm-method-checkbox:checked').forEach(function (checkbox) {
+            var method = checkbox.dataset.method;
+            if (method && methods.indexOf(method) === -1) methods.push(method);
+        });
+
+        if ((methods.indexOf('visa') !== -1 || methods.indexOf('mastercard') !== -1) && methods.indexOf('card') === -1) {
+            methods.push('card');
+        }
+
+        hidden.value = methods.join(', ');
+    }
+
     function pmToggleGatewayFields(modalId) {
         var dialog = document.getElementById(modalId);
         var type = dialog.querySelector('[id^="type-"]').value;
@@ -303,6 +389,11 @@
 
     document.addEventListener('DOMContentLoaded', function () {
         pmToggleGatewayFields('{{ $modalId }}');
+        pmSyncPaymentMethods('{{ $modalId }}');
+        document.getElementById('{{ $modalId }}')?.querySelectorAll('.pm-method-checkbox').forEach(function (checkbox) {
+            checkbox.addEventListener('change', function () { pmSyncPaymentMethods('{{ $modalId }}'); });
+        });
+
         ['token_url-{{ $modalId }}', 'collect_url-{{ $modalId }}', 'client_id-{{ $modalId }}', 'client_secret-{{ $modalId }}'].forEach(function (id) {
             var el = document.getElementById(id);
             if (el) el.addEventListener('input', function () { pmCheckAggregatorCompleteness('{{ $modalId }}'); });

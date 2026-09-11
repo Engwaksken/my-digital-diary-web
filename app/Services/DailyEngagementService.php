@@ -41,39 +41,156 @@ class DailyEngagementService {
  }
  private function topFocus(User $user,Carbon $day): array {
   $items=[];
-  if(Schema::hasTable('daily_plan_items')){
-   $dc=Schema::hasColumn('daily_plan_items','date')?'date':(Schema::hasColumn('daily_plan_items','task_date')?'task_date':null);
-   if($dc){$q=DB::table('daily_plan_items')->where('user_id',$user->id)->whereDate($dc,$day->toDateString());
-    if(Schema::hasColumn('daily_plan_items','status'))$q->whereNotIn('status',['completed','done']);
-    elseif(Schema::hasColumn('daily_plan_items','is_completed'))$q->where('is_completed',false);
-    foreach($q->orderBy('id')->limit(6)->get() as $row)$items[]=['id'=>$row->id,'title'=>$row->title??$row->task??$row->description??'Daily task','source'=>'Daily Planner','time'=>$row->start_time??$row->time??null,'type'=>'daily_planner'];
+
+  if(Schema::hasTable('daily_plan_items') && Schema::hasTable('daily_plans')){
+   $rows=DB::table('daily_plan_items as dpi')
+    ->join('daily_plans as dp','dp.id','=','dpi.daily_plan_id')
+    ->where('dp.user_id',$user->id)
+    ->whereDate('dp.plan_date',$day->toDateString())
+    ->orderByRaw("CASE WHEN dpi.priority='high' THEN 1 WHEN dpi.priority='medium' THEN 2 ELSE 3 END")
+    ->orderBy('dpi.start_time')
+    ->limit(5)
+    ->get(['dpi.id','dpi.title','dpi.priority','dpi.start_time','dpi.is_completed']);
+
+   foreach($rows as $row){
+    if(($row->is_completed ?? false)) continue;
+    $items[]=[
+     'id'=>$row->id,
+     'title'=>$row->title ?? 'Task',
+     'source'=>'Daily Planner',
+     'time'=>$row->start_time ?? null,
+     'type'=>'daily_planner',
+     'priority'=>$row->priority ?? null,
+    ];
    }
   }
-  if(count($items)<6 && Schema::hasTable('meetings')){
-   $dc=Schema::hasColumn('meetings','meeting_date')?'meeting_date':(Schema::hasColumn('meetings','date')?'date':null);
-   if($dc)foreach(DB::table('meetings')->where('user_id',$user->id)->whereDate($dc,$day->toDateString())->orderBy('start_time')->limit(6-count($items))->get() as $row)
-    $items[]=['id'=>$row->id,'title'=>$row->title??'Meeting','source'=>'Meeting','time'=>$row->start_time??null,'type'=>'meeting'];
+
+  if(Schema::hasTable('meetings')){
+   $meetingDateColumn=Schema::hasColumn('meetings','meeting_date')
+    ? 'meeting_date'
+    : (Schema::hasColumn('meetings','date') ? 'date' : null);
+
+   if($meetingDateColumn){
+    $meetingRows=DB::table('meetings')
+     ->where('user_id',$user->id)
+     ->whereDate($meetingDateColumn,$day->toDateString())
+     ->orderBy('start_time')
+     ->limit(max(0,5-count($items)))
+     ->get();
+
+    foreach($meetingRows as $row){
+     $items[]=[
+      'id'=>$row->id,
+      'title'=>$row->title ?? 'Meeting',
+      'source'=>'Meeting',
+      'time'=>$row->start_time ?? null,
+      'type'=>'meeting',
+     ];
+    }
+   }
   }
+
   return array_values($items);
  }
  private function progress(User $user,Carbon $day): array {
-  $total=0;$done=0;$expenses=0.0;$income=0.0;$exercise=0;
-  if(Schema::hasTable('daily_plan_items')){$dc=Schema::hasColumn('daily_plan_items','date')?'date':(Schema::hasColumn('daily_plan_items','task_date')?'task_date':null);
-   if($dc){$q=DB::table('daily_plan_items')->where('user_id',$user->id)->whereDate($dc,$day->toDateString());$total=(clone $q)->count();
-    if(Schema::hasColumn('daily_plan_items','status'))$done=(clone $q)->whereIn('status',['completed','done'])->count();
-    elseif(Schema::hasColumn('daily_plan_items','is_completed'))$done=(clone $q)->where('is_completed',true)->count();}}
-  foreach([['expenses','expenses'],['incomes','income']] as [$table,$key])if(Schema::hasTable($table)&&Schema::hasColumn($table,'amount')){$dc=Schema::hasColumn($table,'date')?'date':'created_at';$$key=(float)DB::table($table)->where('user_id',$user->id)->whereDate($dc,$day->toDateString())->sum('amount');}
-  if(Schema::hasTable('exercise_logs')){$dc=Schema::hasColumn('exercise_logs','date')?'date':'created_at';$exercise=DB::table('exercise_logs')->where('user_id',$user->id)->whereDate($dc,$day->toDateString())->count();}
-  $actions=Schema::hasTable('engagement_events')?DB::table('engagement_events')->where('user_id',$user->id)->whereDate('event_date',$day->toDateString())->count():0;
-  return ['tasks_completed'=>$done,'tasks_total'=>$total,'completion_percent'=>$total?round($done/$total*100):0,'expenses'=>$expenses,'income'=>$income,'exercise_sessions'=>$exercise,'meaningful_actions'=>$actions];
+  $total=0;
+  $done=0;
+  $expenses=0.0;
+  $income=0.0;
+  $exercise=0;
+
+  if(Schema::hasTable('daily_plan_items') && Schema::hasTable('daily_plans')){
+   $q=DB::table('daily_plan_items as dpi')
+    ->join('daily_plans as dp','dp.id','=','dpi.daily_plan_id')
+    ->where('dp.user_id',$user->id)
+    ->whereDate('dp.plan_date',$day->toDateString());
+
+   $total=(clone $q)->count();
+
+   if(Schema::hasColumn('daily_plan_items','status')){
+    $done=(clone $q)->whereIn('dpi.status',['completed','done'])->count();
+   } elseif(Schema::hasColumn('daily_plan_items','is_completed')){
+    $done=(clone $q)->where('dpi.is_completed',true)->count();
+   }
+  }
+
+  foreach([['expenses','expenses'],['incomes','income']] as [$table,$key]){
+   if(Schema::hasTable($table) && Schema::hasColumn($table,'amount')){
+    $dc=Schema::hasColumn($table,'date') ? 'date' : 'created_at';
+    $$key=(float)DB::table($table)
+     ->where('user_id',$user->id)
+     ->whereDate($dc,$day->toDateString())
+     ->sum('amount');
+   }
+  }
+
+  if(Schema::hasTable('exercise_logs')){
+   $dc=Schema::hasColumn('exercise_logs','date') ? 'date' : 'created_at';
+   $exercise=DB::table('exercise_logs')
+    ->where('user_id',$user->id)
+    ->whereDate($dc,$day->toDateString())
+    ->count();
+  }
+
+  $actions=Schema::hasTable('engagement_events')
+   ? DB::table('engagement_events')
+      ->where('user_id',$user->id)
+      ->whereDate('event_date',$day->toDateString())
+      ->count()
+   : 0;
+
+  return [
+   'tasks_completed'=>$done,
+   'tasks_total'=>$total,
+   'completion_percent'=>$total ? round($done/$total*100) : 0,
+   'expenses'=>$expenses,
+   'income'=>$income,
+   'exercise_sessions'=>$exercise,
+   'meaningful_actions'=>$actions,
+  ];
  }
  private function review(User $user,Carbon $start,Carbon $end,string $period): array {
-  $done=0;$total=0;
-  if(Schema::hasTable('daily_plan_items')){$dc=Schema::hasColumn('daily_plan_items','date')?'date':(Schema::hasColumn('daily_plan_items','task_date')?'task_date':null);
-   if($dc){$q=DB::table('daily_plan_items')->where('user_id',$user->id)->whereBetween($dc,[$start->toDateString(),$end->toDateString()]);$total=(clone $q)->count();
-    if(Schema::hasColumn('daily_plan_items','status'))$done=(clone $q)->whereIn('status',['completed','done'])->count();}}
-  $days=Schema::hasTable('engagement_events')?DB::table('engagement_events')->where('user_id',$user->id)->whereBetween('event_date',[$start->toDateString(),$end->toDateString()])->distinct('event_date')->count('event_date'):0;
-  return ['period'=>$period,'from'=>$start->toDateString(),'to'=>$end->toDateString(),'tasks_completed'=>$done,'tasks_total'=>$total,'meaningful_days'=>$days,'streak'=>$this->streak($user)];
+  $done=0;
+  $total=0;
+
+  if(Schema::hasTable('daily_plan_items') && Schema::hasTable('daily_plans')){
+   $q=DB::table('daily_plan_items as dpi')
+    ->join('daily_plans as dp','dp.id','=','dpi.daily_plan_id')
+    ->where('dp.user_id',$user->id)
+    ->whereBetween('dp.plan_date',[
+     $start->toDateString(),
+     $end->toDateString(),
+    ]);
+
+   $total=(clone $q)->count();
+
+   if(Schema::hasColumn('daily_plan_items','status')){
+    $done=(clone $q)->whereIn('dpi.status',['completed','done'])->count();
+   } elseif(Schema::hasColumn('daily_plan_items','is_completed')){
+    $done=(clone $q)->where('dpi.is_completed',true)->count();
+   }
+  }
+
+  $days=Schema::hasTable('engagement_events')
+   ? DB::table('engagement_events')
+      ->where('user_id',$user->id)
+      ->whereBetween('event_date',[
+       $start->toDateString(),
+       $end->toDateString(),
+      ])
+      ->distinct('event_date')
+      ->count('event_date')
+   : 0;
+
+  return [
+   'period'=>$period,
+   'from'=>$start->toDateString(),
+   'to'=>$end->toDateString(),
+   'tasks_completed'=>$done,
+   'tasks_total'=>$total,
+   'meaningful_days'=>$days,
+   'streak'=>$this->streak($user),
+  ];
  }
  private function hasCheckin(User $u,Carbon $d,string $type): bool {return Schema::hasTable('daily_checkins')&&DB::table('daily_checkins')->where('user_id',$u->id)->whereDate('checkin_date',$d->toDateString())->where('type',$type)->exists();}
  private function streak(User $u): array {$r=Schema::hasTable('engagement_streaks')?DB::table('engagement_streaks')->where('user_id',$u->id)->first():null;return ['current'=>(int)($r->current_streak??0),'best'=>(int)($r->best_streak??0),'last_day'=>$r->last_meaningful_day??null];}

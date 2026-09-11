@@ -15,12 +15,22 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // SQLite stores the original columns as VARCHAR already and cannot
+        // execute MySQL's MODIFY COLUMN syntax used below.
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         DB::statement("ALTER TABLE api_credentials MODIFY COLUMN provider VARCHAR(255) NOT NULL DEFAULT 'anthropic'");
         DB::statement("ALTER TABLE ai_plans MODIFY COLUMN provider VARCHAR(255) NULL");
     }
 
     public function down(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         DB::statement("ALTER TABLE api_credentials MODIFY COLUMN provider ENUM('anthropic','openai') NOT NULL DEFAULT 'anthropic'");
         DB::statement("ALTER TABLE ai_plans MODIFY COLUMN provider ENUM('anthropic','openai') NULL");
     }

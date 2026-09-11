@@ -3,177 +3,411 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\SocialMediaProviderConfig;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
 class SocialMediaAccountController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request): JsonResponse
     {
+        $columns = [
+            'id',
+            'platform',
+            'account_name',
+            'username',
+            'is_active',
+        ];
+
+        foreach ([
+            'external_account_id',
+            'provider_config_id',
+            'provider_account_ref',
+            'auto_publish_enabled',
+            'oauth_expires_at',
+        ] as $column) {
+            if (Schema::hasColumn('social_media_accounts', $column)) {
+                $columns[] = $column;
+            }
+        }
+
+        $accounts = DB::table('social_media_accounts')
+            ->select($columns)
+            ->where('user_id', $request->user()->id)
+            ->orderBy('platform')
+            ->orderBy('account_name')
+            ->get()
+            ->map(function ($row) {
+                $account = (array) $row;
+
+                $provider = $this->enabledProvider(
+                    (string) ($row->platform ?? '')
+                );
+
+                /*
+                 * Mobile receives ONLY safe provider metadata.
+                 *
+                 * Never expose:
+                 * - base_url
+                 * - api_key
+                 * - api_secret
+                 * - auth_header
+                 * - settings
+                 */
+                $account['automatic_api_available'] =
+                    (bool) $provider;
+
+                $account['automatic_provider_name'] =
+                    $provider?->provider_name;
+
+                $account['automatic_provider_driver'] =
+                    $provider?->driver;
+
+                $account['automatic_connection_mode'] =
+                    $provider?->connection_mode;
+
+                return $account;
+            })
+            ->values();
+
         return response()->json([
             'data' => [
                 'whatsapp' => [
                     'number' => $request->user()->whatsapp_number,
-                    'channel_name' => $request->user()->whatsapp_channel_name,
-                    'channel_url' => $request->user()->whatsapp_channel_url,
+                    'channel_name' =>
+                        $request->user()->whatsapp_channel_name,
+                    'channel_url' =>
+                        $request->user()->whatsapp_channel_url,
                 ],
-                'accounts' => DB::table('social_media_accounts')
-                    ->select([
-                        'id',
-                        'platform',
-                        'account_name',
-                        'username',
-                        'external_account_id',
-                        'automation_provider',
-                        'automation_endpoint',
-                        'is_active',
-                        'auto_publish_enabled',
-                        'oauth_expires_at',
-                        DB::raw(
-                            "CASE WHEN oauth_access_token IS NULL THEN 0 ELSE 1 END AS is_connected"
-                        ),
-                    ])
-                    ->where('user_id', $request->user()->id)
-                    ->orderBy('platform')
-                    ->get(),
+                'accounts' => $accounts,
             ],
         ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
             'platform' => [
                 'required',
-                Rule::in(['instagram','facebook','x','tiktok','linkedin','whatsapp_status','whatsapp_channel']),
+                Rule::in([
+                    'instagram',
+                    'facebook',
+                    'x',
+                    'tiktok',
+                    'linkedin',
+                    'whatsapp_status',
+                    'whatsapp_channel',
+                ]),
             ],
-            'account_name' => ['required','string','max:120'],
-            'username' => ['nullable','string','max:180'],
+            'account_name' => [
+                'required',
+                'string',
+                'max:120',
+            ],
+            'username' => [
+                'nullable',
+                'string',
+                'max:180',
+            ],
+            'external_account_id' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'provider_account_ref' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
         ]);
 
-        $id = DB::table('social_media_accounts')->insertGetId([
+        $provider = $this->enabledProvider(
+            $data['platform']
+        );
+
+        $insert = [
             'user_id' => $request->user()->id,
             'platform' => $data['platform'],
             'account_name' => $data['account_name'],
-            'username' => $data['username'] ?? null,
+            'username' =>
+                trim((string) ($data['username'] ?? ''))
+                    ?: null,
             'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ];
+
+        if (
+            Schema::hasColumn(
+                'social_media_accounts',
+                'external_account_id'
+            )
+        ) {
+            $insert['external_account_id'] =
+                trim(
+                    (string) (
+                        $data['external_account_id'] ?? ''
+                    )
+                ) ?: null;
+        }
+
+        if (
+            Schema::hasColumn(
+                'social_media_accounts',
+                'provider_account_ref'
+            )
+        ) {
+            $insert['provider_account_ref'] =
+                trim(
+                    (string) (
+                        $data['provider_account_ref'] ?? ''
+                    )
+                ) ?: null;
+        }
+
+        if (
+            Schema::hasColumn(
+                'social_media_accounts',
+                'provider_config_id'
+            )
+        ) {
+            $insert['provider_config_id'] =
+                $provider?->id;
+        }
+
+        if (
+            Schema::hasColumn(
+                'social_media_accounts',
+                'auto_publish_enabled'
+            )
+        ) {
+            $insert['auto_publish_enabled'] = false;
+        }
+
+        $id = DB::table(
+            'social_media_accounts'
+        )->insertGetId($insert);
 
         return response()->json([
-            'data' => DB::table('social_media_accounts')
-                ->where('id', $id)
-                ->first(),
+            'message' => $provider
+                ? 'Account added. Automatic posting is available.'
+                : 'Account added. Automatic posting is not enabled by the administrator for this platform.',
+            'data' => [
+                'id' => $id,
+                'automatic_api_available' =>
+                    (bool) $provider,
+                'automatic_provider_name' =>
+                    $provider?->provider_name,
+            ],
         ], 201);
     }
 
-    public function updateWhatsApp(Request $request)
-    {
+    public function updateWhatsApp(
+        Request $request
+    ): JsonResponse {
         $data = $request->validate([
-            'whatsapp_number' => ['nullable','string','max:30'],
-            'whatsapp_channel_name' => ['nullable','string','max:180'],
-            'whatsapp_channel_url' => ['nullable','url','max:500'],
+            'whatsapp_number' => [
+                'nullable',
+                'string',
+                'max:30',
+            ],
+            'whatsapp_channel_name' => [
+                'nullable',
+                'string',
+                'max:180',
+            ],
+            'whatsapp_channel_url' => [
+                'nullable',
+                'url',
+                'max:500',
+            ],
         ]);
 
-        $request->user()->forceFill($data)->save();
+        $save = [];
+
+        foreach ($data as $column => $value) {
+            if (Schema::hasColumn('users', $column)) {
+                $save[$column] = $value;
+            }
+        }
+
+        if ($save) {
+            $request->user()
+                ->forceFill($save)
+                ->save();
+        }
 
         return response()->json([
             'data' => [
-                'number' => $request->user()->whatsapp_number,
-                'channel_name' => $request->user()->whatsapp_channel_name,
-                'channel_url' => $request->user()->whatsapp_channel_url,
+                'number' =>
+                    $request->user()->whatsapp_number,
+                'channel_name' =>
+                    $request->user()->whatsapp_channel_name,
+                'channel_url' =>
+                    $request->user()->whatsapp_channel_url,
             ],
         ]);
     }
-
 
     public function updateAutomaticPublishing(
         Request $request,
         int $account
-    ) {
-        $data = $request->validate([
-            'enabled' => ['required', 'boolean'],
-            'external_account_id' => ['nullable', 'string', 'max:255'],
-            'access_token' => ['nullable', 'string', 'max:10000'],
-            'automation_provider' => ['nullable', 'string', 'max:100'],
-            'automation_endpoint' => ['nullable', 'url', 'max:2000'],
-            'automation_secret' => ['nullable', 'string', 'max:10000'],
-        ]);
-
+    ): JsonResponse {
         $row = DB::table('social_media_accounts')
             ->where('id', $account)
-            ->where('user_id', $request->user()->id)
+            ->where(
+                'user_id',
+                $request->user()->id
+            )
             ->first();
 
         abort_unless($row, 404);
 
+        $data = $request->validate([
+            'enabled' => [
+                'required',
+                'boolean',
+            ],
+            'external_account_id' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'provider_account_ref' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+        ]);
+
+        $provider = $this->enabledProvider(
+            (string) $row->platform
+        );
+
+        if (
+            (bool) $data['enabled']
+            && ! $provider
+        ) {
+            return response()->json([
+                'message' =>
+                    'Automatic posting is not enabled for this platform by the administrator.',
+            ], 422);
+        }
+
         $update = [
-            'auto_publish_enabled' => (bool) $data['enabled'],
             'updated_at' => now(),
         ];
 
-        if (array_key_exists('external_account_id', $data)) {
-            $update['external_account_id'] =
-                trim((string) $data['external_account_id']) ?: null;
+        if (
+            Schema::hasColumn(
+                'social_media_accounts',
+                'auto_publish_enabled'
+            )
+        ) {
+            $update['auto_publish_enabled'] =
+                (bool) $data['enabled'];
         }
 
-        if (! empty($data['access_token'])) {
-            $update['oauth_access_token'] = Crypt::encryptString(
-                $data['access_token']
-            );
+        if (
+            Schema::hasColumn(
+                'social_media_accounts',
+                'external_account_id'
+            )
+        ) {
+            $update['external_account_id'] =
+                trim(
+                    (string) (
+                        $data['external_account_id'] ?? ''
+                    )
+                ) ?: null;
         }
-        if (array_key_exists('automation_provider', $data)) {
-            $update['automation_provider'] =
-                trim((string) $data['automation_provider']) ?: null;
+
+        if (
+            Schema::hasColumn(
+                'social_media_accounts',
+                'provider_account_ref'
+            )
+        ) {
+            $update['provider_account_ref'] =
+                trim(
+                    (string) (
+                        $data['provider_account_ref'] ?? ''
+                    )
+                ) ?: null;
         }
-        if (array_key_exists('automation_endpoint', $data)) {
-            $update['automation_endpoint'] =
-                trim((string) $data['automation_endpoint']) ?: null;
-        }
-        if (! empty($data['automation_secret'])) {
-            $update['automation_secret'] = Crypt::encryptString(
-                $data['automation_secret']
-            );
+
+        if (
+            Schema::hasColumn(
+                'social_media_accounts',
+                'provider_config_id'
+            )
+        ) {
+            $update['provider_config_id'] =
+                $provider?->id;
         }
 
         DB::table('social_media_accounts')
             ->where('id', $account)
-            ->where('user_id', $request->user()->id)
+            ->where(
+                'user_id',
+                $request->user()->id
+            )
             ->update($update);
 
         return response()->json([
-            'data' => DB::table('social_media_accounts')
-                ->select([
-                    'id',
-                    'platform',
-                    'account_name',
-                    'username',
-                    'external_account_id',
-                    'automation_provider',
-                    'automation_endpoint',
-                    'is_active',
-                    'auto_publish_enabled',
-                    'oauth_expires_at',
-                    DB::raw(
-                        "CASE WHEN oauth_access_token IS NULL THEN 0 ELSE 1 END AS is_connected"
-                    ),
-                ])
-                ->where('id', $account)
-                ->where('user_id', $request->user()->id)
-                ->first(),
+            'message' =>
+                'Automatic posting settings updated.',
+            'data' => [
+                'automatic_api_available' =>
+                    (bool) $provider,
+                'automatic_provider_name' =>
+                    $provider?->provider_name,
+                'automatic_connection_mode' =>
+                    $provider?->connection_mode,
+            ],
         ]);
     }
 
-    public function destroy(Request $request, int $account)
-    {
-        DB::table('social_media_accounts')
+    public function destroy(
+        Request $request,
+        int $account
+    ): JsonResponse {
+        $deleted = DB::table(
+            'social_media_accounts'
+        )
             ->where('id', $account)
-            ->where('user_id', $request->user()->id)
+            ->where(
+                'user_id',
+                $request->user()->id
+            )
             ->delete();
 
-        return response()->json(['ok' => true]);
+        abort_if($deleted === 0, 404);
+
+        return response()->json([
+            'ok' => true,
+        ]);
+    }
+
+    private function enabledProvider(
+        string $platform
+    ): ?SocialMediaProviderConfig {
+        if (
+            ! Schema::hasTable(
+                'social_media_provider_configs'
+            )
+        ) {
+            return null;
+        }
+
+        return SocialMediaProviderConfig::query()
+            ->where('platform', $platform)
+            ->where('is_enabled', true)
+            ->orderByDesc('is_default')
+            ->orderBy('id')
+            ->first();
     }
 }

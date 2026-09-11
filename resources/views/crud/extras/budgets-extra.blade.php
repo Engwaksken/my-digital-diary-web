@@ -1,0 +1,27 @@
+<dialog id="pm-budget-import-modal" class="w-[94vw] max-w-4xl max-h-[90vh] rounded-2xl p-0 backdrop:bg-slate-950/55 shadow-2xl">
+<div class="bg-white rounded-2xl overflow-hidden">
+ <div class="flex items-center justify-between px-5 py-4 border-b"><div><h2 class="font-bold text-lg text-slate-800">Import Budget</h2><p class="text-xs text-slate-500">Excel, CSV, PDF, Word or a photo. Review extracted lines before saving.</p></div><button type="button" onclick="document.getElementById('pm-budget-import-modal').close()" class="w-9 h-9 rounded-full hover:bg-slate-100"><i class="fa-solid fa-xmark"></i></button></div>
+ <div class="p-5 overflow-y-auto max-h-[72vh]">
+  <form id="pm-budget-extract-form" enctype="multipart/form-data" class="flex flex-wrap items-end gap-3">
+   @csrf
+   <div class="flex-1 min-w-[240px]"><label class="text-xs font-semibold text-slate-600">Budget file / photo</label><input id="pm-budget-file" name="file" type="file" accept=".xlsx,.xls,.csv,.pdf,.doc,.docx,image/jpeg,image/png,image/webp" capture="environment" required class="block w-full text-sm mt-1"></div>
+   <button id="pm-budget-extract-btn" class="px-4 py-2.5 rounded-lg bg-[var(--brand-1)] text-white text-sm font-semibold"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Extract</button>
+  </form>
+  <div id="pm-budget-error" class="hidden mt-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 p-3 text-sm"></div>
+  <form id="pm-budget-confirm-form" method="POST" action="{{ route('budgets.import.confirm') }}" class="hidden mt-5">
+   @csrf
+   <input type="hidden" name="items_json" id="pm-budget-items-json"><input type="hidden" name="filename" id="pm-budget-filename"><input type="hidden" name="source" id="pm-budget-source"><input type="hidden" name="confidence" id="pm-budget-confidence">
+   <div class="flex items-center justify-between mb-2"><h3 class="font-bold text-slate-800">Review Extracted Budget</h3><span id="pm-budget-meta" class="text-xs text-slate-500"></span></div>
+   <div class="overflow-x-auto"><table class="min-w-[760px] w-full text-sm"><thead><tr class="bg-slate-50 text-slate-600"><th class="p-2 text-left">Category</th><th class="p-2 text-left">Description</th><th class="p-2 text-left">Planned Amount</th><th class="p-2 text-left">Period</th><th class="p-2 text-left">Month</th><th class="p-2"></th></tr></thead><tbody id="pm-budget-lines"></tbody></table></div>
+   <div class="mt-4 flex justify-end"><button class="px-4 py-2.5 rounded-lg bg-emerald-600 text-white font-semibold text-sm"><i class="fa-solid fa-check mr-1"></i> Save Imported Budget</button></div>
+  </form>
+ </div>
+</div>
+</dialog>
+<script>
+(function(){'use strict'; let items=[]; const $=id=>document.getElementById(id); const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function sync(){ $('pm-budget-items-json').value=JSON.stringify(items); }
+function render(){ const body=$('pm-budget-lines'); body.innerHTML=''; items.forEach((x,i)=>{ const tr=document.createElement('tr'); tr.className='border-b'; tr.innerHTML=`<td class="p-2"><input class="w-full rounded border-slate-300" value="${esc(x.category||'General')}"></td><td class="p-2"><input class="w-full rounded border-slate-300" value="${esc(x.description||'')}"></td><td class="p-2"><input type="number" min="0" step="0.01" class="w-full rounded border-slate-300" value="${Number(x.planned_amount||0)}"></td><td class="p-2"><select class="w-full rounded border-slate-300"><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="annually">Annually</option></select></td><td class="p-2"><input class="w-full rounded border-slate-300" placeholder="YYYY-MM" value="${esc(x.month_year||'')}"></td><td class="p-2"><button type="button" class="text-rose-600"><i class="fa-solid fa-trash"></i></button></td>`; const controls=tr.querySelectorAll('input,select,button'); controls[3].value=x.period||'monthly'; controls[0].oninput=e=>{x.category=e.target.value;sync()}; controls[1].oninput=e=>{x.description=e.target.value;sync()}; controls[2].oninput=e=>{x.planned_amount=Number(e.target.value||0);sync()}; controls[3].onchange=e=>{x.period=e.target.value;sync()}; controls[4].oninput=e=>{x.month_year=e.target.value;sync()}; controls[5].onclick=()=>{items.splice(i,1);render()}; body.appendChild(tr); }); sync(); }
+$('pm-budget-extract-form')?.addEventListener('submit',async e=>{e.preventDefault(); const btn=$('pm-budget-extract-btn'), err=$('pm-budget-error'); err.classList.add('hidden'); btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin mr-1"></i> Extracting…'; try{ const fd=new FormData(e.target); const r=await fetch(@json(route('budgets.extract')),{method:'POST',body:fd,headers:{'Accept':'application/json'}}); const j=await r.json(); if(!r.ok) throw new Error(j.message||'Could not extract budget.'); const d=j.data||{}; items=Array.isArray(d.items)?d.items:[]; $('pm-budget-filename').value=d.filename||''; $('pm-budget-source').value=d.source||''; $('pm-budget-confidence').value=d.confidence||0; $('pm-budget-meta').textContent=`${d.title||'Imported budget'} · ${d.currency||'UGX'} · ${Number(d.confidence||0).toFixed(0)}% confidence`; $('pm-budget-confirm-form').classList.remove('hidden'); render(); }catch(ex){err.textContent=ex.message;err.classList.remove('hidden')}finally{btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Extract'}});
+})();
+</script>

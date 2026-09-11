@@ -128,6 +128,88 @@
         border-bottom: 1px solid #e2e8f0;
         padding: 1rem 1.25rem;
     }
+
+    .dp-repeat-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        margin-top: .45rem;
+        padding: .3rem .55rem;
+        border-radius: .6rem;
+        background: #f5f3ff;
+        color: #6d28d9;
+        font-size: .72rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .dp-repeat-panel {
+        border: 1px solid #ddd6fe;
+        background: #faf5ff;
+        border-radius: .9rem;
+        padding: 1rem;
+    }
+    .dp-week-days {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: .45rem;
+    }
+    .dp-day-check {
+        position: relative;
+        min-width: 0;
+    }
+    .dp-day-check input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+    .dp-day-check span {
+        display: flex;
+        min-height: 42px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #d8b4fe;
+        border-radius: .7rem;
+        background: #fff;
+        color: #6b21a8;
+        font-size: .78rem;
+        font-weight: 700;
+        cursor: pointer;
+    }
+    .dp-day-check input:checked + span {
+        border-color: #7e22ce;
+        background: #7e22ce;
+        color: #fff;
+    }
+    .dp-scope-box {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .6rem;
+    }
+    .dp-scope-option {
+        display: flex;
+        align-items: flex-start;
+        gap: .55rem;
+        padding: .8rem;
+        border: 1px solid #e2e8f0;
+        border-radius: .75rem;
+        background: #fff;
+    }
+    @media (max-width: 640px) {
+        .dp-week-days {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+        .dp-scope-box {
+            grid-template-columns: 1fr;
+        }
+        .dp-modal-backdrop {
+            padding: .5rem;
+        }
+        .dp-modal-panel {
+            max-height: calc(100vh - 1rem);
+            border-radius: .85rem;
+        }
+    }
+
 </style>
 
 <div class="max-w-7xl mx-auto px-4 py-6 space-y-5">
@@ -291,7 +373,7 @@
                         <button type="button"
                                 onclick="moveAllPendingTomorrow()"
                                 class="inline-flex items-center gap-2 text-sm text-amber-700 border border-amber-200 rounded-lg px-3 py-2 bg-amber-50 hover:bg-amber-100">
-                            <i class="fa-solid fa-forward"></i> Move unfinished to tomorrow
+                            <i class="fa-solid fa-forward"></i> Move unfinished one-off tasks
                         </button>
                     @endif
                     <button type="submit" form="bulkDailyDelete"
@@ -304,15 +386,16 @@
         </div>
 
         @if(!$total)
-            <div class="text-center py-14 px-4 text-slate-500">
-                <i class="fa-regular fa-calendar-check text-4xl mb-3 dp-primary-text"></i>
-                <p class="font-medium text-slate-700">No tasks saved for this day.</p>
-                <p class="text-sm mt-1">Use Add Task to build the day's schedule.</p>
-            </div>
+            <x-empty-state
+                icon="fa-regular fa-calendar-check"
+                title="No tasks saved for this day."
+                message="Use Add Task to create a one-off task or a recurring task you only enter once."
+            />
         @else
             <form id="bulkDailyDelete" method="POST" action="{{ route('daily-planner.items.bulk-destroy') }}">
                 @csrf
                 @method('DELETE')
+                <input type="hidden" name="occurrence_date" value="{{ $date->toDateString() }}">
 
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm min-w-[900px]">
@@ -351,6 +434,18 @@
                                         @if($item->description)
                                             <div class="text-xs text-slate-500 mt-1 max-w-xl">{{ $item->description }}</div>
                                         @endif
+                                        <div>
+                                            <span class="dp-repeat-badge">
+                                                <i class="fa-solid {{ $item->isRecurring() ? 'fa-repeat' : 'fa-clock' }}"></i>
+                                                {{ $item->repeat_label ?? $item->repeatLabel() }}
+                                            </span>
+                                            @if($item->personalGoal)
+                                                <span class="inline-flex items-center gap-1 mt-2 ml-1 px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold">
+                                                    <i class="fa-solid fa-bullseye"></i>
+                                                    {{ \Illuminate\Support\Str::limit($item->personalGoal->title, 34) }}
+                                                </span>
+                                            @endif
+                                        </div>
                                     </td>
                                     <td class="px-3 py-4">
                                         @php
@@ -380,20 +475,40 @@
                                                 'priority' => $item->priority,
                                                 'start_time' => $item->start_time ? substr((string) $item->start_time, 0, 5) : '',
                                                 'end_time' => $item->end_time ? substr((string) $item->end_time, 0, 5) : '',
+                                                'repeat_type' => $item->repeat_type ?: 'once',
+                                                'repeat_days' => $item->repeat_days ?: [],
+                                                'repeat_interval' => $item->repeat_interval ?: 1,
+                                                'repeat_starts_on' => optional($item->repeat_starts_on)->toDateString(),
+                                                'repeat_ends_on' => optional($item->repeat_ends_on)->toDateString(),
+                                                'reminder_enabled' => (bool) ($item->reminder_enabled ?? false),
+                                                'reminder_offset_minutes' => $item->reminder_offset_minutes,
+                                                'reminder_custom_at' => optional($item->reminder_custom_at)->format('Y-m-d\TH:i'),
+                                                'reminder_channels' => (array) ($item->reminder_channels ?? []),
+                                                'occurrence_date' => $item->occurrence_date ?? $date->toDateString(),
+                                                'is_recurring' => $item->isRecurring(),
                                                 'action' => route('daily-planner.items.update', $item),
                                             ];
+                                        @endphp
+                                        @php
+                                            $editTaskPayloadEncoded = base64_encode(
+                                                json_encode(
+                                                    $editTaskPayload,
+                                                    JSON_UNESCAPED_UNICODE
+                                                    | JSON_UNESCAPED_SLASHES
+                                                    | JSON_INVALID_UTF8_SUBSTITUTE
+                                                )
+                                            );
                                         @endphp
                                         <button type="button"
                                                 class="px-2.5 py-2 rounded-lg border border-slate-200 dp-primary-text bg-white"
                                                 title="Edit task"
-                                                data-task='@json($editTaskPayload)'
-                                                onclick="openEditTask(JSON.parse(this.dataset.task))">
+                                                data-task-encoded="{{ $editTaskPayloadEncoded }}">
                                             <i class="fa-solid fa-pen"></i>
                                         </button>
 
-                                        @if(!$item->is_completed)
+                                        @if(!$item->is_completed && !$item->isRecurring())
                                             <button type="button"
-                                                    onclick="openMoveTaskModal({{ $item->id }}, @js($item->title), @js(route('daily-planner.items.move', $item)), @js($item->plan->plan_date->copy()->addDay()->toDateString()))"
+                                                    onclick="openMoveTaskModal({{ $item->id }}, @js($item->title), @js(route('daily-planner.items.move', $item)), @js($date->copy()->addDay()->toDateString()))"
                                                     class="px-2.5 py-2 rounded-lg border border-amber-200 text-amber-700 bg-white"
                                                     title="Move task to another date">
                                                 <i class="fa-solid fa-calendar-days"></i>
@@ -424,10 +539,19 @@
                 <form id="toggle-{{ $item->id }}" method="POST" action="{{ route('daily-planner.items.toggle', $item) }}">
                     @csrf
                     @method('PATCH')
+                    <input type="hidden" name="occurrence_date" value="{{ $item->occurrence_date ?? $date->toDateString() }}">
                 </form>
+
                 <form id="delete-{{ $item->id }}" method="POST" action="{{ route('daily-planner.items.destroy', $item) }}">
                     @csrf
                     @method('DELETE')
+                    <input type="hidden" name="occurrence_date" value="{{ $item->occurrence_date ?? $date->toDateString() }}">
+                    <input
+                        id="delete-scope-{{ $item->id }}"
+                        type="hidden"
+                        name="delete_scope"
+                        value="{{ $item->isRecurring() ? 'occurrence' : 'series' }}"
+                    >
                 </form>
             @endforeach
         @endif
@@ -540,10 +664,10 @@
                             <tbody>
                                 @foreach($pastPlans as $past)
                                     @php
-                                        $pastPercent = $past->items_count
-                                            ? (int) round(($past->completed_items_count / $past->items_count) * 100)
-                                            : 0;
-                                        $pastPending = max(0, $past->items_count - $past->completed_items_count);
+                                        $pastTotal = (int) ($past->total ?? 0);
+                                        $pastCompleted = (int) ($past->completed ?? 0);
+                                        $pastPending = (int) ($past->pending ?? max(0, $pastTotal - $pastCompleted));
+                                        $pastPercent = (int) ($past->progress ?? ($pastTotal > 0 ? round(($pastCompleted / $pastTotal) * 100) : 0));
                                     @endphp
                                     <tr class="border-t border-slate-100 hover:bg-slate-50/70">
                                         <td class="px-5 py-3 font-medium text-slate-700 whitespace-nowrap">
@@ -557,8 +681,8 @@
                                                 </div>
                                             @endif
                                         </td>
-                                        <td class="px-3 py-3 text-center font-semibold">{{ $past->items_count }}</td>
-                                        <td class="px-3 py-3 text-center text-emerald-700 font-semibold">{{ $past->completed_items_count }}</td>
+                                        <td class="px-3 py-3 text-center font-semibold">{{ $pastTotal }}</td>
+                                        <td class="px-3 py-3 text-center text-emerald-700 font-semibold">{{ $pastCompleted }}</td>
                                         <td class="px-3 py-3 text-center text-amber-600 font-semibold">{{ $pastPending }}</td>
                                         <td class="px-3 py-3 text-center">
                                             <span class="font-semibold dp-primary-text">{{ $pastPercent }}%</span>
@@ -583,11 +707,11 @@
                         </div>
                     @endif
                 @else
-                    <div class="px-5 py-12 text-center text-slate-500">
-                        <i class="fa-solid fa-magnifying-glass text-3xl mb-3 text-slate-300"></i>
-                        <p class="font-medium text-slate-700">No past tasks found.</p>
-                        <p class="text-sm mt-1">Try changing the search text or selected period.</p>
-                    </div>
+                    <x-empty-state
+                        icon="fa-solid fa-magnifying-glass"
+                        title="No past tasks found."
+                        message="Try changing the search text or selected period."
+                    />
                 @endif
             </div>
         </section>
@@ -639,6 +763,82 @@
                 <label class="block text-sm font-medium">End Time
                     <input type="time" name="end_time" class="pm-input mt-1 w-full">
                 </label>
+            </div>
+
+            <div class="dp-repeat-panel">
+                <div class="flex items-start gap-3 mb-3">
+                    <div class="grid h-9 w-9 place-items-center rounded-lg bg-white text-violet-700">
+                        <i class="fa-solid fa-repeat"></i>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-slate-800">Repeat task</h4>
+                        <p class="text-xs text-slate-500">Create the task once and let My Digital Diary show it only on the scheduled days.</p>
+                    </div>
+                </div>
+
+                <label class="block text-sm font-medium">
+                    Repeat
+                    <select id="addRepeatType" name="repeat_type" class="pm-input mt-1 w-full" onchange="toggleRepeatFields('add')">
+                        <option value="once">Once</option>
+                        <option value="daily">Every day</option>
+                        <option value="specific_days">Specific days</option>
+                        <option value="weekly">Every week</option>
+                        <option value="monthly">Every month</option>
+                    </select>
+                </label>
+
+                <div id="addRepeatFields" class="hidden mt-4 space-y-4">
+                    <div id="addSpecificDays" class="hidden">
+                        <div class="text-sm font-medium mb-2">Repeat on</div>
+                        <div class="dp-week-days">
+                            @foreach([
+                                'monday' => 'Mon',
+                                'tuesday' => 'Tue',
+                                'wednesday' => 'Wed',
+                                'thursday' => 'Thu',
+                                'friday' => 'Fri',
+                                'saturday' => 'Sat',
+                                'sunday' => 'Sun',
+                            ] as $dayValue => $dayLabel)
+                                <label class="dp-day-check">
+                                    <input type="checkbox" name="repeat_days[]" value="{{ $dayValue }}">
+                                    <span>{{ $dayLabel }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <div class="grid sm:grid-cols-2 gap-3">
+                        <label class="block text-sm font-medium">
+                            Starts
+                            <input
+                                id="addRepeatStarts"
+                                type="date"
+                                name="repeat_starts_on"
+                                value="{{ $date->toDateString() }}"
+                                class="pm-input mt-1 w-full"
+                            >
+                        </label>
+
+                        <label class="block text-sm font-medium">
+                            Ends <span class="text-slate-400 font-normal">(optional)</span>
+                            <input
+                                id="addRepeatEnds"
+                                type="date"
+                                name="repeat_ends_on"
+                                min="{{ $date->toDateString() }}"
+                                class="pm-input mt-1 w-full"
+                            >
+                        </label>
+                    </div>
+
+                    <input type="hidden" name="repeat_interval" value="1">
+
+                    <div class="rounded-lg border border-violet-200 bg-white p-3 text-xs text-violet-800">
+                        <i class="fa-solid fa-circle-info mr-1"></i>
+                        Completing one recurring occurrence only completes that date. Future scheduled occurrences stay pending.
+                    </div>
+                </div>
             </div>
 
             <div class="flex justify-end gap-2 pt-2">
@@ -694,6 +894,127 @@
                 <label class="block text-sm font-medium">End Time
                     <input id="editTaskEnd" type="time" name="end_time" class="pm-input mt-1 w-full">
                 </label>
+            </div>
+
+            <input id="editOccurrenceDate" type="hidden" name="occurrence_date">
+
+            <div class="dp-repeat-panel">
+                <div class="grid sm:grid-cols-2 gap-3">
+                    <label class="block text-sm font-medium">
+                        Repeat
+                        <select id="editRepeatType" name="repeat_type" class="pm-input mt-1 w-full" onchange="toggleRepeatFields('edit')">
+                            <option value="once">Once</option>
+                            <option value="daily">Every day</option>
+                            <option value="specific_days">Specific days</option>
+                            <option value="weekly">Every week</option>
+                            <option value="monthly">Every month</option>
+                        </select>
+                    </label>
+
+                    <label class="block text-sm font-medium">
+                        Starts
+                        <input id="editRepeatStarts" type="date" name="repeat_starts_on" class="pm-input mt-1 w-full">
+                    </label>
+                </div>
+
+                <div id="editRepeatFields" class="hidden mt-4 space-y-4">
+                    <div id="editSpecificDays" class="hidden">
+                        <div class="text-sm font-medium mb-2">Repeat on</div>
+                        <div class="dp-week-days">
+                            @foreach([
+                                'monday' => 'Mon',
+                                'tuesday' => 'Tue',
+                                'wednesday' => 'Wed',
+                                'thursday' => 'Thu',
+                                'friday' => 'Fri',
+                                'saturday' => 'Sat',
+                                'sunday' => 'Sun',
+                            ] as $dayValue => $dayLabel)
+                                <label class="dp-day-check">
+                                    <input
+                                        class="edit-repeat-day"
+                                        type="checkbox"
+                                        name="repeat_days[]"
+                                        value="{{ $dayValue }}"
+                                    >
+                                    <span>{{ $dayLabel }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <label class="block text-sm font-medium">
+                        Ends <span class="text-slate-400 font-normal">(optional)</span>
+                        <input id="editRepeatEnds" type="date" name="repeat_ends_on" class="pm-input mt-1 w-full">
+                    </label>
+
+                    <input type="hidden" name="repeat_interval" value="1">
+                </div>
+
+            <div class="dp-repeat-panel mt-4">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="flex gap-3">
+                        <i class="fa-solid fa-bell text-violet-600 mt-1"></i>
+                        <div>
+                            <h4 class="font-semibold text-slate-800">Task reminder</h4>
+                            <p class="text-xs text-slate-500">Set it now and it will also appear under Reminders.</p>
+                        </div>
+                    </div>
+                    <label class="inline-flex items-center gap-2 text-sm font-semibold">
+                        <input type="checkbox" name="reminder_enabled" value="1" onchange="toggleTaskReminderFields('add', this.checked)">
+                        Remind me
+                    </label>
+                </div>
+                <div id="addTaskReminderFields" class="hidden mt-4 grid md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs font-bold">Remind me</label>
+                        <select name="reminder_offset_minutes" class="pm-input mt-1 w-full" onchange="toggleCustomTaskReminder('add', this.value)">
+                            <option value="0">At task time</option>
+                            <option value="5">5 minutes before</option>
+                            <option value="15" selected>15 minutes before</option>
+                            <option value="30">30 minutes before</option>
+                            <option value="60">1 hour before</option>
+                            <option value="120">2 hours before</option>
+                            <option value="1440">1 day before</option>
+                            <option value="custom">Custom date & time</option>
+                        </select>
+                    </div>
+                    <div id="addTaskReminderCustom" class="hidden">
+                        <label class="text-xs font-bold">Custom reminder date & time</label>
+                        <input type="datetime-local" name="reminder_custom_at" class="pm-input mt-1 w-full">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="text-xs font-bold">Notification channels</label>
+                        <div class="mt-2 flex flex-wrap gap-3 text-sm">
+                            <label><input type="checkbox" name="reminder_channels[]" value="in_app" checked> In-app</label>
+                            <label><input type="checkbox" name="reminder_channels[]" value="push" checked> Push</label>
+                            <label><input type="checkbox" name="reminder_channels[]" value="email"> Email</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+                <div id="editScopeBox" class="hidden mt-4">
+                    <div class="text-sm font-semibold text-slate-700 mb-2">Apply changes to</div>
+                    <div class="dp-scope-box">
+                        <label class="dp-scope-option">
+                            <input type="radio" name="edit_scope" value="occurrence">
+                            <span>
+                                <strong class="block text-sm text-slate-800">Only this occurrence</strong>
+                                <span class="block text-xs text-slate-500 mt-1">Keep the rest of the recurring series unchanged.</span>
+                            </span>
+                        </label>
+
+                        <label class="dp-scope-option">
+                            <input type="radio" name="edit_scope" value="series" checked>
+                            <span>
+                                <strong class="block text-sm text-slate-800">Entire series</strong>
+                                <span class="block text-xs text-slate-500 mt-1">Update the recurrence rule and all future scheduled appearances.</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
             </div>
 
             <div class="flex justify-end gap-2 pt-2">
@@ -805,31 +1126,203 @@
 </div>
 
 <script>
-    function openDpModal(id) {
+
+    window.toggleTaskReminderFields = function(prefix, enabled) {
+        const box = document.getElementById(prefix + 'TaskReminderFields');
+        if (box) box.classList.toggle('hidden', !enabled);
+    };
+    window.toggleCustomTaskReminder = function(prefix, value) {
+        const custom = document.getElementById(prefix + 'TaskReminderCustom');
+        if (custom) custom.classList.toggle('hidden', value !== 'custom');
+    };
+
+    window.openDpModal = function(id) {
         const modal = document.getElementById(id);
         if (!modal) return;
         modal.classList.add('is-open');
         document.body.style.overflow = 'hidden';
-    }
+    };
 
-    function closeDpModal(id) {
+    window.closeDpModal = function(id) {
         const modal = document.getElementById(id);
         if (!modal) return;
         modal.classList.remove('is-open');
         document.body.style.overflow = '';
-    }
+    };
 
-    function openEditTask(task) {
-        document.getElementById('editTaskForm').action = task.action;
-        document.getElementById('editTaskName').value = task.title || '';
-        document.getElementById('editTaskDescription').value = task.description || '';
-        document.getElementById('editTaskDate').value = task.plan_date || '{{ $date->toDateString() }}';
-        document.getElementById('editTaskGoal').value = task.personal_goal_id ? String(task.personal_goal_id) : '';
-        document.getElementById('editTaskPriority').value = task.priority || 'medium';
-        document.getElementById('editTaskStart').value = task.start_time || '';
-        document.getElementById('editTaskEnd').value = task.end_time || '';
+    window.toggleRepeatFields = function(prefix) {
+        const type = document.getElementById(prefix + 'RepeatType');
+        const fields = document.getElementById(prefix + 'RepeatFields');
+        const specific = document.getElementById(prefix + 'SpecificDays');
+
+        if (!type || !fields) return;
+
+        const recurring = type.value !== 'once';
+        fields.classList.toggle('hidden', !recurring);
+
+        if (specific) {
+            specific.classList.toggle(
+                'hidden',
+                type.value !== 'specific_days'
+            );
+        }
+
+        const starts = document.getElementById(prefix + 'RepeatStarts');
+        const ends = document.getElementById(prefix + 'RepeatEnds');
+
+        if (starts) {
+            starts.required = recurring;
+        }
+
+        if (ends && starts && starts.value) {
+            ends.min = starts.value;
+        }
+    };
+
+    document.addEventListener('change', function (event) {
+        if (
+            event.target
+            && (
+                event.target.id === 'addRepeatStarts'
+                || event.target.id === 'editRepeatStarts'
+            )
+        ) {
+            const prefix = event.target.id.startsWith('add')
+                ? 'add'
+                : 'edit';
+
+            const ends = document.getElementById(prefix + 'RepeatEnds');
+
+            if (ends) {
+                ends.min = event.target.value || '';
+            }
+        }
+    });
+
+    toggleRepeatFields('add');
+
+    window.openEditTaskFromButton = function(button) {
+        if (!button) return;
+
+        const encoded = button.dataset.taskEncoded || '';
+
+        if (!encoded) {
+            console.error('Daily Planner edit payload is missing.');
+            return;
+        }
+
+        try {
+            const binary = atob(encoded);
+            const bytes = Uint8Array.from(
+                binary,
+                character => character.charCodeAt(0)
+            );
+            const task = JSON.parse(
+                new TextDecoder('utf-8').decode(bytes)
+            );
+
+            window.openEditTask(task);
+        } catch (error) {
+            console.error('Could not open Daily Planner edit form.', error);
+        }
+    };
+
+    window.openEditTask = function(task) {
+        const modal = document.getElementById('editTaskModal');
+        const form = document.getElementById('editTaskForm');
+
+        if (!modal || !form) {
+            console.error('Daily Planner edit modal/form was not found.');
+            return;
+        }
+
+        /*
+         * Open the modal first so an optional/missing field can never stop
+         * the user from seeing the edit form.
+         */
         openDpModal('editTaskModal');
-    }
+
+        const setValue = function(id, value) {
+            const element = document.getElementById(id);
+            if (element) element.value = value ?? '';
+        };
+
+        form.action = task.action || '';
+
+        setValue('editTaskName', task.title || '');
+        setValue('editTaskDescription', task.description || '');
+        setValue('editTaskDate', task.plan_date || '{{ $date->toDateString() }}');
+        setValue(
+            'editTaskGoal',
+            task.personal_goal_id ? String(task.personal_goal_id) : ''
+        );
+        setValue('editTaskPriority', task.priority || 'medium');
+        setValue('editTaskStart', task.start_time || '');
+        setValue('editTaskEnd', task.end_time || '');
+
+        setValue('editRepeatType', task.repeat_type || 'once');
+        setValue(
+            'editRepeatStarts',
+            task.repeat_starts_on || task.plan_date || ''
+        );
+        setValue('editRepeatEnds', task.repeat_ends_on || '');
+
+        /*
+         * Reminder controls are optional in this Blade. The previous code
+         * assumed these IDs always existed, which caused:
+         * "Cannot set properties of null"
+         * and stopped execution before the modal could open.
+         */
+        const reminderEnabled = !!task.reminder_enabled;
+        const reminderEnabledField =
+            document.getElementById('editReminderEnabled');
+
+        if (reminderEnabledField) {
+            reminderEnabledField.checked = reminderEnabled;
+        }
+
+        const offset = task.reminder_custom_at
+            ? 'custom'
+            : String(task.reminder_offset_minutes ?? 15);
+
+        setValue('editReminderOffset', offset);
+        setValue('editReminderCustom', task.reminder_custom_at || '');
+
+        document
+            .querySelectorAll('.edit-reminder-channel')
+            .forEach(function (checkbox) {
+                checkbox.checked = Array.isArray(task.reminder_channels)
+                    ? task.reminder_channels.includes(checkbox.value)
+                    : ['in_app', 'push'].includes(checkbox.value);
+            });
+
+        if (document.getElementById('editTaskReminderFields')) {
+            toggleTaskReminderFields('edit', reminderEnabled);
+        }
+
+        if (document.getElementById('editTaskReminderCustom')) {
+            toggleCustomTaskReminder('edit', offset);
+        }
+
+        setValue(
+            'editOccurrenceDate',
+            task.occurrence_date || task.plan_date || ''
+        );
+
+        document
+            .querySelectorAll('.edit-repeat-day')
+            .forEach(function (checkbox) {
+                checkbox.checked = Array.isArray(task.repeat_days)
+                    && task.repeat_days.includes(checkbox.value);
+            });
+
+        const scopeBox = document.getElementById('editScopeBox');
+        if (scopeBox) {
+            scopeBox.classList.toggle('hidden', !task.is_recurring);
+        }
+
+        toggleRepeatFields('edit');
+    };
 
     window.openMoveTaskModal = function(id, title, action, tomorrow) {
         document.getElementById('moveTaskForm').action = action;
@@ -875,6 +1368,29 @@
         pending.forEach(box => { box.checked = true; });
         openBulkMoveModal('{{ $tomorrowDate }}', false);
     };
+
+    document.addEventListener('click', function(event) {
+        const editButton = event.target.closest('[data-task-encoded]');
+
+        if (!editButton) return;
+
+        /*
+         * The inline onclick remains for backwards compatibility, but this
+         * delegated listener guarantees Edit still responds if a page-level
+         * script or CSP prevents the inline handler from resolving.
+         */
+        if (
+            typeof window.openEditTaskFromButton === 'function'
+            && !editButton.dataset.editHandled
+        ) {
+            editButton.dataset.editHandled = '1';
+            window.openEditTaskFromButton(editButton);
+
+            window.setTimeout(function() {
+                delete editButton.dataset.editHandled;
+            }, 0);
+        }
+    });
 
     document.querySelectorAll('[data-dp-tab]').forEach(button => {
         button.addEventListener('click', function () {

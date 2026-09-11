@@ -1,12 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Schedule;
 
-Artisan::command('inspire', function () {
+Artisan::command('inspire', function (): void {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
@@ -48,11 +50,24 @@ Schedule::command('meetings:generate-recurring')
 
 /*
 |--------------------------------------------------------------------------
+| Recurring Spiritual Growth
+|--------------------------------------------------------------------------
+|
+| Generates upcoming Daily / Weekly / Monthly recurring Spiritual Growth
+| sessions.
+|
+*/
+Schedule::command('spiritual-growth:generate-recurring')
+    ->dailyAt('06:40')
+    ->withoutOverlapping();
+
+/*
+|--------------------------------------------------------------------------
 | Daily Planner / Due Item Notifications
 |--------------------------------------------------------------------------
 |
-| These commands may internally decide when an individual user should
-| actually receive a notification.
+| These commands may run frequently. Each command decides whether an
+| individual user actually needs a notification.
 |
 */
 Schedule::command('digest:daily-top-tasks')
@@ -65,17 +80,74 @@ Schedule::command('push:daily-due-items')
 
 /*
 |--------------------------------------------------------------------------
-| Subscription Expiry Reminders
+| Subscription Expiry / Trial Reminders
 |--------------------------------------------------------------------------
+|
+| The command runs once every morning.
+|
+| SubscriptionReminderService controls delivery:
+|
+| - starts when 14 days or fewer remain;
+| - sends only twice per week;
+| - reminder days are Monday and Thursday;
+| - prevents duplicate reminders;
+| - stops immediately once a subscription becomes active/paid;
+| - excludes organisation-managed members from independent billing
+|   reminders.
+|
 */
 Schedule::command('subscriptions:send-expiry-reminders')
+    ->dailyAt('08:00')
+    ->withoutOverlapping(10);
+
+/*
+|--------------------------------------------------------------------------
+| Automatic Subscription Renewal
+|--------------------------------------------------------------------------
+|
+| Checks users who:
+|
+| - explicitly enabled Auto Renewal;
+| - have a paid subscription plan;
+| - reached their subscription expiry date;
+| - have a saved Mobile Money renewal number/network.
+|
+| The user still approves the Mobile Money prompt on their phone.
+|
+*/
+Schedule::command('subscriptions:auto-renew --limit=100')
     ->everyThirtyMinutes()
-    ->withoutOverlapping();
+    ->withoutOverlapping(25);
+
+/*
+|--------------------------------------------------------------------------
+| Currency Exchange Rates
+|--------------------------------------------------------------------------
+|
+| Refreshes current exchange rates used by Laravel and the Flutter mobile
+| application.
+|
+| Amounts remain stored in the configured base currency, for example UGX.
+| When a user selects USD, EUR, GBP, KES or another supported currency,
+| the application converts the displayed amount using the latest cached
+| rate.
+|
+| CurrencyService can also refresh a stale rate on demand, so this hourly
+| task provides a reliable background refresh rather than being the only
+| source of updated rates.
+|
+*/
+Schedule::command('currency:refresh-rates')
+    ->hourly()
+    ->withoutOverlapping(10);
 
 /*
 |--------------------------------------------------------------------------
 | End-of-Day Digest
 |--------------------------------------------------------------------------
+|
+| The command checks the user's preferred delivery time internally.
+|
 */
 Schedule::command('digest:end-of-day')
     ->everyThirtyMinutes()
@@ -85,6 +157,9 @@ Schedule::command('digest:end-of-day')
 |--------------------------------------------------------------------------
 | Engagement
 |--------------------------------------------------------------------------
+|
+| Daily tips and smart nudges use their own internal duplicate protection.
+|
 */
 Schedule::command('engagement:daily-tip')
     ->everyThirtyMinutes()
@@ -96,8 +171,37 @@ Schedule::command('engagement:send-smart-nudges')
 
 /*
 |--------------------------------------------------------------------------
+| Today's Insight
+|--------------------------------------------------------------------------
+|
+| Today's Insight notifications are event-driven.
+|
+| Every time the current insight is generated or changes, the generator
+| should call:
+|
+| app(\App\Services\TodaysInsightNotificationService::class)
+|     ->notifyIfChanged($user, $insight);
+|
+| When the insight title/message changes:
+|
+| - an in-app/database notification is created;
+| - the Today's Insight popup can be displayed;
+| - an email is sent;
+| - unchanged content is not sent repeatedly.
+|
+| Therefore there is no separate scheduled Today's Insight email command
+| here.
+|
+*/
+
+/*
+|--------------------------------------------------------------------------
 | Account Cleanup
 |--------------------------------------------------------------------------
+|
+| Permanently removes accounts whose scheduled deletion waiting period
+| has elapsed.
+|
 */
 Schedule::command('accounts:purge-scheduled-deletions')
     ->hourly()
@@ -107,6 +211,9 @@ Schedule::command('accounts:purge-scheduled-deletions')
 |--------------------------------------------------------------------------
 | Scheduled Backups
 |--------------------------------------------------------------------------
+|
+| Checks whether a configured backup is due and runs it when required.
+|
 */
 Schedule::command('backups:run-scheduled')
     ->everyThirtyMinutes()
@@ -116,26 +223,34 @@ Schedule::command('backups:run-scheduled')
 |--------------------------------------------------------------------------
 | Chat / Support Cleanup
 |--------------------------------------------------------------------------
+|
+| Releases conversations whose assigned support agent has remained idle
+| beyond the allowed period.
+|
 */
 Schedule::command('support:release-idle-assignments')
     ->everyMinute()
-    ->withoutOverlapping();
+    ->withoutOverlapping(5);
 
 /*
 |--------------------------------------------------------------------------
-| Mobile Sync Cleanup
+| Mobile Synchronisation Cleanup
 |--------------------------------------------------------------------------
 |
-| Remove old idempotency/synchronisation records after 30 days.
+| Removes old mobile idempotency / synchronisation records after 30 days.
 |
 */
-Schedule::call(function () {
+Schedule::call(function (): void {
     if (! Schema::hasTable('mobile_sync_requests')) {
         return;
     }
 
     DB::table('mobile_sync_requests')
-        ->where('created_at', '<', now()->subDays(30))
+        ->where(
+            'created_at',
+            '<',
+            now()->subDays(30)
+        )
         ->delete();
 })
     ->dailyAt('02:20')
@@ -147,19 +262,9 @@ Schedule::call(function () {
 | Social Media Planner
 |--------------------------------------------------------------------------
 |
-| IMPORTANT:
-| The currently installed social-media:process-scheduled command does NOT
-| support a --limit option.
+| Processes due social-media posts and reminders.
 |
-| Run this every minute so that:
-| - upcoming social posts can trigger reminders;
-| - due manual posts can become Ready to Post;
-| - due automatic posts can be sent to connected publishing APIs/providers;
-| - retryable publishing failures can be retried by the command.
-|
-| We intentionally do NOT use ->onOneServer() here because this installation
-| is running from a single cPanel Laravel application. Using onOneServer()
-| previously caused the command to be skipped because of the scheduler mutex.
+| The currently installed command does not require a --limit option.
 |
 */
 Schedule::command('social-media:process-scheduled')
@@ -171,28 +276,30 @@ Schedule::command('social-media:process-scheduled')
 | Social Media Analytics
 |--------------------------------------------------------------------------
 |
-| Refresh available post performance metrics from connected social platforms.
+| Refreshes available social-media post performance metrics.
 |
-| Keep --limit=250 only if:
+| Keep --limit=250 only while:
 |
-|   php artisan help social-media:sync-metrics
+| php artisan help social-media:sync-metrics
 |
-| shows that --limit is supported.
+| confirms that the command supports this option.
 |
 */
-Schedule::command('social-media:sync-metrics --limit=250')
+Schedule::command(
+    'social-media:sync-metrics --limit=250'
+)
     ->everyThirtyMinutes()
     ->withoutOverlapping(10);
 
 /*
 |--------------------------------------------------------------------------
-| Recurring Spiritual Growth
+| Debt and Savings Reminders
 |--------------------------------------------------------------------------
-|
-| Generates upcoming Daily / Weekly / Monthly recurring Spiritual Growth
-| sessions.
-|
 */
-Schedule::command('spiritual-growth:generate-recurring')
-    ->dailyAt('06:40')
-    ->withoutOverlapping();
+Schedule::command('debts:send-reminders --limit=200')
+    ->hourly()
+    ->withoutOverlapping(15);
+
+Schedule::command('savings:send-reminders --limit=200')
+    ->hourly()
+    ->withoutOverlapping(15);

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\SignedDocument;
 use App\Models\Signature;
+use App\Services\SignatureImageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -37,24 +38,34 @@ class SignatureController extends Controller
      * Mobile equivalent of the web app's storeSignature() — same
      * validation, same storage disk/path.
      */
-    public function storeSignature(Request $request): JsonResponse
+    public function storeSignature(Request $request, SignatureImageService $signatureImages): JsonResponse
     {
         $data = $request->validate([
-            'signature' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'signature' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'drawn_signature' => ['nullable', 'string'],
             'label' => ['nullable', 'string', 'max:100'],
         ]);
+
+        if (! $request->hasFile('signature') && blank($data['drawn_signature'] ?? null)) {
+            return response()->json([
+                'message' => 'Draw with your finger/pen or upload an e-signature image.',
+            ], 422);
+        }
 
         $signature = Signature::create([
             'user_id' => $request->user()->id,
             'label' => $data['label'] ?? null,
-            'file_path' => $request->file('signature')->store('signatures', 'public'),
+            'file_path' => $signatureImages->store(
+                $request->file('signature'),
+                $data['drawn_signature'] ?? null
+            ),
         ]);
 
         return response()->json(['data' => [
             'id' => $signature->id,
             'label' => $signature->displayLabel(),
             'url' => $signature->url(),
-        ]]);
+        ]], 201);
     }
 
 

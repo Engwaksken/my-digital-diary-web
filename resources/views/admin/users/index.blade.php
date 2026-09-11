@@ -1,290 +1,1112 @@
 @extends('layouts.app')
 
-@section('title', 'Manage Users')
+@section('title', 'Users')
 
 @section('content')
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div class="flex items-center gap-3">
-            <div class="w-12 h-12 rounded-xl bg-[var(--brand-1-tint-10)] text-[var(--brand-1)] flex items-center justify-center shadow-sm shrink-0">
-                <i class="fa-solid fa-users text-xl" aria-hidden="true"></i>
+@php
+    /*
+    |--------------------------------------------------------------------------
+    | Users statistics
+    |--------------------------------------------------------------------------
+    |
+    | Use controller-provided $userStats when available.
+    | Otherwise calculate directly from users so cards never display fake 0s
+    | just because an older AdminUserController@index is still deployed.
+    |
+    */
+    $plans = isset($plans) ? collect($plans) : collect();
+
+    if (! isset($userStats) || ! is_array($userStats)) {
+        $statsQuery = \App\Models\User::query();
+
+        $userStats = [
+            'total' => (clone $statsQuery)->count(),
+            'active' => 0,
+            'trial' => 0,
+            'expired_inactive' => 0,
+            'suspended' => 0,
+        ];
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'subscription_status')) {
+            $subscriptionCounts = \App\Models\User::query()
+                ->selectRaw(
+                    "LOWER(TRIM(COALESCE(subscription_status, ''))) AS subscription_state, COUNT(*) AS total"
+                )
+                ->groupBy('subscription_state')
+                ->pluck('total', 'subscription_state');
+
+            $userStats['active'] =
+                (int) ($subscriptionCounts['active'] ?? 0);
+
+            $userStats['trial'] =
+                (int) ($subscriptionCounts['trial'] ?? 0)
+                + (int) ($subscriptionCounts['trialing'] ?? 0);
+
+            $userStats['expired_inactive'] =
+                (int) ($subscriptionCounts['expired'] ?? 0)
+                + (int) ($subscriptionCounts['inactive'] ?? 0)
+                + (int) ($subscriptionCounts['cancelled'] ?? 0)
+                + (int) ($subscriptionCounts['canceled'] ?? 0);
+        }
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'is_suspended')) {
+            $userStats['suspended'] = \App\Models\User::query()
+                ->where('is_suspended', true)
+                ->count();
+        } elseif (\Illuminate\Support\Facades\Schema::hasColumn('users', 'suspended')) {
+            $userStats['suspended'] = \App\Models\User::query()
+                ->where('suspended', true)
+                ->count();
+        } elseif (\Illuminate\Support\Facades\Schema::hasColumn('users', 'subscription_status')) {
+            $userStats['suspended'] = \App\Models\User::query()
+                ->whereRaw(
+                    "LOWER(TRIM(COALESCE(subscription_status, ''))) = 'suspended'"
+                )
+                ->count();
+        }
+    }
+
+    $userStats = array_merge([
+        'total' => 0,
+        'active' => 0,
+        'trial' => 0,
+        'expired_inactive' => 0,
+        'suspended' => 0,
+    ], $userStats);
+@endphp
+<div class="space-y-4 max-w-7xl">
+    @if(session('success'))
+        <x-alert type="success" :message="session('success')" :dismissible="false" :autoDismiss="false" />
+    @endif
+
+    @if($errors->any())
+        <x-alert type="error" :dismissible="false" :autoDismiss="false">
+            <div class="font-black">The requested user update could not be saved.</div>
+            <ul class="mt-1 list-disc space-y-1 pl-5">
+                @foreach($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </x-alert>
+    @endif
+    <section class="apple-surface rounded-2xl p-5">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <div class="text-xs font-black uppercase tracking-[.12em] text-slate-400">
+                    Administration
+                </div>
+                <h1 class="mt-1 text-2xl font-black">Users & Subscriptions</h1>
+                <p class="mt-1 text-sm text-slate-500">
+                    Create users and staff accounts, manage roles, subscriptions and account access.
+                </p>
             </div>
-            <h1 class="text-2xl font-bold text-slate-800 tracking-tight">Manage Users</h1>
-        </div>
-        <div class="flex flex-wrap gap-2">
-            <a href="{{ route('admin.login-activities.index') }}" class="apple-btn">
-                <i class="fa-solid fa-shield-halved text-[var(--brand-1)]"></i> Login Activities
-            </a>
-            <button type="button" onclick="document.getElementById('user-create-modal').showModal()"
-                    class="inline-flex items-center justify-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
+
+            <a
+                href="{{ route('admin.users.create') }}"
+                class="btn-primary inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white sm:w-auto"
+            >
                 <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
-                <span>Add User</span>
+                Add New User
+            </a>
+
+            <button
+                type="button"
+                id="admin-bulk-open"
+                class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 sm:w-auto"
+                onclick="pmOpenBulkUserDialog()"
+                disabled
+            >
+                <i class="fa-solid fa-users-gear" aria-hidden="true"></i>
+                Bulk Manage
+                <span
+                    id="admin-bulk-count"
+                    class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black"
+                >0</span>
             </button>
         </div>
-    </div>
 
-    <p class="text-sm text-slate-500 mb-4 flex items-start gap-2">
-        <i class="fa-solid fa-circle-info mt-0.5 text-slate-400" aria-hidden="true"></i>
-        <span>
-            Account, subscription, and access management only. This screen never shows anyone's
-            personal tracked data (plans, expenses, health records, etc.) — see
-            <a href="{{ route('admin.statistics') }}" class="text-[var(--brand-1)] hover:underline">Statistics</a>
-            for aggregate numbers instead.
-        </span>
-    </p>
+        <form method="GET" class="mt-4 grid gap-3 sm:grid-cols-[1fr_190px_auto]">
+            <input name="search"
+                   value="{{ request('search') }}"
+                   class="pm-input w-full"
+                   placeholder="Search name or email">
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
-        @foreach ($stats as $stat)
-            <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-{{ $stat['color'] }}-400 p-4">
-                <div class="w-9 h-9 rounded-lg bg-{{ $stat['color'] }}-50 text-{{ $stat['color'] }}-600 flex items-center justify-center mb-2">
-                    <i class="{{ $stat['icon'] }} text-sm" aria-hidden="true"></i>
-                </div>
-                <p class="text-xs text-slate-500 uppercase tracking-wide truncate">{{ $stat['label'] }}</p>
-                <p class="text-xl font-bold text-slate-800 truncate">{{ $stat['value'] }}</p>
-            </div>
-        @endforeach
-    </div>
-
-    <form method="GET" action="{{ route('admin.users.index') }}" class="flex flex-wrap items-end gap-3 mb-4">
-        <div class="flex-1 min-w-[180px] max-w-xs">
-            <label for="admin-users-q" class="sr-only">Search users</label>
-            <div class="relative">
-                <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm" aria-hidden="true"></i>
-                <input type="search" id="admin-users-q" name="q" value="{{ $search }}" placeholder="Search name or email..."
-                       class="pm-input pl-9 text-sm">
-            </div>
-        </div>
-
-        <div>
-            <label for="admin-users-period" class="sr-only">Filter by join date</label>
-            <select id="admin-users-period" name="period" onchange="pmToggleAdminUsersDateRange(this)" class="pm-input text-sm">
-                <option value="" @selected(!$period)>All time</option>
-                <option value="daily" @selected($period === 'daily')>Joined today</option>
-                <option value="weekly" @selected($period === 'weekly')>Joined this week</option>
-                <option value="monthly" @selected($period === 'monthly')>Joined this month</option>
-                <option value="range" @selected($period === 'range')>Custom range...</option>
-            </select>
-        </div>
-
-        <div id="admin-users-date-range" class="flex items-end gap-2" style="{{ $period === 'range' ? '' : 'display: none;' }}">
-            <input type="date" name="from" value="{{ $from }}" class="pm-input text-sm">
-            <span class="text-slate-400 text-sm pb-2">to</span>
-            <input type="date" name="to" value="{{ $to }}" class="pm-input text-sm">
-        </div>
-
-        <button type="submit" class="btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
-            Filter
-        </button>
-        @if ($search || $period)
-            <a href="{{ route('admin.users.index') }}" class="text-sm text-slate-500 hover:text-slate-700 transition-colors pb-2.5">Clear</a>
-        @endif
-    </form>
-
-    <script>
-        function pmToggleAdminUsersDateRange(select) {
-            var wrapper = document.getElementById('admin-users-date-range');
-            if (wrapper) { wrapper.style.display = select.value === 'range' ? 'flex' : 'none'; }
-        }
-    </script>
-
-    <form method="POST" id="admin-users-bulk-form" action="{{ route('admin.users.bulk') }}">
-        @csrf
-        <div id="admin-users-bulk-bar" class="hidden items-center justify-between pm-card-bg border border-amber-200 bg-amber-50 rounded-lg px-4 py-3 mb-3">
-            <span class="text-sm text-amber-800"><span id="admin-users-selected-count">0</span> selected</span>
-            <div class="flex items-center gap-3">
-                <button type="submit" name="action" value="suspend" class="text-sm text-amber-800 hover:underline"
-                        data-confirm-click="Suspend all selected users?" data-confirm-title="Suspend selected users?" data-confirm-text="Suspend">Suspend</button>
-                <button type="submit" name="action" value="unsuspend" class="text-sm text-emerald-700 hover:underline">Reactivate</button>
-                <button type="submit" name="action" value="delete" class="text-sm text-rose-600 hover:underline"
-                        data-confirm-click="Permanently delete all selected users and their data? This cannot be undone." data-confirm-title="Delete selected users?" data-confirm-text="Delete permanently">Delete</button>
-            </div>
-        </div>
-
-        <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 overflow-x-auto pm-admin-table-scroll" role="region" aria-label="Users table" tabindex="0">
-        <table class="min-w-full text-sm pm-admin-horizontal-table">
-            <caption class="sr-only">All registered users, with role, subscription status, usage progress, and a link to manage each.</caption>
-            <thead class="bg-slate-50 text-left border-b border-slate-100">
-                <tr>
-                    <th scope="col" class="px-4 py-3 w-8">
-                        <input type="checkbox" id="admin-users-select-all" onchange="pmToggleAllUserCheckboxes(this)"
-                               class="rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]" aria-label="Select all users">
-                    </th>
-                    <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Name</th>
-                    <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Email</th>
-                    <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Role</th>
-                    <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Status</th>
-                    <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide min-w-[150px]">Usage</th>
-                    <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Joined</th>
-                    <th scope="col" class="px-4 py-3"><span class="sr-only">Actions</span></th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-                @foreach ($users as $user)
-                    <tr class="hover:bg-slate-50 transition-colors">
-                        <td class="px-4 py-3">
-                            @if ($user->id !== auth()->id())
-                                <input type="checkbox" name="user_ids[]" value="{{ $user->id }}"
-                                       class="admin-user-checkbox rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]"
-                                       onchange="pmUpdateUserBulkBar()" aria-label="Select {{ $user->name }}">
-                            @endif
-                        </td>
-                        <td class="px-4 py-3 text-slate-700">
-                            {{ $user->name }}
-                            @if ($user->id === auth()->id())
-                                <span class="text-xs text-slate-400">(you)</span>
-                            @endif
-                        </td>
-                        <td class="px-4 py-3 text-slate-700">{{ $user->email }}</td>
-                        <td class="px-4 py-3">
-                            @if ($user->isAdmin())
-                                <span class="inline-flex items-center gap-1 text-[var(--brand-1)] font-medium">
-                                    <i class="fa-solid fa-shield text-xs" aria-hidden="true"></i> Admin
-                                </span>
-                            @else
-                                <span class="text-slate-600">User</span>
-                            @endif
-                        </td>
-                        <td class="px-4 py-3">
-                            @if ($user->isSuspended())
-                                <span class="inline-flex items-center gap-1 text-rose-600 font-medium">
-                                    <i class="fa-solid fa-ban text-xs" aria-hidden="true"></i> Suspended
-                                </span>
-                            @else
-                                <span class="text-slate-600">{{ ucfirst($user->subscription_status) }}</span>
-                            @endif
-                        </td>
-                        <td class="px-4 py-3">
-                            @php $usagePercent = (int) ($usageByUser[$user->id] ?? 0); @endphp
-                            <div class="flex items-center gap-2 min-w-[130px]">
-                                <div class="h-2 flex-1 rounded-full bg-slate-100 overflow-hidden" aria-hidden="true">
-                                    <div class="h-full rounded-full bg-[var(--brand-1)] transition-all duration-500" style="width: {{ $usagePercent }}%"></div>
-                                </div>
-                                <span class="text-xs font-bold text-slate-600 w-9 text-right">{{ $usagePercent }}%</span>
-                            </div>
-                            <p class="text-[11px] text-slate-400 mt-1">App usage progress</p>
-                        </td>
-                        <td class="px-4 py-3 text-slate-600">{{ $user->created_at->format('Y-m-d') }}</td>
-                        <td class="px-4 py-3 text-right whitespace-nowrap">
-                            <a href="{{ route('admin.users.show', $user->id) }}" class="inline-flex items-center gap-1 text-[var(--brand-1)] hover:text-[var(--brand-1-dark)] transition-colors">
-                                <i class="fa-solid fa-gear text-xs" aria-hidden="true"></i>
-                                Manage<span class="sr-only"> {{ $user->name }}</span>
-                            </a>
-                        </td>
-                    </tr>
+            <select name="subscription_status" class="pm-input w-full">
+                <option value="">All subscriptions</option>
+                @foreach(['active','trial','inactive','expired','suspended','cancelled'] as $status)
+                    <option value="{{ $status }}" @selected(request('subscription_status') === $status)>
+                        {{ ucfirst($status) }}
+                    </option>
                 @endforeach
-            </tbody>
-        </table>
+            </select>
+
+            <button class="apple-btn rounded-xl px-4 py-2 text-sm font-bold">
+                Filter
+            </button>
+        </form>
+    </section>
+
+
+    {{-- =========================================================
+         USER STATISTICS — same wide/accent card pattern as
+         other My Digital Diary pages
+    ========================================================== --}}
+    <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+
+        <div class="relative overflow-hidden rounded-3xl border border-slate-100 bg-white px-5 py-4 shadow-sm">
+            <span class="absolute inset-y-0 left-0 w-1 bg-lime-400"></span>
+            <div class="flex min-h-[58px] items-center gap-4">
+                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-lime-50 text-lime-600">
+                    <i class="fa-solid fa-users"></i>
+                </div>
+                <div class="min-w-0">
+                    <div class="text-xs font-medium uppercase tracking-wide text-slate-500">
+                        Total Users
+                    </div>
+                    <div class="mt-0.5 text-xl font-black text-slate-900">
+                        {{ number_format((int) $userStats['total']) }}
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <nav aria-label="Pagination" class="mt-4">
+        <div class="relative overflow-hidden rounded-3xl border border-slate-100 bg-white px-5 py-4 shadow-sm">
+            <span class="absolute inset-y-0 left-0 w-1 bg-emerald-400"></span>
+            <div class="flex min-h-[58px] items-center gap-4">
+                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                    <i class="fa-solid fa-user-check"></i>
+                </div>
+                <div class="min-w-0">
+                    <div class="text-xs font-medium uppercase tracking-wide text-slate-500">
+                        Active
+                    </div>
+                    <div class="mt-0.5 text-xl font-black text-slate-900">
+                        {{ number_format((int) $userStats['active']) }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="relative overflow-hidden rounded-3xl border border-slate-100 bg-white px-5 py-4 shadow-sm">
+            <span class="absolute inset-y-0 left-0 w-1 bg-amber-400"></span>
+            <div class="flex min-h-[58px] items-center gap-4">
+                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                    <i class="fa-solid fa-hourglass-half"></i>
+                </div>
+                <div class="min-w-0">
+                    <div class="text-xs font-medium uppercase tracking-wide text-slate-500">
+                        Trial
+                    </div>
+                    <div class="mt-0.5 text-xl font-black text-slate-900">
+                        {{ number_format((int) $userStats['trial']) }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="relative overflow-hidden rounded-3xl border border-slate-100 bg-white px-5 py-4 shadow-sm">
+            <span class="absolute inset-y-0 left-0 w-1 bg-rose-400"></span>
+            <div class="flex min-h-[58px] items-center gap-4">
+                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
+                    <i class="fa-solid fa-user-clock"></i>
+                </div>
+                <div class="min-w-0">
+                    <div class="text-xs font-medium uppercase tracking-wide text-slate-500">
+                        Expired / Inactive
+                    </div>
+                    <div class="mt-0.5 text-xl font-black text-slate-900">
+                        {{ number_format((int) $userStats['expired_inactive']) }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="relative overflow-hidden rounded-3xl border border-slate-100 bg-white px-5 py-4 shadow-sm">
+            <span class="absolute inset-y-0 left-0 w-1 bg-violet-400"></span>
+            <div class="flex min-h-[58px] items-center gap-4">
+                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                    <i class="fa-solid fa-user-lock"></i>
+                </div>
+                <div class="min-w-0">
+                    <div class="text-xs font-medium uppercase tracking-wide text-slate-500">
+                        Suspended
+                    </div>
+                    <div class="mt-0.5 text-xl font-black text-slate-900">
+                        {{ number_format((int) $userStats['suspended']) }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </section>
+
+    <section class="apple-surface rounded-2xl overflow-hidden" id="admin-user-list">
+        <style>
+            #admin-user-list,
+            #admin-user-list * {
+                box-sizing: border-box;
+            }
+
+            #admin-user-list .admin-user-table-wrap {
+                width: 100%;
+                max-width: 100%;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            #admin-user-list table {
+                min-width: 1120px;
+                width: 100%;
+            }
+
+            #admin-user-list th,
+            #admin-user-list td {
+                white-space: nowrap !important;
+                word-break: normal !important;
+                overflow-wrap: normal !important;
+                writing-mode: horizontal-tb !important;
+            }
+
+            #admin-user-list .admin-user-mobile-list {
+                display: none;
+            }
+
+            #admin-user-list .admin-action-menu {
+                min-width: 220px;
+            }
+
+            #admin-user-list .admin-action-menu a,
+            #admin-user-list .admin-action-menu button {
+                width: 100%;
+                display: flex;
+                align-items: center;
+                gap: .55rem;
+                padding: .6rem .75rem;
+                border-radius: .65rem;
+                text-align: left;
+                font-size: .78rem;
+                font-weight: 700;
+                white-space: nowrap !important;
+            }
+
+            #admin-user-list .admin-action-menu a:hover,
+            #admin-user-list .admin-action-menu button:hover {
+                background: #f8fafc;
+            }
+
+            .admin-manage-dialog {
+                width: min(94vw, 720px);
+                max-width: 720px;
+                max-height: calc(100dvh - 24px);
+                padding: 0 !important;
+                overflow: hidden;
+                border: 0;
+                border-radius: 1rem;
+            }
+
+            .admin-manage-dialog::backdrop {
+                background: rgba(15, 23, 42, .55);
+            }
+
+            .admin-manage-dialog .admin-manage-scroll {
+                max-height: calc(100dvh - 24px);
+                overflow-y: auto;
+                overflow-x: hidden;
+            }
+
+            .admin-user-tabs {
+                display: flex !important;
+                flex-wrap: nowrap !important;
+                gap: .25rem !important;
+                overflow-x: auto !important;
+                overflow-y: hidden !important;
+                white-space: nowrap !important;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: thin;
+            }
+
+            .admin-user-tab {
+                flex: 0 0 auto !important;
+                min-width: max-content !important;
+                white-space: nowrap !important;
+                word-break: normal !important;
+                writing-mode: horizontal-tb !important;
+            }
+
+            .admin-user-panel[hidden] {
+                display: none !important;
+            }
+
+            @media (max-width: 767px) {
+                #admin-user-list .admin-user-desktop {
+                    display: none;
+                }
+
+                #admin-user-list .admin-user-mobile-list {
+                    display: grid;
+                    grid-template-columns: 1fr;
+                    gap: .75rem;
+                    padding: .75rem;
+                }
+
+                .admin-manage-dialog {
+                    width: calc(100vw - 16px);
+                    max-width: calc(100vw - 16px);
+                    max-height: calc(100dvh - 16px);
+                }
+
+                .admin-manage-dialog .admin-manage-scroll {
+                    max-height: calc(100dvh - 16px);
+                }
+
+                .admin-manage-dialog .admin-user-form-grid {
+                    grid-template-columns: 1fr !important;
+                }
+
+                .admin-manage-dialog input,
+                .admin-manage-dialog select,
+                .admin-manage-dialog textarea,
+                .admin-manage-dialog button {
+                    min-width: 0 !important;
+                    max-width: 100% !important;
+                }
+            }
+        </style>
+
+        {{-- DESKTOP TABLE --}}
+        <div class="admin-user-desktop admin-user-table-wrap">
+            <table class="text-sm">
+                <thead class="bg-slate-50">
+                    <tr>
+                        <th class="w-10 px-4 py-3 text-left">
+                            <input
+                                id="admin-users-select-all"
+                                type="checkbox"
+                                aria-label="Select all users on this page"
+                                onchange="pmToggleAllUsers(this.checked)"
+                            >
+                        </th>
+                        <th class="px-4 py-3 text-left">User</th>
+                        <th class="px-4 py-3 text-left">Role</th>
+                        <th class="px-4 py-3 text-left">Subscription</th>
+                        <th class="px-4 py-3 text-left">Current Status</th>
+                        <th class="px-4 py-3 text-left">Subscription Expiry</th>
+                        <th class="px-4 py-3 text-right">Action</th>
+                    </tr>
+                </thead>
+
+                <tbody class="divide-y divide-slate-100">
+                    @forelse($users as $user)
+                        @php
+                            $canonicalStatus = strtolower(
+                                trim((string) ($user->subscription_status ?? 'trial'))
+                            );
+
+                            $canonicalStatus = match ($canonicalStatus) {
+                                'trialing' => 'trial',
+                                'canceled' => 'cancelled',
+                                default => $canonicalStatus,
+                            };
+
+                            $statusClass = match ($canonicalStatus) {
+                                'active' => 'bg-emerald-50 text-emerald-700',
+                                'trial' => 'bg-amber-50 text-amber-700',
+                                'suspended' => 'bg-rose-50 text-rose-700',
+                                'expired', 'inactive', 'cancelled' => 'bg-slate-100 text-slate-600',
+                                default => 'bg-slate-100 text-slate-600',
+                            };
+
+                            $accountStatus = strtolower(
+                                trim((string) ($user->account_status ?? 'active'))
+                            );
+
+                            $displayRole = $user->system_role
+                                ?? $user->role
+                                ?? ($user->isAdmin() ? 'admin' : 'user');
+                        @endphp
+
+                        <tr>
+                            <td class="px-4 py-4 align-top">
+                                <input
+                                    type="checkbox"
+                                    class="admin-user-selector"
+                                    value="{{ $user->id }}"
+                                    data-user-name="{{ $user->name }}"
+                                    aria-label="Select {{ $user->name }}"
+                                    onchange="pmUpdateBulkSelection()"
+                                >
+                            </td>
+
+                            <td class="px-4 py-4 align-top">
+                                <div class="font-bold text-slate-900">{{ $user->name }}</div>
+                                <div class="text-xs text-slate-500">{{ $user->email }}</div>
+                                <div class="mt-1 text-[10px] text-slate-400">ID #{{ $user->id }}</div>
+                            </td>
+
+                            <td class="px-4 py-4 align-top">
+                                <span class="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-black uppercase text-sky-700">
+                                    {{ str_replace('_', ' ', $displayRole) }}
+                                </span>
+                            </td>
+
+                            <td class="px-4 py-4 align-top">
+                                <div class="font-semibold text-slate-700">
+                                    {{ $user->subscriptionPlan?->name ?? 'No plan' }}
+                                </div>
+                            </td>
+
+                            <td class="px-4 py-4 align-top">
+                                <div class="flex flex-wrap gap-1.5">
+                                    <span class="inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase {{ $statusClass }}">
+                                        {{ $canonicalStatus }}
+                                    </span>
+
+                                    @if($accountStatus === 'suspended' || method_exists($user, 'isSuspended') && $user->isSuspended())
+                                        <span class="inline-flex rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-black uppercase text-rose-700">
+                                            Account suspended
+                                        </span>
+                                    @endif
+                                </div>
+                            </td>
+
+                            <td class="px-4 py-4 align-top text-xs text-slate-600">
+                                @if($user->subscription_expires_at)
+                                    {{ \Illuminate\Support\Carbon::parse($user->subscription_expires_at)->format('d M Y') }}
+                                @else
+                                    —
+                                @endif
+                            </td>
+
+                            <td class="px-4 py-4 align-top text-right">
+                                <button
+                                    type="button"
+                                    class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                                    onclick="document.getElementById('manage-user-modal-{{ $user->id }}').showModal()"
+                                >
+                                    <i class="fa-solid fa-user-gear text-[var(--brand-1)]" aria-hidden="true"></i>
+                                    Manage User
+                                </button>
+                            </td>
+                        </tr>
+
+                        @include('admin.users.partials.manage-user-modal', [
+                            'managedUser' => $user,
+                            'plans' => $plans,
+                            'canonicalStatus' => $canonicalStatus,
+                            'accountStatus' => $accountStatus,
+                            'displayRole' => $displayRole,
+                        ])
+                    @empty
+                        <tr>
+                            <td colspan="7" class="px-4 py-10 text-center text-sm text-slate-400">
+                                No users found.
+                            </td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+
+        {{-- MOBILE CARDS --}}
+        <div class="admin-user-mobile-list">
+            @forelse($users as $user)
+                @php
+                    $canonicalStatus = strtolower(
+                        trim((string) ($user->subscription_status ?? 'trial'))
+                    );
+
+                    $canonicalStatus = match ($canonicalStatus) {
+                        'trialing' => 'trial',
+                        'canceled' => 'cancelled',
+                        default => $canonicalStatus,
+                    };
+
+                    $accountStatus = strtolower(
+                        trim((string) ($user->account_status ?? 'active'))
+                    );
+
+                    $displayRole = $user->system_role
+                        ?? $user->role
+                        ?? ($user->isAdmin() ? 'admin' : 'user');
+                @endphp
+
+                <article class="min-w-0 rounded-2xl border border-slate-200 bg-white p-4">
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                        <label class="inline-flex items-center gap-2 text-xs font-bold text-slate-600">
+                            <input
+                                type="checkbox"
+                                class="admin-user-selector"
+                                value="{{ $user->id }}"
+                                data-user-name="{{ $user->name }}"
+                                onchange="pmUpdateBulkSelection()"
+                            >
+                            Select
+                        </label>
+
+                        <span class="text-[10px] font-black uppercase tracking-wide text-slate-400">
+                            ID #{{ $user->id }}
+                        </span>
+                    </div>
+
+                    <div class="flex min-w-0 items-start gap-3">
+                        <div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-50 text-slate-600">
+                            <i class="fa-solid fa-user"></i>
+                        </div>
+
+                        <div class="min-w-0 flex-1">
+                            <p class="truncate font-black text-slate-900">{{ $user->name }}</p>
+                            <p class="truncate text-xs text-slate-500">{{ $user->email }}</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                        <div class="rounded-xl bg-slate-50 p-2.5">
+                            <span class="text-slate-400">Role</span>
+                            <p class="mt-0.5 truncate font-bold text-slate-700">
+                                {{ ucfirst(str_replace('_', ' ', $displayRole)) }}
+                            </p>
+                        </div>
+
+                        <div class="rounded-xl bg-slate-50 p-2.5">
+                            <span class="text-slate-400">Account</span>
+                            <p class="mt-0.5 truncate font-bold text-slate-700">
+                                {{ ucfirst($accountStatus) }}
+                            </p>
+                        </div>
+
+                        <div class="col-span-2 rounded-xl bg-slate-50 p-2.5">
+                            <span class="text-slate-400">Subscription</span>
+                            <p class="mt-0.5 truncate font-bold text-slate-700">
+                                {{ $user->subscriptionPlan?->name ?? 'No plan' }}
+                                · {{ ucfirst($canonicalStatus) }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <button
+                        type="button"
+                        class="btn-primary mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white"
+                        onclick="document.getElementById('manage-user-modal-{{ $user->id }}').showModal()"
+                    >
+                        <i class="fa-solid fa-user-gear" aria-hidden="true"></i>
+                        Manage User
+                    </button>
+
+                    @include('admin.users.partials.manage-user-modal', [
+                        'managedUser' => $user,
+                        'plans' => $plans,
+                        'canonicalStatus' => $canonicalStatus,
+                        'accountStatus' => $accountStatus,
+                        'displayRole' => $displayRole,
+                    ])
+                </article>
+            @empty
+                <div class="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
+                    No users found.
+                </div>
+            @endforelse
+        </div>
+
+        <div class="p-4">
             {{ $users->links() }}
-        </nav>
-    </form>
+        </div>
+    </section>
 
-    <script>
-        function pmUpdateUserBulkBar() {
-            var checked = document.querySelectorAll('.admin-user-checkbox:checked').length;
-            var bar = document.getElementById('admin-users-bulk-bar');
-            document.getElementById('admin-users-selected-count').textContent = checked;
-            bar.classList.toggle('hidden', checked === 0);
-            bar.classList.toggle('flex', checked > 0);
-        }
+<dialog
+    id="admin-bulk-user-modal"
+    class="admin-manage-dialog shadow-2xl"
+>
+    <div class="admin-manage-scroll bg-white">
+        <div class="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4 sm:px-5">
+            <div class="min-w-0">
+                <h2 class="text-lg font-black text-slate-900">
+                    Bulk Manage Users
+                </h2>
 
-        function pmToggleAllUserCheckboxes(selectAllEl) {
-            document.querySelectorAll('.admin-user-checkbox').forEach(function (cb) {
-                cb.checked = selectAllEl.checked;
-            });
-            pmUpdateUserBulkBar();
-        }
-    </script>
+                <p class="mt-1 text-xs text-slate-500">
+                    <span id="admin-bulk-dialog-count">0</span>
+                    selected user(s)
+                </p>
+            </div>
 
-    {{-- Add User modal — replaces the old full-page /create navigation.
-         The dedicated route/view still exist for direct-URL access, same
-         progressive-enhancement pattern as every other module. --}}
-    <dialog id="user-create-modal" aria-labelledby="user-create-modal-title" class="rounded-2xl p-0 pm-dialog-lg shadow-2xl backdrop:bg-slate-900/50">
-        <form method="POST" action="{{ route('admin.users.store') }}" class="p-6 space-y-5">
+            <button
+                type="button"
+                class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-slate-100"
+                onclick="document.getElementById('admin-bulk-user-modal').close()"
+                aria-label="Close"
+            >
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <form
+            method="POST"
+            action="{{ route('admin.users.bulk') }}"
+            id="admin-bulk-user-form"
+            class="space-y-5 p-4 sm:p-5"
+            onsubmit="return pmValidateBulkUserForm(this);"
+        >
             @csrf
 
-            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-lg bg-[var(--brand-1-tint-10)] text-[var(--brand-1)] flex items-center justify-center shrink-0">
-                        <i class="fa-solid fa-user-plus text-sm" aria-hidden="true"></i>
-                    </div>
-                    <h2 id="user-create-modal-title" class="text-lg font-bold text-slate-800">Add User</h2>
-                </div>
-                <button type="button" onclick="document.getElementById('user-create-modal').close()"
-                        class="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors" aria-label="Close dialog">
-                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
-                </button>
-            </div>
+            <div id="admin-bulk-hidden-ids"></div>
 
             <div>
-                <label for="name" class="block text-sm font-medium text-slate-700 mb-1">Name</label>
-                <input type="text" id="name" name="name" value="{{ old('name') }}"
-                       required aria-required="true"
-                       @error('name') aria-invalid="true" aria-describedby="name-error" @enderror
-                       class="pm-input">
-                @error('name')
-                    <p id="name-error" role="alert" class="text-sm text-rose-600 mt-1">{{ $message }}</p>
-                @enderror
-            </div>
+                <label class="text-xs font-bold text-slate-700">
+                    Bulk Action
+                </label>
 
-            <div>
-                <label for="email" class="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                <input type="email" id="email" name="email" value="{{ old('email') }}"
-                       required aria-required="true"
-                       @error('email') aria-invalid="true" aria-describedby="email-error" @enderror
-                       class="pm-input">
-                @error('email')
-                    <p id="email-error" role="alert" class="text-sm text-rose-600 mt-1">{{ $message }}</p>
-                @enderror
-            </div>
-
-            <div>
-                <label for="password" class="block text-sm font-medium text-slate-700 mb-1">Temporary Password</label>
-                <input type="password" id="password" name="password"
-                       required aria-required="true" autocomplete="new-password"
-                       aria-describedby="password-hint @error('password') password-error @enderror"
-                       @error('password') aria-invalid="true" @enderror
-                       class="pm-input">
-                <p id="password-hint" class="text-xs text-slate-400 mt-1">
-                    Share this with the user directly — consider asking them to change it after their first login.
-                </p>
-                @error('password')
-                    <p id="password-error" role="alert" class="text-sm text-rose-600 mt-1">{{ $message }}</p>
-                @enderror
-            </div>
-
-            <div>
-                <label for="role" class="block text-sm font-medium text-slate-700 mb-1">Role</label>
-                <select id="role" name="role" class="pm-input">
-                    <option value="user" @selected(old('role', 'user') === 'user')>User</option>
-                    <option value="admin" @selected(old('role') === 'admin')>Admin</option>
+                <select
+                    name="action"
+                    id="admin-bulk-action"
+                    class="pm-input mt-1 w-full"
+                    required
+                    onchange="pmShowBulkActionFields(this.value)"
+                >
+                    <option value="">Choose an action</option>
+                    <option value="role">Change Role</option>
+                    <option value="subscription">Update Subscription</option>
+                    <option value="suspend">Suspend Users</option>
+                    <option value="reactivate">Reactivate Users</option>
+                    <option value="delete">Delete Users</option>
                 </select>
             </div>
 
-            <p class="text-xs text-slate-400">
-                Note: this account starts with no data-processing consent on record — that has to come
-                from the person themselves, not be granted on their behalf. They'll see this on their
-                own Privacy &amp; Data page.
-            </p>
+            <section
+                id="admin-bulk-role-fields"
+                class="admin-bulk-action-fields"
+                hidden
+            >
+                <label class="text-xs font-bold text-slate-700">
+                    New Role
+                </label>
 
-            <div class="flex items-center gap-3 pt-2 border-t border-slate-100 mt-2">
-                <button type="submit" class="inline-flex items-center gap-2 btn-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">
-                    <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
-                    <span>Create User</span>
-                </button>
-                <button type="button" onclick="document.getElementById('user-create-modal').close()" class="text-sm text-slate-500 hover:text-slate-700 transition-colors">
+                <select name="role" class="pm-input mt-1 w-full">
+                    @foreach(
+                        \App\Http\Controllers\Admin\AdminUserController::availableRoles()
+                        as $value => $label
+                    )
+                        <option value="{{ $value }}">
+                            {{ $label }}
+                        </option>
+                    @endforeach
+                </select>
+            </section>
+
+            <section
+                id="admin-bulk-subscription-fields"
+                class="admin-bulk-action-fields"
+                hidden
+            >
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <div>
+                        <label class="text-xs font-bold text-slate-700">
+                            Plan
+                        </label>
+
+                        <select
+                            name="subscription_plan_id"
+                            class="pm-input mt-1 w-full"
+                        >
+                            <option value="">
+                                Leave unchanged
+                            </option>
+
+                            @foreach($plans as $plan)
+                                <option value="{{ $plan->id }}">
+                                    {{ $plan->name ?? $plan->title ?? ('Plan #'.$plan->id) }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-slate-700">
+                            Status
+                        </label>
+
+                        <select
+                            name="subscription_status"
+                            class="pm-input mt-1 w-full"
+                        >
+                            <option value="">
+                                Leave unchanged
+                            </option>
+                            <option value="active">Active</option>
+                            <option value="trial">Trial</option>
+                            <option value="inactive">Inactive</option>
+                            <option value="expired">Expired</option>
+                            <option value="suspended">Suspended</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-slate-700">
+                            Start Date
+                        </label>
+
+                        <input
+                            type="date"
+                            name="subscription_started_at"
+                            class="pm-input mt-1 w-full"
+                        >
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-slate-700">
+                            Expiry Date
+                        </label>
+
+                        <input
+                            type="date"
+                            name="subscription_expires_at"
+                            class="pm-input mt-1 w-full"
+                        >
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="text-xs font-bold text-slate-700">
+                            Trial End Date
+                        </label>
+
+                        <input
+                            type="date"
+                            name="trial_ends_at"
+                            class="pm-input mt-1 w-full"
+                        >
+                    </div>
+                </div>
+            </section>
+
+            <section
+                id="admin-bulk-suspend-fields"
+                class="admin-bulk-action-fields"
+                hidden
+            >
+                <label class="text-xs font-bold text-slate-700">
+                    Suspension Reason
+                </label>
+
+                <textarea
+                    name="reason"
+                    rows="3"
+                    class="pm-input mt-1 w-full"
+                    placeholder="Optional reason for these accounts"
+                ></textarea>
+            </section>
+
+            <section
+                id="admin-bulk-reactivate-fields"
+                class="admin-bulk-action-fields"
+                hidden
+            >
+                <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                    The selected accounts will be reactivated.
+                </div>
+            </section>
+
+            <section
+                id="admin-bulk-delete-fields"
+                class="admin-bulk-action-fields"
+                hidden
+            >
+                <div class="rounded-xl border border-rose-200 bg-rose-50 p-4">
+                    <h3 class="font-black text-rose-700">
+                        Delete Selected Users
+                    </h3>
+
+                    <p class="mt-1 text-xs leading-5 text-rose-600">
+                        This action can remove multiple accounts.
+                        Type <strong>DELETE</strong> to confirm.
+                    </p>
+
+                    <input
+                        type="text"
+                        name="confirmation"
+                        autocomplete="off"
+                        placeholder="Type DELETE"
+                        class="pm-input mt-3 w-full border-rose-200"
+                    >
+                </div>
+            </section>
+
+            <div class="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
+                <button
+                    type="button"
+                    class="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700"
+                    onclick="document.getElementById('admin-bulk-user-modal').close()"
+                >
                     Cancel
+                </button>
+
+                <button
+                    type="submit"
+                    class="btn-primary inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white"
+                >
+                    <i class="fa-solid fa-check"></i>
+                    Apply to Selected Users
                 </button>
             </div>
         </form>
-    </dialog>
+    </div>
+</dialog>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            @if ($errors->any() && (old('name') !== null || old('email') !== null))
-                document.getElementById('user-create-modal').showModal();
-            @endif
+<script>
+    function pmSelectAdminUserTab(userId, tabName) {
+        document
+            .querySelectorAll(
+                '[data-admin-user-tab][data-admin-user-id="' + userId + '"]'
+            )
+            .forEach(function (button) {
+                var selected =
+                    button.getAttribute('data-admin-user-tab') === tabName;
+
+                button.classList.toggle(
+                    'border-[var(--brand-1)]',
+                    selected
+                );
+
+                button.classList.toggle(
+                    'text-[var(--brand-1)]',
+                    selected
+                );
+
+                button.classList.toggle(
+                    'border-transparent',
+                    !selected
+                );
+
+                button.classList.toggle(
+                    'text-slate-500',
+                    !selected
+                );
+
+                if (
+                    selected
+                    && typeof button.scrollIntoView === 'function'
+                ) {
+                    button.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'nearest',
+                        inline: 'center'
+                    });
+                }
+            });
+
+        document
+            .querySelectorAll(
+                '[data-admin-user-panel][data-admin-user-id="' + userId + '"]'
+            )
+            .forEach(function (panel) {
+                panel.hidden =
+                    panel.getAttribute('data-admin-user-panel') !== tabName;
+            });
+    }
+
+
+    function pmSelectedUserCheckboxes() {
+        return Array.from(
+            document.querySelectorAll('.admin-user-selector:checked')
+        );
+    }
+
+    function pmUpdateBulkSelection() {
+        var selected = pmSelectedUserCheckboxes();
+        var count = selected.length;
+        var button = document.getElementById('admin-bulk-open');
+        var badge = document.getElementById('admin-bulk-count');
+        var dialogCount = document.getElementById('admin-bulk-dialog-count');
+        var selectAll = document.getElementById('admin-users-select-all');
+        var allDesktop = Array.from(
+            document.querySelectorAll(
+                '.admin-user-desktop .admin-user-selector'
+            )
+        );
+
+        if (badge) {
+            badge.textContent = String(count);
+        }
+
+        if (dialogCount) {
+            dialogCount.textContent = String(count);
+        }
+
+        if (button) {
+            button.disabled = count === 0;
+            button.classList.toggle('opacity-50', count === 0);
+            button.classList.toggle('cursor-not-allowed', count === 0);
+        }
+
+        if (selectAll && allDesktop.length) {
+            var selectedDesktop = allDesktop.filter(
+                function (checkbox) {
+                    return checkbox.checked;
+                }
+            ).length;
+
+            selectAll.checked =
+                selectedDesktop === allDesktop.length;
+
+            selectAll.indeterminate =
+                selectedDesktop > 0
+                && selectedDesktop < allDesktop.length;
+        }
+    }
+
+    function pmToggleAllUsers(checked) {
+        document
+            .querySelectorAll(
+                '.admin-user-desktop .admin-user-selector'
+            )
+            .forEach(function (checkbox) {
+                checkbox.checked = checked;
+            });
+
+        pmSyncMobileUserSelectors();
+        pmUpdateBulkSelection();
+    }
+
+    function pmSyncMobileUserSelectors() {
+        var selectedIds = new Set(
+            Array.from(
+                document.querySelectorAll(
+                    '.admin-user-desktop .admin-user-selector:checked'
+                )
+            ).map(function (checkbox) {
+                return checkbox.value;
+            })
+        );
+
+        document
+            .querySelectorAll(
+                '.admin-user-mobile-list .admin-user-selector'
+            )
+            .forEach(function (checkbox) {
+                if (selectedIds.has(checkbox.value)) {
+                    checkbox.checked = true;
+                }
+            });
+    }
+
+    function pmUniqueSelectedUserIds() {
+        return Array.from(
+            new Set(
+                pmSelectedUserCheckboxes().map(
+                    function (checkbox) {
+                        return checkbox.value;
+                    }
+                )
+            )
+        );
+    }
+
+    function pmOpenBulkUserDialog() {
+        var ids = pmUniqueSelectedUserIds();
+
+        if (!ids.length) {
+            return;
+        }
+
+        var hidden = document.getElementById(
+            'admin-bulk-hidden-ids'
+        );
+
+        hidden.innerHTML = '';
+
+        ids.forEach(function (id) {
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'ids[]';
+            input.value = id;
+            hidden.appendChild(input);
         });
-    </script>
+
+        var dialogCount = document.getElementById(
+            'admin-bulk-dialog-count'
+        );
+
+        if (dialogCount) {
+            dialogCount.textContent = String(ids.length);
+        }
+
+        document
+            .getElementById('admin-bulk-user-modal')
+            .showModal();
+    }
+
+    function pmShowBulkActionFields(action) {
+        document
+            .querySelectorAll('.admin-bulk-action-fields')
+            .forEach(function (section) {
+                section.hidden = true;
+            });
+
+        var section = document.getElementById(
+            'admin-bulk-' + action + '-fields'
+        );
+
+        if (section) {
+            section.hidden = false;
+        }
+    }
+
+    function pmValidateBulkUserForm(form) {
+        var ids = pmUniqueSelectedUserIds();
+        var action = form.action.value;
+
+        if (!ids.length) {
+            alert('Select at least one user.');
+            return false;
+        }
+
+        if (!action) {
+            alert('Choose a bulk action.');
+            return false;
+        }
+
+        if (
+            action === 'delete'
+            && form.confirmation.value.trim().toUpperCase()
+                !== 'DELETE'
+        ) {
+            alert('Type DELETE to confirm bulk deletion.');
+            return false;
+        }
+
+        return true;
+    }
+
+    document.addEventListener(
+        'change',
+        function (event) {
+            if (
+                event.target
+                && event.target.classList.contains(
+                    'admin-user-selector'
+                )
+            ) {
+                var id = event.target.value;
+                var checked = event.target.checked;
+
+                document
+                    .querySelectorAll(
+                        '.admin-user-selector[value="' + id + '"]'
+                    )
+                    .forEach(function (checkbox) {
+                        checkbox.checked = checked;
+                    });
+
+                pmUpdateBulkSelection();
+            }
+        }
+    );
+
+    document.addEventListener(
+        'DOMContentLoaded',
+        pmUpdateBulkSelection
+    );
+
+</script>
+
+</div>
 @endsection

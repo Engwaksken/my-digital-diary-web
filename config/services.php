@@ -35,6 +35,10 @@ return [
         ],
     ],
 
+    'iotec' => [
+        'callback_secret' => env('IOTEC_CALLBACK_SECRET', ''),
+    ],
+
 
 'firebase' => [
         'project_id' => env('FIREBASE_PROJECT_ID'),

@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\Meeting;
 use App\Services\RecurringMeetingService;
+use App\Services\ExternalCalendarSyncService;
+use App\Services\DailyInsightService;
+use Illuminate\Support\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -51,6 +54,19 @@ class MeetingController extends ApiCrudController
             ->withQueryString();
 
         return response()->json($items);
+    }
+
+    public function syncCalendar(Request $request, ExternalCalendarSyncService $service): JsonResponse
+    {
+        $data=$request->validate([
+            'provider'=>['nullable','in:google,microsoft,zoom,webex'],
+            'sync_from_date'=>['required','date'],'sync_to_date'=>['nullable','date','after_or_equal:sync_from_date'],
+            'include_recurring'=>['nullable','boolean'],
+        ]);
+        $from=Carbon::parse($data['sync_from_date']); $to=!empty($data['sync_to_date'])?Carbon::parse($data['sync_to_date']):$from->copy()->addMonth();
+        $result=$service->syncUser((int)$request->user()->id,$from,$to,$data['provider'] ?? null,(bool)($data['include_recurring'] ?? true));
+        app(DailyInsightService::class)->invalidateFor($request->user());
+        return response()->json(['success'=>true,'data'=>$result+['from'=>$from->toDateString(),'to'=>$to->toDateString(),'synced_at'=>now()->toIso8601String()]]);
     }
 
     public function store(Request $request): JsonResponse

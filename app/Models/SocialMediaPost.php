@@ -26,6 +26,8 @@ class SocialMediaPost extends Model
         'reminder_sent_at' => 'datetime',
         'posting_started_at' => 'datetime',
         'posting_notification_sent_at' => 'datetime',
+        'posting_attempts' => 'integer',
+        'next_posting_attempt_at' => 'datetime',
     ];
 
     public function user(): BelongsTo { return $this->belongsTo(User::class); }
@@ -44,15 +46,48 @@ class SocialMediaPost extends Model
         $path = trim((string) $this->media_path);
         if ($path === '') return null;
         if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) return $path;
-        return Storage::disk('public')->url($path);
+        $url = Storage::disk('public')->url($path);
+        return str_starts_with($url, 'http://') || str_starts_with($url, 'https://')
+            ? $url
+            : url($url);
     }
 
+    public function callToAction(): ?string
+    {
+        $value = trim((string) data_get($this->platform_content, 'call_to_action', ''));
+        return $value !== '' ? $value : null;
+    }
+
+    /**
+     * Canonical full post text used by manual sharing and every automatic
+     * publisher. Keep composition here so every platform fetches the same
+     * title, caption, CTA, hashtags and attached link.
+     */
     public function shareText(): string
     {
         return collect([
+            trim((string) $this->title),
             trim((string) $this->caption),
-            trim((string) $this->hashtags),
+            $this->callToAction(),
             $this->attachedLink(),
-        ])->filter()->implode("\n\n");
+            trim((string) $this->hashtags),
+        ])->filter(fn ($value) => trim((string) $value) !== '')
+          ->implode("\n\n");
+    }
+
+    public function fullPostPayload(): array
+    {
+        return [
+            // Media is intentionally first in the payload so web/mobile
+            // previews and publishers can render the visual before the copy.
+            'media_type' => $this->media_type,
+            'media_url' => $this->publicMediaUrl(),
+            'title' => trim((string) $this->title),
+            'caption' => trim((string) $this->caption),
+            'call_to_action' => $this->callToAction(),
+            'link_url' => $this->attachedLink(),
+            'hashtags' => trim((string) $this->hashtags),
+            'text' => $this->shareText(),
+        ];
     }
 }

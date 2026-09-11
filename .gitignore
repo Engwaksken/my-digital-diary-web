@@ -1,6 +1,10 @@
 *.log
+*.sqlite
+*.sqlite3
 .DS_Store
 .env
+/kemmytec_digital_diary
+/test-output.txt
 .env.backup
 .env.production
 .phpactor.json
@@ -22,3 +26,4 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+/.env.testing

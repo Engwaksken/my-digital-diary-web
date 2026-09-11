@@ -1,66 +1,115 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\PaymentGateways;
 
 use App\Models\PaymentGateway;
 use App\Models\PaymentTransactionLog;
+use App\Models\User;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Throwable;
 
 /**
- * IoTec Collections integration — OAuth2 client_credentials token, then a
- * mobile money collection (charge) request, with status checked either
- * by polling or via their webhook callback.
+ * ioTec Pay collection driver.
  *
- * Honest flag: this is built from general knowledge of how IoTec's
- * Collections API is structured (token → collect → status/callback),
- * not from their live API docs in front of me right now. The OAuth2
- * token step is standardized and should just work. The collection
- * request's exact field names (walletId, externalId, payer, channel,
- * etc.) are my best understanding and are the part most likely to need
- * a small adjustment once tested against a real sandbox — that's
- * exactly why every raw request/response gets written to
- * payment_transaction_logs.
+ * payment_gateways columns used:
+ * - token_url
+ * - collect_url
+ * - status_url
+ * - client_id      (encrypted)
+ * - client_secret  (encrypted)
+ * - wallet_guid    (encrypted)
+ * - callback_url
+ *
+ * IMPORTANT:
+ * The old driver used api_key/api_secret and merchant_id. Those columns are
+ * not the credential source for this project's payment_gateways schema.
  */
-class IotecDriver implements PaymentGatewayDriverInterface
+final class IotecDriver implements PaymentGatewayDriverInterface
 {
+    private const TOKEN_CACHE_PREFIX = 'iotec_oauth_token_v2_';
+
     public function __construct(protected PaymentGateway $gateway)
     {
     }
 
-    public function getAccessToken(): string
+    public function getAccessToken(bool $forceRefresh = false): string
     {
-        $cacheKey = 'iotec_token_' . $this->gateway->id;
+        $cacheKey = self::TOKEN_CACHE_PREFIX.$this->gateway->id;
 
-        return Cache::remember($cacheKey, now()->addMinutes(50), function () {
-            $response = Http::asForm()->post($this->gateway->token_url, [
-                'client_id' => $this->gateway->api_key,
-                'client_secret' => $this->gateway->api_secret,
+        // Remove the key used by the old driver, whose token was incorrectly
+        // cached for 50 minutes despite ioTec tokens expiring in about 5 min.
+        Cache::forget('iotec_token_'.$this->gateway->id);
+
+        if ($forceRefresh) {
+            Cache::forget($cacheKey);
+        }
+
+        $cached = Cache::get($cacheKey);
+
+        if (is_string($cached) && trim($cached) !== '') {
+            return $cached;
+        }
+
+        $tokenUrl = GatewayValue::required($this->gateway, 'token_url');
+        $clientId = GatewayValue::requiredSecret($this->gateway, 'client_id');
+        $clientSecret = GatewayValue::requiredSecret($this->gateway, 'client_secret');
+
+        $response = Http::asForm()
+            ->acceptJson()
+            ->connectTimeout(10)
+            ->timeout(30)
+            ->post($tokenUrl, [
                 'grant_type' => 'client_credentials',
+                'client_id' => $clientId,
+                'client_secret' => $clientSecret,
             ]);
 
-            if ($response->failed()) {
-                throw new RuntimeException('IoTec token request failed: ' . ($response->json('error_description') ?? $response->json('error') ?? $response->body()));
-            }
+        if ($response->failed()) {
+            throw new RuntimeException(
+                'ioTec authentication failed (HTTP '.$response->status().'): '.
+                $this->safeProviderMessage($response)
+            );
+        }
 
-            $token = $response->json('access_token');
-            if (! $token) {
-                throw new RuntimeException('IoTec token response did not include an access_token — check token_url and credentials.');
-            }
+        $token = trim((string) $response->json('access_token'));
 
-            return $token;
-        });
+        if ($token === '') {
+            throw new RuntimeException(
+                'ioTec authentication succeeded but no access_token was returned.'
+            );
+        }
+
+        $expiresIn = max(1, (int) ($response->json('expires_in') ?? 300));
+
+        // Keep the cached token shorter than its actual provider lifetime.
+        $ttlSeconds = $expiresIn > 45
+            ? $expiresIn - 30
+            : max(1, $expiresIn - 5);
+
+        Cache::put($cacheKey, $token, now()->addSeconds($ttlSeconds));
+
+        return $token;
     }
 
     public function testConnection(): array
     {
         try {
-            $this->getAccessToken();
+            $this->getAccessToken(forceRefresh: true);
 
-            return ['success' => true, 'message' => 'Connected — a valid access token was retrieved.'];
-        } catch (\Throwable $e) {
-            return ['success' => false, 'message' => $e->getMessage()];
+            return [
+                'success' => true,
+                'message' => 'Connected to ioTec successfully.',
+            ];
+        } catch (Throwable $e) {
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+            ];
         }
     }
 
@@ -73,46 +122,50 @@ class IotecDriver implements PaymentGatewayDriverInterface
         ?int $userId,
         ?int $paymentId
     ): PaymentTransactionLog {
-        if (! $phoneNumber) {
-            throw new RuntimeException('IoTec collection requires a phone number.');
+        $phoneNumber = $this->normalizePhoneNumber($phoneNumber);
+
+        if ($phoneNumber === '') {
+            throw new RuntimeException('ioTec collection requires a valid phone number.');
         }
 
-        Cache::forget('iotec_token_' . $this->gateway->id);
-        $token = $this->getAccessToken();
+        if ($amount <= 0) {
+            throw new RuntimeException('ioTec collection amount must be greater than zero.');
+        }
 
-        // Fetched fresh here (only $userId is passed into this method)
-        // purely for payerName below — IoTec's own docs example
-        // includes it, and this app doesn't otherwise ask for a
-        // separate "payer name" during checkout.
-        $payerName = $userId ? (\App\Models\User::find($userId)?->name) : null;
+        $currency = strtoupper(trim($currency));
+
+        if ($currency === '') {
+            throw new RuntimeException('ioTec collection currency is required.');
+        }
+
+        $collectUrl = GatewayValue::required($this->gateway, 'collect_url');
+        $walletGuid = GatewayValue::requiredSecret($this->gateway, 'wallet_guid');
+
+        $payerName = $userId !== null
+            ? trim((string) (User::query()->find($userId)?->name ?? ''))
+            : '';
+
+        $callbackUrl = GatewayValue::plain($this->gateway, 'callback_url');
 
         $payload = [
             'category' => 'MobileMoney',
             'currency' => $currency,
-            'walletId' => $this->gateway->merchant_id,
+            'walletId' => $walletGuid,
             'externalId' => $externalReference,
             'payer' => $phoneNumber,
-            'payerName' => $payerName,
+            'payerName' => $payerName !== '' ? $payerName : null,
             'amount' => $amount,
             'payerNote' => 'Subscription payment',
             'payeeNote' => 'Subscription payment',
-            // IoTec's own /collections/collect documentation example
-            // shows this as null, not a network-specific string like
-            // 'MTN-UG'/'AIRTEL-UG' — they appear to auto-detect the
-            // network from the phone number's own prefix instead.
-            // Sending an unrecognized channel value here is the most
-            // likely explanation for MTN requests being silently
-            // accepted (status: pending, vendor: Mtn correctly
-            // identified) but never actually reaching the customer's
-            // phone, while Airtel — whichever value happened to still
-            // work or get ignored — did.
+            // ioTec can identify the mobile-money operator from the number.
+            // Keep null unless ioTec explicitly requires a channel value.
             'channel' => null,
             'transactionChargesCategory' => 'ChargeWallet',
             'redirectUrl' => null,
-            'callbackUrl' => $this->gateway->callback_url,
+            'callbackUrl' => $callbackUrl !== '' ? $callbackUrl : null,
         ];
 
-        $log = PaymentTransactionLog::create([
+        $log = PaymentTransactionLog::query()->create([
             'payment_gateway_id' => $this->gateway->id,
             'payment_id' => $paymentId,
             'user_id' => $userId,
@@ -121,24 +174,49 @@ class IotecDriver implements PaymentGatewayDriverInterface
             'currency' => $currency,
             'phone_number' => $phoneNumber,
             'network' => $network,
-            'request_payload' => json_encode($payload),
+            'request_payload' => json_encode(
+                $payload,
+                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+            ),
         ]);
 
         try {
-            $response = Http::withToken($token)->post($this->gateway->collect_url, $payload);
+            $response = $this->sendAuthenticatedCollection($collectUrl, $payload);
+
+            // If a cached token was rejected, refresh once and retry. This
+            // handles provider-side token revocation without looping.
+            if ($response->status() === 401) {
+                $response = $this->sendAuthenticatedCollection(
+                    $collectUrl,
+                    $payload,
+                    forceFreshToken: true
+                );
+            }
+
+            $providerReference = $this->providerReference($response);
+            $successful = $response->successful();
 
             $log->update([
                 'response_payload' => $response->body(),
-                'external_reference' => $response->json('id') ?? $response->json('transactionId'),
-                'status' => $response->successful() ? 'pending' : 'failed',
-                'error_message' => $response->failed() ? ($response->json('message') ?? $response->body()) : null,
+                'external_reference' => $providerReference,
+                'status' => $successful ? 'pending' : 'failed',
+                'error_message' => $successful
+                    ? null
+                    : $this->safeProviderMessage($response),
             ]);
 
-            if ($response->failed()) {
-                throw new RuntimeException('IoTec collection request failed: ' . ($response->json('message') ?? $response->body()));
+            if (! $successful) {
+                throw new RuntimeException(
+                    'ioTec collection request failed (HTTP '.$response->status().'): '.
+                    $this->safeProviderMessage($response)
+                );
             }
-        } catch (\Throwable $e) {
-            $log->update(['status' => 'failed', 'error_message' => $e->getMessage()]);
+        } catch (Throwable $e) {
+            $log->update([
+                'status' => 'failed',
+                'error_message' => $e->getMessage(),
+            ]);
+
             throw $e;
         }
 
@@ -147,38 +225,194 @@ class IotecDriver implements PaymentGatewayDriverInterface
 
     public function verifyTransaction(PaymentTransactionLog $log): array
     {
-        if (! $log->external_reference) {
-            throw new RuntimeException('No external reference to check yet — the collection request may not have completed.');
+        $providerReference = trim((string) $log->external_reference);
+
+        if ($providerReference === '') {
+            throw new RuntimeException(
+                'The ioTec transaction has no provider reference to verify.'
+            );
         }
 
-        $token = $this->getAccessToken();
-        $response = Http::withToken($token)->get(rtrim($this->gateway->status_url, '/') . '/' . $log->external_reference);
+        $statusUrl = $this->buildStatusUrl($providerReference);
+
+        $response = $this->authenticatedGet($statusUrl);
+
+        if ($response->status() === 401) {
+            $response = $this->authenticatedGet($statusUrl, forceFreshToken: true);
+        }
 
         if ($response->failed()) {
-            throw new RuntimeException('IoTec status check failed: ' . $response->body());
+            throw new RuntimeException(
+                'ioTec status check failed (HTTP '.$response->status().'): '.
+                $this->safeProviderMessage($response)
+            );
         }
 
-        $status = strtolower((string) ($response->json('status') ?? 'pending'));
-        $mappedStatus = $this->mapStatus($status);
+        $providerStatus = strtolower(trim((string) (
+            $response->json('status')
+            ?? $response->json('transactionStatus')
+            ?? $response->json('state')
+            ?? 'pending'
+        )));
 
-        $log->update(['status' => $mappedStatus, 'response_payload' => $response->body()]);
+        $mappedStatus = $this->mapStatus($providerStatus);
 
-        return ['status' => $mappedStatus, 'raw' => (array) $response->json()];
+        $log->update([
+            'status' => $mappedStatus,
+            'response_payload' => $response->body(),
+            'error_message' => $mappedStatus === 'failed'
+                ? $this->safeProviderMessage($response)
+                : null,
+        ]);
+
+        $raw = $response->json();
+
+        return [
+            'status' => $mappedStatus,
+            'raw' => is_array($raw) ? $raw : [],
+        ];
     }
 
     public function parseWebhookPayload(array $payload): array
     {
-        $externalReference = $payload['id'] ?? $payload['transactionId'] ?? null;
-        $status = strtolower((string) ($payload['status'] ?? ''));
+        $externalReference = $payload['id']
+            ?? $payload['transactionId']
+            ?? $payload['transaction_id']
+            ?? $payload['reference']
+            ?? $payload['externalId']
+            ?? null;
 
-        return ['external_reference' => $externalReference, 'status' => $this->mapStatus($status)];
+        $status = strtolower(trim((string) (
+            $payload['status']
+            ?? $payload['transactionStatus']
+            ?? $payload['state']
+            ?? ''
+        )));
+
+        return [
+            'external_reference' => is_scalar($externalReference)
+                ? (string) $externalReference
+                : null,
+            'status' => $this->mapStatus($status),
+        ];
+    }
+
+    private function sendAuthenticatedCollection(
+        string $url,
+        array $payload,
+        bool $forceFreshToken = false
+    ): Response {
+        $token = $this->getAccessToken($forceFreshToken);
+
+        return Http::withToken($token)
+            ->acceptJson()
+            ->asJson()
+            ->connectTimeout(10)
+            ->timeout(45)
+            ->post($url, $payload);
+    }
+
+    private function authenticatedGet(
+        string $url,
+        bool $forceFreshToken = false
+    ): Response {
+        $token = $this->getAccessToken($forceFreshToken);
+
+        return Http::withToken($token)
+            ->acceptJson()
+            ->connectTimeout(10)
+            ->timeout(30)
+            ->get($url);
+    }
+
+    private function buildStatusUrl(string $providerReference): string
+    {
+        $statusUrl = GatewayValue::required($this->gateway, 'status_url');
+        $encodedReference = rawurlencode($providerReference);
+
+        foreach (['{id}', '{reference}', '{transactionId}'] as $placeholder) {
+            if (str_contains($statusUrl, $placeholder)) {
+                return str_replace($placeholder, $encodedReference, $statusUrl);
+            }
+        }
+
+        return rtrim($statusUrl, '/').'/'.$encodedReference;
+    }
+
+    private function providerReference(Response $response): ?string
+    {
+        $reference = $response->json('id')
+            ?? $response->json('transactionId')
+            ?? $response->json('transaction_id')
+            ?? $response->json('reference')
+            ?? null;
+
+        return is_scalar($reference) && trim((string) $reference) !== ''
+            ? trim((string) $reference)
+            : null;
+    }
+
+    private function safeProviderMessage(Response $response): string
+    {
+        $message = $response->json('error_description')
+            ?? $response->json('message')
+            ?? $response->json('error')
+            ?? $response->json('detail')
+            ?? null;
+
+        if (is_scalar($message) && trim((string) $message) !== '') {
+            return trim((string) $message);
+        }
+
+        $body = trim($response->body());
+
+        if ($body === '') {
+            return 'The provider returned an empty response.';
+        }
+
+        // Keep errors useful without dumping an unexpectedly large provider
+        // payload into the UI/log message.
+        return mb_substr($body, 0, 1000);
+    }
+
+    private function normalizePhoneNumber(?string $phoneNumber): string
+    {
+        $value = trim((string) $phoneNumber);
+
+        if ($value === '') {
+            return '';
+        }
+
+        if (str_starts_with($value, '+')) {
+            return '+'.preg_replace('/\D+/', '', substr($value, 1));
+        }
+
+        return preg_replace('/\D+/', '', $value) ?? '';
     }
 
     private function mapStatus(string $status): string
     {
         return match (true) {
-            in_array($status, ['success', 'successful', 'completed'], true) => 'completed',
-            in_array($status, ['failed', 'error', 'declined'], true) => 'failed',
+            in_array($status, [
+                'success',
+                'successful',
+                'completed',
+                'complete',
+                'paid',
+                'approved',
+            ], true) => 'completed',
+
+            in_array($status, [
+                'failed',
+                'failure',
+                'error',
+                'declined',
+                'rejected',
+                'cancelled',
+                'canceled',
+                'expired',
+            ], true) => 'failed',
+
             default => 'pending',
         };
     }

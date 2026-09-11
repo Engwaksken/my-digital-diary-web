@@ -16,13 +16,43 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement('ALTER TABLE health_checkups MODIFY COLUMN checkup_date DATETIME NOT NULL');
-        DB::statement('ALTER TABLE health_checkups MODIFY COLUMN next_due_date DATETIME NULL');
+        DB::statement("
+            CREATE TABLE health_checkups_new (
+                id INTEGER NOT NULL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                checkup_type TEXT NOT NULL,
+                checkup_date TEXT NOT NULL,
+                doctor_name TEXT NULL,
+                findings TEXT NULL,
+                next_due_date TEXT,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                CONSTRAINT fk_health_checkups_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            INSERT INTO health_checkups_new SELECT id, user_id, checkup_type, checkup_date, doctor_name, findings, next_due_date, created_at, updated_at FROM health_checkups;
+            DROP TABLE health_checkups;
+            ALTER TABLE health_checkups_new RENAME TO health_checkups;
+        ");
     }
 
     public function down(): void
     {
-        DB::statement('ALTER TABLE health_checkups MODIFY COLUMN checkup_date DATE NOT NULL');
-        DB::statement('ALTER TABLE health_checkups MODIFY COLUMN next_due_date DATE NULL');
+        DB::statement("
+            CREATE TABLE health_checkups_new (
+                id INTEGER NOT NULL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                checkup_type TEXT NOT NULL,
+                checkup_date TEXT NOT NULL,
+                doctor_name TEXT NULL,
+                findings TEXT NULL,
+                next_due_date TEXT,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                CONSTRAINT fk_health_checkups_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            INSERT INTO health_checkups_new SELECT id, user_id, checkup_type, checkup_date, doctor_name, findings, next_due_date, created_at, updated_at FROM health_checkups;
+            DROP TABLE health_checkups;
+            ALTER TABLE health_checkups_new RENAME TO health_checkups;
+        ");
     }
 };

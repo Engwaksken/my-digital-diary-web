@@ -1,128 +1,221 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\SpiritualPractice;
-use App\Services\RecurringSpiritualPracticeService;
+use App\Services\DailyInsightService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class SpiritualPracticeController extends Controller
 {
     private array $rules = [
-        'practice_type' => 'required|in:prayer,meditation,scripture_reading,worship,fasting,service,journaling,other',
-        'title' => 'nullable|string|max:255',
-        'preacher' => 'nullable|string|max:255',
-        'theme_topic' => 'nullable|string|max:255',
-        'scriptures' => 'nullable|string',
-        'lessons_learnt' => 'nullable|string',
-        'practiced_at' => 'required|date',
-        'practice_time' => ['nullable', 'regex:/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/'],
-        'duration_minutes' => 'nullable|integer|min:0',
-        'next_planned_date' => 'nullable|date',
-        'reflection' => 'nullable|string',
-        'recurrence_frequency' => 'nullable|in:daily,weekly,monthly',
-        'recurrence_days_of_week' => 'nullable',
-        'recurrence_ends_at' => 'nullable|date|after_or_equal:practiced_at',
+        'faith_path' => ['nullable','string','max:100'],
+        'custom_faith_path' => ['nullable','string','max:150'],
+        'practice_type' => ['required','string','max:120'],
+        'practice_title' => ['nullable','string','max:255'],
+        'theme_topic' => ['nullable','string','max:255'],
+        'inspirational_text' => ['nullable','string'],
+        'source_tradition' => ['nullable','string','max:255'],
+        'reflection' => ['nullable','string'],
+        'gratitude' => ['nullable','string'],
+        'intention' => ['nullable','string'],
+        'community_place' => ['nullable','string','max:255'],
+        'duration_minutes' => ['nullable','integer','min:0','max:1440'],
+        'practice_date' => ['nullable','date'],
+        'practiced_at' => ['nullable','date'],
+        'practice_time' => ['nullable','string','max:20'],
+        'mood_before' => ['nullable','string','max:60'],
+        'mood_after' => ['nullable','string','max:60'],
+        'notes' => ['nullable','string'],
+        'recurrence_frequency' => ['nullable','in:daily,weekly,monthly'],
+        'recurrence_days_of_week' => ['nullable','array'],
+        'recurrence_days_of_week.*' => ['integer','min:1','max:7'],
+        'recurrence_ends_at' => ['nullable','date'],
     ];
 
     public function index(Request $request): JsonResponse
     {
-        return response()->json(
-            SpiritualPractice::where('user_id', $request->user()->id)
-                ->where('is_archived', false)
-                ->orderByDesc('practiced_at')
-                ->orderByDesc('id')
-                ->paginate(20)
-        );
+        $query = SpiritualPractice::query()
+            ->where('user_id', $request->user()->id);
+
+        if (Schema::hasColumn('spiritual_practices', 'is_archived')) {
+            $query->where('is_archived', $request->boolean('archived'));
+        }
+
+        $search = trim((string) $request->query('q', ''));
+        if ($search !== '') {
+            $query->where(function ($builder) use ($search): void {
+                foreach ([
+                    'practice_title',
+                    'practice_type',
+                    'faith_path',
+                    'reflection',
+                    'notes',
+                ] as $column) {
+                    if (Schema::hasColumn('spiritual_practices', $column)) {
+                        $builder->orWhere($column, 'like', '%'.$search.'%');
+                    }
+                }
+            });
+        }
+
+        $items = $query
+            ->orderByDesc('practiced_at')
+            ->orderByDesc('id')
+            ->paginate(20)
+            ->withQueryString();
+
+        return response()->json([
+            'data' => $items->items(),
+            'meta' => [
+                'current_page' => $items->currentPage(),
+                'last_page' => $items->lastPage(),
+                'per_page' => $items->perPage(),
+                'total' => $items->total(),
+            ],
+        ]);
     }
 
     public function show(Request $request, int $id): JsonResponse
     {
-        return response()->json(
-            SpiritualPractice::where('user_id', $request->user()->id)
-                ->findOrFail($id)
-        );
+        return response()->json([
+            'data' => $this->owned($request, $id),
+        ]);
     }
 
     public function store(Request $request): JsonResponse
     {
-        $data = $request->validate($this->rules);
+        $data = $this->normalise($request->validate($this->rules));
         $data['user_id'] = $request->user()->id;
-        $this->normaliseTime($data);
-        $this->normaliseRecurrence($data);
 
-        $practice = SpiritualPractice::create($data);
+        $item = SpiritualPractice::query()->create($data);
 
-        if ($practice->isRecurring()) {
-            app(RecurringSpiritualPracticeService::class)
-                ->generateUpcoming($practice);
-        }
+        $this->invalidateInsight($request);
 
-        return response()->json($practice->fresh(), 201);
+        return response()->json([
+            'message' => 'Spiritual practice saved.',
+            'data' => $item->fresh(),
+        ], 201);
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $practice = SpiritualPractice::where('user_id', $request->user()->id)
-            ->findOrFail($id);
+        $item = $this->owned($request, $id);
 
-        $data = $request->validate($this->rules);
-        $this->normaliseTime($data);
-        $this->normaliseRecurrence($data);
-        $practice->update($data);
+        $item->update(
+            $this->normalise($request->validate($this->rules))
+        );
 
-        if (! $practice->recurrence_parent_id && $practice->isRecurring()) {
-            app(RecurringSpiritualPracticeService::class)
-                ->generateUpcoming($practice);
-        }
+        $this->invalidateInsight($request);
 
-        return response()->json($practice->fresh());
+        return response()->json([
+            'message' => 'Spiritual practice updated.',
+            'data' => $item->fresh(),
+        ]);
     }
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $practice = SpiritualPractice::where('user_id', $request->user()->id)
+        $item = $this->owned($request, $id);
+        $item->delete();
+
+        $this->invalidateInsight($request);
+
+        return response()->json([
+            'message' => 'Spiritual practice deleted.',
+        ]);
+    }
+
+    public function archive(Request $request, int $id): JsonResponse
+    {
+        $item = $this->owned($request, $id);
+
+        if (Schema::hasColumn('spiritual_practices', 'is_archived')) {
+            $item->forceFill([
+                'is_archived' => true,
+                'archived_at' => now(),
+            ])->save();
+        }
+
+        return response()->json(['data' => $item->fresh()]);
+    }
+
+    public function unarchive(Request $request, int $id): JsonResponse
+    {
+        $item = $this->owned($request, $id);
+
+        if (Schema::hasColumn('spiritual_practices', 'is_archived')) {
+            $item->forceFill([
+                'is_archived' => false,
+                'archived_at' => null,
+            ])->save();
+        }
+
+        return response()->json(['data' => $item->fresh()]);
+    }
+
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $ids = $request->validate([
+            'ids' => ['required','array','min:1'],
+            'ids.*' => ['integer'],
+        ])['ids'];
+
+        $items = SpiritualPractice::query()
+            ->where('user_id', $request->user()->id)
+            ->whereIn('id', $ids)
+            ->get();
+
+        foreach ($items as $item) {
+            $item->delete();
+        }
+
+        $this->invalidateInsight($request);
+
+        return response()->json([
+            'message' => $items->count().' spiritual practice(s) deleted.',
+            'deleted' => $items->count(),
+        ]);
+    }
+
+    private function owned(Request $request, int $id): SpiritualPractice
+    {
+        return SpiritualPractice::query()
+            ->where('user_id', $request->user()->id)
             ->findOrFail($id);
-        $practice->delete();
-
-        return response()->json(['message' => 'Deleted.']);
     }
 
-
-    private function normaliseTime(array &$data): void
+    private function normalise(array $data): array
     {
-        if (! empty($data['practice_time'])) {
-            $data['practice_time'] = substr((string) $data['practice_time'], 0, 5);
+        $data['practiced_at'] =
+            $data['practice_date']
+            ?? $data['practiced_at']
+            ?? now()->toDateString();
+
+        unset($data['practice_date']);
+
+        $data['title'] = $data['practice_title'] ?? null;
+        $data['scriptures'] = $data['inspirational_text'] ?? null;
+
+        if (($data['faith_path'] ?? '') !== 'Custom') {
+            $data['custom_faith_path'] = null;
         }
+
+        return $data;
     }
 
-    private function normaliseRecurrence(array &$data): void
+    private function invalidateInsight(Request $request): void
     {
-        if (empty($data['recurrence_frequency'])) {
-            $data['recurrence_frequency'] = null;
-            $data['recurrence_days_of_week'] = null;
-            $data['recurrence_ends_at'] = null;
-            return;
+        try {
+            app(DailyInsightService::class)
+                ->invalidateFor($request->user());
+        } catch (\Throwable $exception) {
+            report($exception);
         }
-
-        $raw = $data['recurrence_days_of_week'] ?? null;
-
-        if (is_array($raw)) {
-            $days = $raw;
-        } else {
-            $days = preg_split('/[\s,]+/', trim((string) $raw)) ?: [];
-        }
-
-        $days = collect($days)
-            ->map(fn ($day) => (int) $day)
-            ->filter(fn ($day) => $day >= 1 && $day <= 7)
-            ->unique()
-            ->sort()
-            ->values()
-            ->all();
-
-        $data['recurrence_days_of_week'] = $days ?: null;
     }
 }

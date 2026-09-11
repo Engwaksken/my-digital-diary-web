@@ -1,19 +1,23 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\PaymentGateways;
 
 use App\Models\PaymentGateway;
 use RuntimeException;
 
-/**
- * Resolves a PaymentGateway row to the driver class that actually knows
- * how to talk to that provider — the ONE place that needs a new line
- * when a new aggregator gets built out. Everything else (subscription
- * checkout, the webhook controller, admin forms) works against
- * PaymentGatewayDriverInterface and never needs to change.
- */
-class PaymentGatewayDriverFactory
+final class PaymentGatewayDriverFactory
 {
+    /**
+     * Registered gateway codes.
+     *
+     * Some registered drivers are intentional placeholders so existing Admin
+     * configuration remains compatible. Use implementedCodes() when callers
+     * need providers that can currently process live collections.
+     *
+     * @var array<string, class-string<PaymentGatewayDriverInterface>>
+     */
     private const DRIVERS = [
         'iotec' => IotecDriver::class,
         'pesapal' => PesapalDriver::class,
@@ -21,22 +25,49 @@ class PaymentGatewayDriverFactory
         'paypal' => PayPalDriver::class,
     ];
 
+    /**
+     * @var string[]
+     */
+    private const IMPLEMENTED = [
+        'iotec',
+    ];
+
     public static function make(PaymentGateway $gateway): PaymentGatewayDriverInterface
     {
-        $driverClass = self::DRIVERS[$gateway->gateway_code] ?? null;
+        $code = strtolower(trim((string) $gateway->gateway_code));
+        $driverClass = self::DRIVERS[$code] ?? null;
 
-        if (! $driverClass) {
+        if ($driverClass === null) {
             throw new RuntimeException(
-                "No driver registered for gateway_code '{$gateway->gateway_code}' — add one to PaymentGatewayDriverFactory::DRIVERS."
+                "No payment driver is registered for gateway_code '{$gateway->gateway_code}'."
             );
         }
 
         return new $driverClass($gateway);
     }
 
-    /** @return string[] gateway_code values that have a real (non-placeholder) driver */
+    /**
+     * Backwards-compatible list of every registered gateway code.
+     *
+     * @return string[]
+     */
     public static function availableCodes(): array
     {
         return array_keys(self::DRIVERS);
+    }
+
+    /**
+     * Providers whose API integration is currently implemented.
+     *
+     * @return string[]
+     */
+    public static function implementedCodes(): array
+    {
+        return self::IMPLEMENTED;
+    }
+
+    public static function isImplemented(string $gatewayCode): bool
+    {
+        return in_array(strtolower(trim($gatewayCode)), self::IMPLEMENTED, true);
     }
 }

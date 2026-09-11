@@ -12,32 +12,16 @@ use App\Models\SubscriptionPlan;
 use App\Services\MonthlyReviewService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 
-/**
- * Real payment gateways are admin-configured (see AdminPaymentGatewayController
- * / /admin/payment-gateways) rather than hardcoded here:
- *
- *   - card: a live Stripe Checkout redirect using the admin's own API keys
- *     (called directly via Http, no Stripe SDK/composer package needed).
- *   - bank / mobile_money: no live API — there's no single API that covers
- *     arbitrary banks or mobile money providers worldwide. Users submit a
- *     transaction reference after paying outside the app; an admin
- *     approves or rejects it at /admin/payments.
- *
- * Pricing tiers (Monthly/3mo/6mo/Annual/Lifetime, admin-configurable
- * discounts) live in SubscriptionPlan — see AdminSubscriptionPlanController.
- * Every payment path below now requires a plan_id and uses that plan's
- * computed price + duration, rather than always charging the flat monthly
- * rate.
- *
- * If NO gateways are configured at all, `subscribe()` below still works as
- * a demo/no-payment-provider fallback, exactly as before.
- */
+
 class SubscriptionController extends Controller
 {
     public function show(Request $request, MonthlyReviewService $monthlyReviewService): View
@@ -45,63 +29,286 @@ class SubscriptionController extends Controller
         $user = $request->user();
         $settings = SiteSetting::current();
 
-        $gateways = PaymentGateway::where('is_enabled', true)->orderBy('type')->get();
-        $plans = SubscriptionPlan::where('is_enabled', true)->orderBy('sort_order')->get();
+        /*
+         * Production-safe schema handling.
+         *
+         * The subscription screen must never assume that an older related
+         * table has a `user_id` column. The current production database has
+         * at least one legacy table in this flow without that column.
+         */
+        $gatewayTable = (new PaymentGateway())->getTable();
+        $gatewayQuery = PaymentGateway::query();
 
-        // ---- Invoices & Receipts tab: search, period filter, pagination ----
+        if (Schema::hasColumn($gatewayTable, 'is_enabled')) {
+            $gatewayQuery->where('is_enabled', true);
+        }
+
+        $gatewayQuery->orderBy(
+            Schema::hasColumn($gatewayTable, 'type') ? 'type' : 'id'
+        );
+
+        $gateways = $gatewayQuery->get();
+
+        $planTable = (new SubscriptionPlan())->getTable();
+        $planQuery = SubscriptionPlan::query();
+
+        if (Schema::hasColumn($planTable, 'is_enabled')) {
+            $planQuery->where('is_enabled', true);
+        }
+
+        if (Schema::hasColumn($planTable, 'sort_order')) {
+            $planQuery->orderBy('sort_order');
+        } elseif (Schema::hasColumn($planTable, 'display_order')) {
+            $planQuery->orderBy('display_order');
+        } elseif (Schema::hasColumn($planTable, 'name')) {
+            $planQuery->orderBy('name');
+        } else {
+            $planQuery->orderBy('id');
+        }
+
+        $plans = $planQuery->get();
+
         $search = $request->query('billing_q');
         $period = $request->query('billing_period');
         $from = $request->query('billing_from');
         $to = $request->query('billing_to');
 
-        $paymentsQuery = $user->payments()->with(['gateway', 'plan', 'invoice', 'transactionLogs'])
-            ->when($search, fn ($q) => $q->where(function ($sub) use ($search) {
-                $sub->where('reference', 'like', "%{$search}%")
-                    ->orWhereHas('plan', fn ($p) => $p->where('name', 'like', "%{$search}%"));
-            }));
-
-        match ($period) {
-            'daily' => $paymentsQuery->whereDate('created_at', now()->toDateString()),
-            'weekly' => $paymentsQuery->whereBetween('created_at', [now()->startOfWeek(), now()->endOfWeek()]),
-            'monthly' => $paymentsQuery->whereBetween('created_at', [now()->startOfMonth(), now()->endOfMonth()]),
-            'range' => ($from && $to)
-                ? $paymentsQuery->whereBetween('created_at', [$from . ' 00:00:00', $to . ' 23:59:59'])
-                : null,
-            default => null,
-        };
-
         $billingPerPage = (int) $request->query('billing_per_page', 10);
+
         if (! in_array($billingPerPage, [10, 25, 50, 100], true)) {
             $billingPerPage = 10;
         }
 
-        $payments = $paymentsQuery
-            ->orderByDesc('id')
-            ->paginate($billingPerPage, ['*'], 'billing_page')
-            ->withQueryString();
+        $paymentTable = (new Payment())->getTable();
+        $paymentHasUserId = Schema::hasTable($paymentTable)
+            && Schema::hasColumn($paymentTable, 'user_id');
 
-        $accountPhone = $user->phone_number
-            ?: BusinessCard::where('user_id', $user->id)->value('phone');
+        if ($paymentHasUserId) {
+            $paymentsQuery = Payment::query()
+                ->where('user_id', $user->id)
+                ->with(['gateway', 'plan', 'invoice', 'transactionLogs'])
+                ->when($search, function ($query) use ($search): void {
+                    $query->where(function ($sub) use ($search): void {
+                        if (Schema::hasColumn((new Payment())->getTable(), 'reference')) {
+                            $sub->where('reference', 'like', "%{$search}%");
+                        }
 
-        $automaticMobileGateway = $gateways->first(fn ($gateway) => $gateway->collectsAutomatically());
-        $bankGateways = $gateways->where('type', 'bank')->values();
+                        try {
+                            $sub->orWhereHas(
+                                'plan',
+                                fn ($planQuery) =>
+                                    $planQuery->where('name', 'like', "%{$search}%")
+                            );
+                        } catch (\Throwable $exception) {
+                            Log::debug('Subscription search skipped plan relationship.', [
+                                'error' => $exception->getMessage(),
+                            ]);
+                        }
+                    });
+                });
 
-        $billingStats = [
-            'total_invoices' => Invoice::where('user_id', $user->id)->count(),
-            'completed' => $user->payments()->where('status', 'completed')->count(),
-            'pending' => $user->payments()->where('status', 'pending')->count(),
-            'failed' => $user->payments()->whereIn('status', ['failed', 'rejected'])->count(),
-        ];
+            if (Schema::hasColumn($paymentTable, 'created_at')) {
+                match ($period) {
+                    'daily' => $paymentsQuery->whereDate(
+                        'created_at',
+                        now()->toDateString()
+                    ),
+                    'weekly' => $paymentsQuery->whereBetween(
+                        'created_at',
+                        [now()->startOfWeek(), now()->endOfWeek()]
+                    ),
+                    'monthly' => $paymentsQuery->whereBetween(
+                        'created_at',
+                        [now()->startOfMonth(), now()->endOfMonth()]
+                    ),
+                    'range' => ($from && $to)
+                        ? $paymentsQuery->whereBetween(
+                            'created_at',
+                            [$from.' 00:00:00', $to.' 23:59:59']
+                        )
+                        : null,
+                    default => null,
+                };
+            }
 
-        $monthReview = $monthlyReviewService->build($user, Carbon::now($user->timezone ?: 'Africa/Kampala'));
-        $monthValue = $monthReview['value'] ?? [];
+            try {
+                $payments = $paymentsQuery
+                    ->orderByDesc('id')
+                    ->paginate(
+                        $billingPerPage,
+                        ['*'],
+                        'billing_page'
+                    )
+                    ->withQueryString();
+            } catch (\Throwable $exception) {
+                Log::warning('Subscription payment history could not be loaded.', [
+                    'table' => $paymentTable,
+                    'user_id' => $user->id,
+                    'error' => $exception->getMessage(),
+                ]);
+
+                $payments = $this->emptyBillingPaginator(
+                    $request,
+                    $billingPerPage
+                );
+            }
+        } else {
+            Log::warning('Subscription page: payment table has no user_id column.', [
+                'table' => $paymentTable,
+                'user_id' => $user->id,
+            ]);
+
+            $payments = $this->emptyBillingPaginator(
+                $request,
+                $billingPerPage
+            );
+        }
+
+        $accountPhone = $user->phone_number ?? null;
+
+        if (! $accountPhone) {
+            $businessCardTable = (new BusinessCard())->getTable();
+
+            if (
+                Schema::hasTable($businessCardTable)
+                && Schema::hasColumn($businessCardTable, 'user_id')
+                && Schema::hasColumn($businessCardTable, 'phone')
+            ) {
+                $accountPhone = BusinessCard::query()
+                    ->where('user_id', $user->id)
+                    ->value('phone');
+            } else {
+                Log::info('Subscription page skipped BusinessCard user lookup.', [
+                    'table' => $businessCardTable,
+                    'has_user_id' => Schema::hasTable($businessCardTable)
+                        && Schema::hasColumn($businessCardTable, 'user_id'),
+                ]);
+            }
+        }
+
+        $automaticMobileGateway = $gateways->first(
+            fn ($gateway) =>
+                method_exists($gateway, 'collectsAutomatically')
+                && $gateway->collectsAutomatically()
+        );
+
+        $bankGateways = $gateways
+            ->filter(
+                fn ($gateway) =>
+                    strtolower((string) ($gateway->type ?? '')) === 'bank'
+            )
+            ->values();
+
+        $invoiceTable = (new Invoice())->getTable();
+        $totalInvoices = 0;
+
+        if (
+            Schema::hasTable($invoiceTable)
+            && Schema::hasColumn($invoiceTable, 'user_id')
+        ) {
+            $totalInvoices = Invoice::query()
+                ->where('user_id', $user->id)
+                ->count();
+        } elseif (
+            Schema::hasTable($invoiceTable)
+            && $paymentHasUserId
+            && Schema::hasColumn($invoiceTable, 'payment_id')
+        ) {
+            $totalInvoices = Invoice::query()
+                ->whereIn(
+                    'payment_id',
+                    Payment::query()
+                        ->where('user_id', $user->id)
+                        ->select('id')
+                )
+                ->count();
+
+            Log::info('Subscription invoice count uses payment_id fallback.', [
+                'table' => $invoiceTable,
+            ]);
+        } elseif (Schema::hasTable($invoiceTable)) {
+            Log::info('Subscription page invoice table has no compatible user ownership column.', [
+                'table' => $invoiceTable,
+            ]);
+        }
+
+        if ($paymentHasUserId) {
+            $userPayments = Payment::query()
+                ->where('user_id', $user->id);
+
+            $billingStats = [
+                'total_invoices' => $totalInvoices,
+                'completed' => (clone $userPayments)
+                    ->where('status', 'completed')
+                    ->count(),
+                'pending' => (clone $userPayments)
+                    ->where('status', 'pending')
+                    ->count(),
+                'failed' => (clone $userPayments)
+                    ->whereIn('status', ['failed', 'rejected'])
+                    ->count(),
+            ];
+        } else {
+            $billingStats = [
+                'total_invoices' => $totalInvoices,
+                'completed' => 0,
+                'pending' => 0,
+                'failed' => 0,
+            ];
+        }
+
         $valueSummary = [
-            'tasks_completed' => (int) ($monthValue['tasks_completed'] ?? 0),
-            'expenses_tracked' => (float) ($monthReview['money']['expenses'] ?? 0),
-            'saved' => (float) ($monthReview['money']['saved'] ?? 0),
-            'ai_plans' => (int) ($monthValue['ai_plans'] ?? 0),
-            'meetings' => (int) ($monthValue['meetings'] ?? 0),
+            'tasks_completed' => 0,
+            'expenses_tracked' => 0.0,
+            'saved' => 0.0,
+            'ai_plans' => 0,
+            'meetings' => 0,
         ];
+
+        try {
+            $monthReview = $monthlyReviewService->build(
+                $user,
+                Carbon::now($user->timezone ?: 'Africa/Kampala')
+            );
+
+            $monthValue = $monthReview['value'] ?? [];
+
+            $valueSummary = [
+                'tasks_completed' => (int) ($monthValue['tasks_completed'] ?? 0),
+                'expenses_tracked' => (float) ($monthReview['money']['expenses'] ?? 0),
+                'saved' => (float) ($monthReview['money']['saved'] ?? 0),
+                'ai_plans' => (int) ($monthValue['ai_plans'] ?? 0),
+                'meetings' => (int) ($monthValue['meetings'] ?? 0),
+            ];
+        } catch (\Throwable $exception) {
+            Log::warning('Subscription monthly value summary could not be built.', [
+                'user_id' => $user->id,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+
+        $autoRenewGateway = $gateways->first(
+            fn ($gateway) =>
+                in_array(
+                    strtolower((string) ($gateway->type ?? '')),
+                    ['mobile_money', 'aggregator'],
+                    true
+                )
+                && method_exists($gateway, 'collectsAutomatically')
+                && $gateway->collectsAutomatically()
+        );
+
+        $autoRenewEnabled = Schema::hasColumn('users', 'auto_renew_subscription')
+            ? (bool) $user->getAttribute('auto_renew_subscription')
+            : false;
+
+        $autoRenewPhone = Schema::hasColumn('users', 'auto_renew_phone')
+            ? ($user->getAttribute('auto_renew_phone') ?: $accountPhone)
+            : $accountPhone;
+
+        $autoRenewNetwork = Schema::hasColumn('users', 'auto_renew_network')
+            ? ($user->getAttribute('auto_renew_network') ?: 'mtn')
+            : 'mtn';
 
         return view('subscription.show', [
             'user' => $user,
@@ -119,7 +326,28 @@ class SubscriptionController extends Controller
             'automaticMobileGateway' => $automaticMobileGateway,
             'bankGateways' => $bankGateways,
             'valueSummary' => $valueSummary,
+            'autoRenewGateway' => $autoRenewGateway,
+            'autoRenewEnabled' => $autoRenewEnabled,
+            'autoRenewPhone' => $autoRenewPhone,
+            'autoRenewNetwork' => $autoRenewNetwork,
         ]);
+    }
+
+    private function emptyBillingPaginator(
+        Request $request,
+        int $perPage
+    ): LengthAwarePaginator {
+        return new LengthAwarePaginator(
+            [],
+            0,
+            $perPage,
+            (int) $request->query('billing_page', 1),
+            [
+                'path' => $request->url(),
+                'query' => $request->query(),
+                'pageName' => 'billing_page',
+            ]
+        );
     }
 
     /**
@@ -244,11 +472,129 @@ class SubscriptionController extends Controller
         }
     }
 
+    /**
+     * Let the account owner enable/disable automatic renewal.
+     *
+     * Auto renewal does NOT store a Mobile Money PIN or card details.
+     * On the expiry date the scheduler creates the next invoice/payment and
+     * sends a Mobile Money collection prompt to the saved phone number.
+     * Subscription access is extended only after the gateway confirms success.
+     */
+    public function updateAutoRenew(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+
+        abort_unless(
+            Schema::hasColumn('users', 'auto_renew_subscription'),
+            503,
+            'Auto renewal is not installed yet. Run the latest migration.'
+        );
+
+        $data = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'phone_number' => ['nullable', 'string', 'max:30'],
+            'network' => ['nullable', 'in:mtn,airtel'],
+        ]);
+
+        $enabled = (bool) $data['enabled'];
+
+        if ($enabled) {
+            if (! $user->subscription_plan_id) {
+                return back()->withErrors([
+                    'auto_renew' => 'Choose and activate a subscription plan before enabling auto renewal.',
+                ]);
+            }
+
+            if (! $user->subscription_expires_at) {
+                return back()->withErrors([
+                    'auto_renew' => 'Lifetime subscriptions do not need auto renewal.',
+                ]);
+            }
+
+            $phone = trim((string) ($data['phone_number'] ?? ''));
+
+            if ($phone === '') {
+                return back()->withErrors([
+                    'auto_renew' => 'Enter the Mobile Money number to use for renewal prompts.',
+                ]);
+            }
+
+            $gateway = PaymentGateway::query()
+                ->where('is_enabled', true)
+                ->whereIn('type', ['mobile_money', 'aggregator'])
+                ->get()
+                ->first(fn ($candidate) => $candidate->collectsAutomatically());
+
+            if (! $gateway) {
+                return back()->withErrors([
+                    'auto_renew' => 'Automatic Mobile Money collection is not configured yet.',
+                ]);
+            }
+
+            $network = $data['network'] ?? 'mtn';
+
+            if ($network === 'mtn' && ! $gateway->supports_mtn) {
+                return back()->withErrors([
+                    'auto_renew' => 'MTN Mobile Money is not enabled on the automatic payment gateway.',
+                ]);
+            }
+
+            if ($network === 'airtel' && ! $gateway->supports_airtel) {
+                return back()->withErrors([
+                    'auto_renew' => 'Airtel Money is not enabled on the automatic payment gateway.',
+                ]);
+            }
+
+            $user->forceFill([
+                'auto_renew_subscription' => true,
+                'auto_renew_phone' => $phone,
+                'auto_renew_network' => $network,
+                'auto_renew_payment_gateway_id' => $gateway->id,
+                'auto_renew_disabled_at' => null,
+            ])->save();
+
+            // Keep the account payment phone in sync for normal checkout too.
+            if (Schema::hasColumn('users', 'phone_number')) {
+                $user->forceFill(['phone_number' => $phone])->save();
+            }
+
+            BillingEventLog::record('subscription_auto_renew_enabled', $user->id, [
+                'payment_gateway_id' => $gateway->id,
+                'network' => $network,
+                'phone_number' => $phone,
+                'subscription_plan_id' => $user->subscription_plan_id,
+                'expires_at' => optional($user->subscription_expires_at)?->toDateTimeString(),
+            ]);
+
+            return redirect()
+                ->route('subscription.show')
+                ->with(
+                    'success',
+                    'Auto renewal enabled. On the expiry date, a Mobile Money payment prompt will be sent to your saved number.'
+                );
+        }
+
+        $user->forceFill([
+            'auto_renew_subscription' => false,
+            'auto_renew_disabled_at' => now(),
+        ])->save();
+
+        BillingEventLog::record('subscription_auto_renew_disabled', $user->id);
+
+        return redirect()
+            ->route('subscription.show')
+            ->with('success', 'Auto renewal disabled.');
+    }
+
     public function cancel(Request $request): RedirectResponse
     {
-        $request->user()->update([
+        $request->user()->forceFill([
             'subscription_status' => 'canceled',
-        ]);
+            'auto_renew_subscription' => false,
+            'auto_renew_disabled_at' => Schema::hasColumn('users', 'auto_renew_disabled_at')
+                ? now()
+                : null,
+        ])->save();
 
         return redirect()->route('subscription.show')->with('status', 'Subscription canceled.');
     }

@@ -130,7 +130,7 @@
             if (data.receipt_number) notes.push('Receipt #: ' + data.receipt_number);
             if (data.notes) notes.push(data.notes);
             var notesField = document.getElementById('field-notes');
-            if (notesField && !notesField.value.trim() && notes.length) notesField.value = notes.join(' 路 ');
+            if (notesField && !notesField.value.trim() && notes.length) notesField.value = notes.join(' • ');
 
             var items = Array.isArray(data.items) ? data.items : [];
             if (items.length) {

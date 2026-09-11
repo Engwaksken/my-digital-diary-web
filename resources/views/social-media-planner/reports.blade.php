@@ -36,6 +36,7 @@
 @endphp
 
 <div class="space-y-4">
+    @include('social-media-planner.partials.navigation-tabs')
     <div class="apple-surface rounded-2xl p-4 sm:p-5">
         <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -53,12 +54,7 @@
             </div>
 
             <div class="flex flex-wrap gap-2">
-                <a href="{{ route('social-media-planner.index') }}"
-                   class="apple-btn rounded-xl px-4 py-2.5 text-sm font-bold">
-                    <i class="fa-solid fa-arrow-left mr-1"></i>
-                    Planner
-                </a>
-
+@if(Route::has('social-media-planner.reports.sync'))
                 <form method="POST" action="{{ route('social-media-planner.reports.sync') }}" class="inline">
                     @csrf
                     <button type="submit"
@@ -67,6 +63,7 @@
                         Sync Analytics
                     </button>
                 </form>
+                @endif
 
                 <a href="{{ route('social-media-planner.reports.csv', request()->query()) }}"
                    class="apple-btn rounded-xl px-4 py-2.5 text-sm font-bold">
@@ -92,7 +89,7 @@
                 </div>
                 <div class="mt-1 text-xs text-slate-500">
                     @if(!empty($sync['last_synced_at']))
-                        Last synced {{ \Illuminate\Support\Carbon::parse($sync['last_synced_at'])->timezone(auth()->user()->timezone ?: 'Africa/Kampala')->format('d M Y, g:i A') }}
+                        Last synced {{ \Illuminate\Support\Carbon::parse($sync['last_synced_at'])->timezone(auth()->user()?->timezone ?: 'Africa/Kampala')->format('d M Y, g:i A') }}
                     @else
                         No automatic analytics have been fetched yet.
                     @endif
@@ -182,7 +179,17 @@
         </div>
     </form>
 
-    <section>
+    <section class="apple-surface rounded-2xl overflow-hidden">
+        <div class="px-4 pt-2 sm:px-5">
+            <div class="smp-subtabs" role="tablist" aria-label="Social media report sections">
+                <button type="button" class="smp-subtab is-active" data-smp-report-tab="summary"><i class="fa-solid fa-chart-column"></i> Summary</button>
+                <button type="button" class="smp-subtab" data-smp-report-tab="performance"><i class="fa-solid fa-chart-line"></i> Performance</button>
+                <button type="button" class="smp-subtab" data-smp-report-tab="platforms"><i class="fa-solid fa-share-nodes"></i> Platforms</button>
+                <button type="button" class="smp-subtab" data-smp-report-tab="history"><i class="fa-solid fa-list-check"></i> Post History</button>
+            </div>
+        </div>
+        <div class="p-4 sm:p-5">
+            <div class="smp-tab-panel" data-smp-report-panel="summary">    <section>
         <div class="mb-3 flex items-center gap-2">
             <i class="fa-solid fa-chart-column text-teal-600"></i>
             <h2 class="smr-section-title">Publishing Summary</h2>
@@ -208,7 +215,8 @@
         </div>
     </section>
 
-    <section>
+</div>
+            <div class="smp-tab-panel" data-smp-report-panel="performance" hidden>    <section>
         <div class="mb-3 flex items-center gap-2">
             <i class="fa-solid fa-chart-line text-teal-600"></i>
             <h2 class="smr-section-title">Performance Analytics</h2>
@@ -238,8 +246,9 @@
         </div>
     </section>
 
-    <div class="grid gap-4 lg:grid-cols-2">
-        <section class="apple-surface rounded-2xl p-4">
+</div>
+            <div class="smp-tab-panel" data-smp-report-panel="platforms" hidden>    <div class="grid gap-4 lg:grid-cols-2">
+        <section class="p-0">
             <div class="flex items-center gap-2">
                 <i class="fa-solid fa-share-nodes text-teal-600"></i>
                 <h2 class="font-black">Posts by Platform</h2>
@@ -263,7 +272,7 @@
             </div>
         </section>
 
-        <section class="apple-surface rounded-2xl p-4">
+        <section class="p-0">
             <div class="flex items-center gap-2">
                 <i class="fa-solid fa-heart-pulse text-teal-600"></i>
                 <h2 class="font-black">Publishing Health</h2>
@@ -293,7 +302,8 @@
         </section>
     </div>
 
-    <section class="apple-surface rounded-2xl overflow-hidden">
+</div>
+            <div class="smp-tab-panel" data-smp-report-panel="history" hidden>    <section class="overflow-hidden">
         <div class="border-b border-slate-100 p-4">
             <div class="flex items-center gap-2">
                 <i class="fa-solid fa-list-check text-teal-600"></i>
@@ -361,7 +371,7 @@
                             <td>{{ number_format((int) $postReach) }}</td>
                             <td>{{ number_format((int) $postEngagements) }}</td>
                             <td class="whitespace-nowrap text-xs text-slate-500">
-                                {{ $postLastSync ? $postLastSync->timezone(auth()->user()->timezone ?: 'Africa/Kampala')->format('d M, g:i A') : '—' }}
+                                {{ $postLastSync ? $postLastSync->timezone(auth()->user()?->timezone ?: 'Africa/Kampala')->format('d M, g:i A') : '—' }}
                             </td>
 
                             <td class="text-right">
@@ -384,5 +394,24 @@
             </table>
         </div>
     </section>
+</div>
+        </div>
+    </section>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const tabs = document.querySelectorAll('[data-smp-report-tab]');
+        const panels = document.querySelectorAll('[data-smp-report-panel]');
+        function activate(name) {
+            tabs.forEach(tab => tab.classList.toggle('is-active', tab.dataset.smpReportTab === name));
+            panels.forEach(panel => panel.hidden = panel.dataset.smpReportPanel !== name);
+            try { sessionStorage.setItem('mdd-social-report-tab', name); } catch (_) {}
+        }
+        tabs.forEach(tab => tab.addEventListener('click', () => activate(tab.dataset.smpReportTab)));
+        let initial = 'summary';
+        try { initial = sessionStorage.getItem('mdd-social-report-tab') || initial; } catch (_) {}
+        activate(initial);
+    });
+    </script>
 </div>
 @endsection

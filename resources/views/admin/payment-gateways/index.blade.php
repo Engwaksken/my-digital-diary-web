@@ -3,6 +3,67 @@
 @section('title', 'Payment Gateways')
 
 @section('content')
+
+    <style>
+        /* Payment Gateway dialog: roomy, responsive, header/footer stay visible. */
+        .pm-gateway-dialog {
+            width: min(960px, calc(100vw - 28px));
+            max-width: 960px;
+            max-height: calc(100dvh - 28px);
+            overflow: hidden;
+            border: 0;
+            background: #fff;
+        }
+        .pm-gateway-dialog::backdrop { background: rgba(15, 23, 42, .58); }
+        .pm-gateway-dialog-form {
+            display: flex;
+            flex-direction: column;
+            max-height: calc(100dvh - 28px);
+            min-height: 0;
+            background: #fff;
+        }
+        .pm-gateway-dialog-header {
+            flex: 0 0 auto;
+            padding: 20px 28px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #fff;
+        }
+        .pm-gateway-dialog-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 24px 28px 30px;
+            scrollbar-width: thin;
+            scrollbar-color: #94a3b8 transparent;
+        }
+        .pm-gateway-dialog-body::-webkit-scrollbar { width: 7px; }
+        .pm-gateway-dialog-body::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 999px; }
+        .pm-gateway-dialog-footer {
+            flex: 0 0 auto;
+            padding: 15px 28px;
+            border-top: 1px solid #e2e8f0;
+            background: #fff;
+            box-shadow: 0 -8px 18px rgba(15, 23, 42, .04);
+        }
+        .pm-gateway-dialog-body .pm-input { width: 100%; min-width: 0; }
+        .pm-payment-channel-option:has(input:checked) {
+            border-color: var(--brand-1);
+            box-shadow: 0 0 0 1px var(--brand-1);
+        }
+        @media (max-width: 640px) {
+            .pm-gateway-dialog {
+                width: calc(100vw - 14px);
+                max-height: calc(100dvh - 14px);
+                border-radius: 16px;
+            }
+            .pm-gateway-dialog-form { max-height: calc(100dvh - 14px); }
+            .pm-gateway-dialog-header { padding: 15px 17px; }
+            .pm-gateway-dialog-body { padding: 17px; }
+            .pm-gateway-dialog-footer { padding: 12px 17px; }
+            .pm-gateway-dialog-footer > button { flex: 1 1 0; }
+        }
+    </style>
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div class="flex items-center gap-3">
             <div class="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm shrink-0">
@@ -19,10 +80,11 @@
 
     <p class="text-sm text-slate-500 mb-4">
         Enabled gateways appear as payment options on every user's Subscription page.
-        Bank and Mobile Money payments are verified manually at
-        <a href="{{ route('admin.payments.index') }}" class="text-[var(--brand-1)] hover:underline">Payments</a> —
-        there's no single live API that covers arbitrary banks or mobile money providers. Card payments go
-        through Stripe automatically using the API keys you configure here.
+        Automatic collection gateways such as ioTec can also be used for user-enabled subscription auto renewal:
+        on the expiry date the system starts the renewal collection and activates the next period only after payment succeeds.
+        Manual bank and Mobile Money payments are verified at
+        <a href="{{ route('admin.payments.index') }}" class="text-[var(--brand-1)] hover:underline">Payments</a>.
+        ioTec can expose Mobile Money plus Visa/MasterCard from the same aggregator configuration. Card details are handled by the provider's hosted secure checkout and are never stored by My Digital Diary.
     </p>
 
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">

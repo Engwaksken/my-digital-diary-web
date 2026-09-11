@@ -142,6 +142,7 @@ class UserSnapshotService
                 ->orderByDesc('is_pinned')->latest('updated_at')->limit(8)->get() : collect(),
 
             'education' => $allows('education') ? EducationPlan::where('user_id', $userId)
+                ->where('is_archived', false)
                 ->whereIn('status', ['planned', 'in_progress'])
                 ->limit(10)->get() : collect(),
 

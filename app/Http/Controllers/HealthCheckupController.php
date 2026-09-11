@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\HealthCheckup;
+use App\Services\PersonalHealthGoalProgressService;
+use Illuminate\Http\Request;
 
 class HealthCheckupController extends CrudController
 {
@@ -16,7 +18,11 @@ class HealthCheckupController extends CrudController
     protected array $fields = [
         ['name' => 'checkup_type', 'label' => 'Type (e.g. Dental, General, Eye)', 'type' => 'text', 'required' => true],
         ['name' => 'checkup_date', 'label' => 'Checkup Date & Time', 'type' => 'datetime-local', 'required' => true],
-        ['name' => 'doctor_name', 'label' => 'Doctor / Clinic', 'type' => 'text', 'placeholder' => 'e.g. Dr. Smith, City Dental Clinic'],
+        ['name' => 'doctor_name', 'label' => 'Doctor / Clinic', 'type' => 'text', 'placeholder' => 'e.g. Clinic or health professional'],
+        ['name' => 'weight_kg', 'label' => 'Weight (kg, optional)', 'type' => 'number'],
+        ['name' => 'blood_pressure_systolic', 'label' => 'Blood Pressure – Systolic (optional)', 'type' => 'number'],
+        ['name' => 'blood_pressure_diastolic', 'label' => 'Blood Pressure – Diastolic (optional)', 'type' => 'number'],
+        ['name' => 'heart_rate_bpm', 'label' => 'Heart Rate (bpm, optional)', 'type' => 'number'],
         ['name' => 'next_due_date', 'label' => 'Next Checkup Due (Date & Time)', 'type' => 'datetime-local', 'hint' => 'Leave blank if there is no follow-up scheduled yet.'],
         ['name' => 'findings', 'label' => 'Findings / Notes', 'type' => 'textarea'],
     ];
@@ -25,6 +31,10 @@ class HealthCheckupController extends CrudController
         'checkup_type' => 'required|string|max:255',
         'checkup_date' => 'required|date',
         'doctor_name' => 'nullable|string|max:255',
+        'weight_kg' => 'nullable|numeric|min:1|max:500',
+        'blood_pressure_systolic' => 'nullable|integer|min:40|max:300',
+        'blood_pressure_diastolic' => 'nullable|integer|min:20|max:200',
+        'heart_rate_bpm' => 'nullable|integer|min:20|max:250',
         'next_due_date' => 'nullable|date',
         'findings' => 'nullable|string',
     ];
@@ -58,4 +68,19 @@ class HealthCheckupController extends CrudController
             'datasets' => [['data' => $counts->values()->all()]],
         ];
     }
+
+    protected function afterSave(Request $request, $item, bool $wasCreated): void
+    {
+        app(PersonalHealthGoalProgressService::class)->sync($request->user());
+    }
+
+    public function destroy(Request $request, int $id)
+    {
+        $item = HealthCheckup::where('user_id',$request->user()->id)->findOrFail($id);
+        $item->delete();
+        app(PersonalHealthGoalProgressService::class)->sync($request->user());
+
+        return back()->with('success','Health Checkup deleted.');
+    }
+
 }

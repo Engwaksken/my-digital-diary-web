@@ -3,184 +3,438 @@
 namespace App\Http\Controllers;
 
 use App\Models\SpiritualPractice;
+use App\Services\DailyInsightService;
 use App\Services\RecurringSpiritualPracticeService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\View\View;
 
-class SpiritualPracticeController extends CrudController
+class SpiritualPracticeController extends Controller
 {
-    protected string $model = SpiritualPractice::class;
-    protected string $routeName = 'spiritual-practices';
-    protected string $title = 'Spiritual Practice';
-    protected string $icon = 'fa-solid fa-hands-praying';
-    protected string $accent = 'fuchsia';
-    protected string $dateField = 'practiced_at';
+    public function index(Request $request): View
+    {
+        $tableExists = Schema::hasTable('spiritual_practices');
+        $columns = $tableExists
+            ? Schema::getColumnListing('spiritual_practices')
+            : [];
 
-    protected array $fields = [
-        ['name' => 'practice_type', 'label' => 'Practice', 'type' => 'select', 'required' => true, 'options' => [
-            'prayer' => 'Prayer',
-            'meditation' => 'Meditation',
-            'scripture_reading' => 'Scripture Reading',
-            'worship' => 'Worship',
-            'fasting' => 'Fasting',
-            'service' => 'Service / Volunteering',
-            'journaling' => 'Journaling',
-            'other' => 'Other',
-        ]],
-        ['name' => 'title', 'label' => 'Title (e.g. Morning Devotion)', 'type' => 'text', 'placeholder' => 'e.g. Morning Devotion'],
-        ['name' => 'preacher', 'label' => 'Preacher', 'type' => 'text'],
-        ['name' => 'theme_topic', 'label' => 'Theme / Topic', 'type' => 'text'],
-        ['name' => 'practiced_at', 'label' => 'Start date', 'type' => 'date', 'required' => true],
-        ['name' => 'practice_time', 'label' => 'Time', 'type' => 'time'],
-        ['name' => 'duration_minutes', 'label' => 'Duration (minutes)', 'type' => 'number'],
-        ['name' => 'recurrence_frequency', 'label' => 'Repeat', 'type' => 'select', 'options' => [
-            '' => 'Does not repeat',
-            'daily' => 'Daily',
-            'weekly' => 'Weekly',
-            'monthly' => 'Monthly',
-        ], 'hint' => 'Choose how often My Digital Diary should create the next spiritual-growth sessions.'],
-        ['name' => 'recurrence_days_of_week', 'label' => 'Repeat on (weekly only)', 'type' => 'text', 'placeholder' => 'e.g. 1,3,5', 'hint' => '1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun. Leave blank to use the same weekday as the start date.'],
-        ['name' => 'recurrence_ends_at', 'label' => 'Repeat until (optional)', 'type' => 'date'],
-        ['name' => 'scriptures', 'label' => 'Bible Readings / Scriptures', 'type' => 'textarea'],
-        ['name' => 'lessons_learnt', 'label' => 'Lessons Learnt', 'type' => 'textarea'],
-        ['name' => 'next_planned_date', 'label' => 'Next Planned', 'type' => 'date'],
-        ['name' => 'reflection', 'label' => 'Reflection / Journal', 'type' => 'textarea'],
-    ];
+        $items = collect();
+        $stats = [
+            'total' => 0,
+            'this_week' => 0,
+            'this_month' => 0,
+            'recurring' => 0,
+        ];
 
-    protected array $rules = [
-        'practice_type' => 'required|in:prayer,meditation,scripture_reading,worship,fasting,service,journaling,other',
-        'title' => 'nullable|string|max:255',
-        'preacher' => 'nullable|string|max:255',
-        'theme_topic' => 'nullable|string|max:255',
-        'scriptures' => 'nullable|string',
-        'lessons_learnt' => 'nullable|string',
-        'practiced_at' => 'required|date',
-        'practice_time' => ['nullable', 'regex:/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/'],
-        'duration_minutes' => 'nullable|integer|min:0',
-        'next_planned_date' => 'nullable|date',
-        'reflection' => 'nullable|string',
-        'recurrence_frequency' => 'nullable|in:daily,weekly,monthly',
-        'recurrence_days_of_week' => 'nullable|string|max:50',
-        'recurrence_ends_at' => 'nullable|date|after_or_equal:practiced_at',
-    ];
+        if ($tableExists) {
+            $query = SpiritualPractice::query()
+                ->where('user_id', $request->user()->id);
+
+            if (in_array('deleted_at', $columns, true)) {
+                $query->whereNull('deleted_at');
+            }
+
+            if (
+                $request->filled('q') &&
+                trim((string) $request->query('q')) !== ''
+            ) {
+                $search = trim((string) $request->query('q'));
+                $searchable = array_values(array_filter([
+                    'practice_title',
+                    'title',
+                    'practice_type',
+                    'faith_path',
+                    'theme_topic',
+                    'reflection',
+                    'source_tradition',
+                    'notes',
+                ], fn ($column) => in_array($column, $columns, true)));
+
+                if ($searchable) {
+                    $query->where(function ($sub) use ($search, $searchable) {
+                        foreach ($searchable as $index => $column) {
+                            $method = $index === 0 ? 'where' : 'orWhere';
+                            $sub->{$method}($column, 'like', "%{$search}%");
+                        }
+                    });
+                }
+            }
+
+            $dateColumn = $this->dateColumn($columns);
+            $period = (string) $request->query('period', '');
+
+            if ($dateColumn) {
+                $today = now();
+
+                match ($period) {
+                    'today' => $query->whereDate(
+                        $dateColumn,
+                        $today->toDateString()
+                    ),
+                    'week' => $query->whereBetween(
+                        $dateColumn,
+                        [
+                            $today->copy()->startOfWeek(),
+                            $today->copy()->endOfWeek(),
+                        ]
+                    ),
+                    'month' => $query->whereBetween(
+                        $dateColumn,
+                        [
+                            $today->copy()->startOfMonth(),
+                            $today->copy()->endOfMonth(),
+                        ]
+                    ),
+                    default => null,
+                };
+            }
+
+            $items = $query
+                ->orderByDesc($dateColumn ?: 'id')
+                ->paginate(15)
+                ->withQueryString();
+
+            $statsBase = SpiritualPractice::query()
+                ->where('user_id', $request->user()->id);
+
+            if (in_array('deleted_at', $columns, true)) {
+                $statsBase->whereNull('deleted_at');
+            }
+
+            $stats['total'] = (clone $statsBase)->count();
+
+            if ($dateColumn) {
+                $stats['this_week'] = (clone $statsBase)
+                    ->whereBetween(
+                        $dateColumn,
+                        [now()->startOfWeek(), now()->endOfWeek()]
+                    )
+                    ->count();
+
+                $stats['this_month'] = (clone $statsBase)
+                    ->whereBetween(
+                        $dateColumn,
+                        [now()->startOfMonth(), now()->endOfMonth()]
+                    )
+                    ->count();
+            }
+
+            if (in_array('recurrence_frequency', $columns, true)) {
+                $stats['recurring'] = (clone $statsBase)
+                    ->whereNotNull('recurrence_frequency')
+                    ->where('recurrence_frequency', '!=', '')
+                    ->count();
+            }
+        }
+
+        return view('spiritual-practices.index', [
+            'tableExists' => $tableExists,
+            'columns' => $columns,
+            'items' => $items,
+            'stats' => $stats,
+            'faithPaths' => $this->faithPaths(),
+            'practiceTypes' => $this->practiceTypes(),
+        ]);
+    }
 
     public function store(Request $request): RedirectResponse
     {
-        $data = $request->validate($this->rules);
-        $data['user_id'] = $request->user()->id;
-        $this->normaliseTime($data);
-        $this->normaliseRecurrence($data);
+        $this->ensureTable();
 
-        $practice = SpiritualPractice::create($data);
+        $columns = Schema::getColumnListing('spiritual_practices');
+        $data = $request->validate(
+            $this->rulesForExistingColumns($columns)
+        );
 
-        if ($practice->isRecurring()) {
-            app(RecurringSpiritualPracticeService::class)
-                ->generateUpcoming($practice);
-        }
+        $payload = $this->normalisePayload(
+            $data,
+            $columns,
+            $request->user()->id
+        );
+
+        $item = SpiritualPractice::create($payload);
+
+        $this->runRecurrenceSafely($item);
+        $this->invalidateInsight($request);
 
         return redirect()
             ->route('spiritual-practices.index')
-            ->with('success', 'Spiritual growth entry created.');
+            ->with('success', 'Spiritual growth entry added.');
     }
 
-    public function update(Request $request, int $id): RedirectResponse
-    {
-        $practice = SpiritualPractice::where('user_id', $request->user()->id)
-            ->findOrFail($id);
+    public function update(
+        Request $request,
+        SpiritualPractice $spiritualPractice
+    ): RedirectResponse {
+        abort_unless(
+            (int) $spiritualPractice->user_id ===
+                (int) $request->user()->id,
+            404
+        );
 
-        $data = $request->validate($this->rules);
-        $this->normaliseTime($data);
-        $this->normaliseRecurrence($data);
+        $columns = Schema::getColumnListing('spiritual_practices');
+        $data = $request->validate(
+            $this->rulesForExistingColumns($columns)
+        );
 
-        $practice->update($data);
+        $payload = $this->normalisePayload(
+            $data,
+            $columns,
+            $request->user()->id
+        );
 
-        if (! $practice->recurrence_parent_id && $practice->isRecurring()) {
-            app(RecurringSpiritualPracticeService::class)
-                ->generateUpcoming($practice);
-        }
+        unset($payload['user_id']);
+
+        $spiritualPractice->update($payload);
+
+        $this->runRecurrenceSafely($spiritualPractice->fresh());
+        $this->invalidateInsight($request);
 
         return redirect()
             ->route('spiritual-practices.index')
             ->with('success', 'Spiritual growth entry updated.');
     }
 
+    public function destroy(
+        Request $request,
+        SpiritualPractice $spiritualPractice
+    ): RedirectResponse {
+        abort_unless(
+            (int) $spiritualPractice->user_id ===
+                (int) $request->user()->id,
+            404
+        );
 
-    private function normaliseTime(array &$data): void
+        $columns = Schema::getColumnListing('spiritual_practices');
+
+        if (in_array('deleted_at', $columns, true)) {
+            $spiritualPractice->forceFill([
+                'deleted_at' => now(),
+            ])->saveQuietly();
+        } else {
+            $spiritualPractice->delete();
+        }
+
+        $this->invalidateInsight($request);
+
+        return back()->with(
+            'success',
+            'Spiritual growth entry deleted.'
+        );
+    }
+
+    public function bulkDestroy(Request $request): RedirectResponse
     {
-        if (! empty($data['practice_time'])) {
-            $data['practice_time'] = substr((string) $data['practice_time'], 0, 5);
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ]);
+
+        $query = SpiritualPractice::query()
+            ->where('user_id', $request->user()->id)
+            ->whereIn('id', $data['ids']);
+
+        $columns = Schema::getColumnListing('spiritual_practices');
+
+        if (in_array('deleted_at', $columns, true)) {
+            $query->update(['deleted_at' => now()]);
+        } else {
+            $query->delete();
+        }
+
+        $this->invalidateInsight($request);
+
+        return back()->with(
+            'success',
+            'Selected spiritual growth entries deleted.'
+        );
+    }
+
+    public function create(): RedirectResponse
+    {
+        return redirect()->route('spiritual-practices.index');
+    }
+
+    public function edit(SpiritualPractice $spiritualPractice): RedirectResponse
+    {
+        return redirect()->route('spiritual-practices.index');
+    }
+
+    public function show(SpiritualPractice $spiritualPractice): RedirectResponse
+    {
+        return redirect()->route('spiritual-practices.index');
+    }
+
+    private function rulesForExistingColumns(array $columns): array
+    {
+        $rules = [];
+
+        $map = [
+            'faith_path' => ['nullable', 'string', 'max:120'],
+            'custom_faith_path' => ['nullable', 'string', 'max:120'],
+            'practice_type' => ['nullable', 'string', 'max:120'],
+            'practice_title' => ['nullable', 'string', 'max:255'],
+            'title' => ['nullable', 'string', 'max:255'],
+            'theme_topic' => ['nullable', 'string', 'max:255'],
+            'practiced_at' => ['nullable', 'date'],
+            'practice_time' => ['nullable'],
+            'duration_minutes' => ['nullable', 'integer', 'min:0'],
+            'inspirational_text' => ['nullable', 'string'],
+            'scriptures' => ['nullable', 'string'],
+            'source_tradition' => ['nullable', 'string', 'max:255'],
+            'reflection' => ['nullable', 'string'],
+            'gratitude' => ['nullable', 'string'],
+            'intention' => ['nullable', 'string'],
+            'community_place' => ['nullable', 'string', 'max:255'],
+            'mood_before' => ['nullable', 'string', 'max:100'],
+            'mood_after' => ['nullable', 'string', 'max:100'],
+            'recurrence_frequency' => [
+                'nullable',
+                'in:daily,weekly,monthly',
+            ],
+            'recurrence_days_of_week' => ['nullable', 'array'],
+            'recurrence_days_of_week.*' => ['integer', 'between:1,7'],
+            'recurrence_ends_at' => ['nullable', 'date'],
+            'notes' => ['nullable', 'string'],
+        ];
+
+        foreach ($map as $column => $columnRules) {
+            if (in_array($column, $columns, true)) {
+                $rules[$column] = $columnRules;
+            }
+        }
+
+        return $rules;
+    }
+
+    private function normalisePayload(
+        array $data,
+        array $columns,
+        int $userId
+    ): array {
+        $payload = $data;
+        $payload['user_id'] = $userId;
+
+        if (
+            in_array('title', $columns, true) &&
+            empty($payload['title']) &&
+            ! empty($payload['practice_title'])
+        ) {
+            $payload['title'] = $payload['practice_title'];
+        }
+
+        if (
+            in_array('scriptures', $columns, true) &&
+            empty($payload['scriptures']) &&
+            ! empty($payload['inspirational_text'])
+        ) {
+            $payload['scriptures'] = $payload['inspirational_text'];
+        }
+
+        if (
+            ($payload['faith_path'] ?? null) !== 'Custom'
+        ) {
+            $payload['custom_faith_path'] = null;
+        }
+
+        if (
+            empty($payload['recurrence_frequency'])
+        ) {
+            $payload['recurrence_days_of_week'] = null;
+            $payload['recurrence_ends_at'] = null;
+        }
+
+        $payload = array_filter(
+            $payload,
+            fn ($value, $key) =>
+                $key === 'user_id' ||
+                in_array($key, $columns, true),
+            ARRAY_FILTER_USE_BOTH
+        );
+
+        return $payload;
+    }
+
+    private function runRecurrenceSafely(
+        SpiritualPractice $item
+    ): void {
+        try {
+            app(RecurringSpiritualPracticeService::class)
+                ->generateFutureOccurrences($item);
+        } catch (\Throwable) {
+            // Entry save must not fail because recurrence generation failed.
         }
     }
 
-    private function normaliseRecurrence(array &$data): void
+    private function dateColumn(array $columns): ?string
     {
-        if (empty($data['recurrence_frequency'])) {
-            $data['recurrence_frequency'] = null;
-            $data['recurrence_days_of_week'] = null;
-            $data['recurrence_ends_at'] = null;
-            return;
+        foreach (['practiced_at', 'created_at'] as $column) {
+            if (in_array($column, $columns, true)) {
+                return $column;
+            }
         }
 
-        $raw = trim((string) ($data['recurrence_days_of_week'] ?? ''));
-        if ($raw === '') {
-            $data['recurrence_days_of_week'] = null;
-            return;
-        }
-
-        $days = collect(preg_split('/[\s,]+/', $raw) ?: [])
-            ->filter(fn ($day) => $day !== '')
-            ->map(fn ($day) => (int) $day)
-            ->filter(fn ($day) => $day >= 1 && $day <= 7)
-            ->unique()
-            ->sort()
-            ->values()
-            ->all();
-
-        $data['recurrence_days_of_week'] = $days ?: null;
+        return null;
     }
 
-    protected function stats(Request $request): array
+    private function ensureTable(): void
     {
-        $userId = $request->user()->id;
-        $base = SpiritualPractice::where('user_id', $userId);
+        abort_unless(
+            Schema::hasTable('spiritual_practices'),
+            503,
+            'The spiritual_practices table is missing.'
+        );
+    }
 
-        $thisWeek = (clone $base)
-            ->where('practiced_at', '>=', now()->startOfWeek())
-            ->count();
+    private function invalidateInsight(Request $request): void
+    {
+        try {
+            app(DailyInsightService::class)
+                ->invalidateFor($request->user());
+        } catch (\Throwable) {
+            // Spiritual Growth must remain usable if insight invalidation fails.
+        }
+    }
 
-        $recurring = (clone $base)
-            ->whereNull('recurrence_parent_id')
-            ->whereNotNull('recurrence_frequency')
-            ->count();
-
-        $last = (clone $base)->orderByDesc('practiced_at')->first();
-
+    private function faithPaths(): array
+    {
         return [
-            ['label' => 'This week', 'value' => (string) $thisWeek, 'icon' => 'fa-solid fa-hands-praying', 'color' => 'fuchsia'],
-            ['label' => 'Recurring', 'value' => (string) $recurring, 'icon' => 'fa-solid fa-repeat', 'color' => 'violet'],
-            ['label' => 'Total logged', 'value' => (string) $base->count(), 'icon' => 'fa-solid fa-list-ol', 'color' => 'slate'],
-            ['label' => 'Last practice', 'value' => $last ? $last->practiced_at->format('Y-m-d') : '—', 'icon' => 'fa-solid fa-calendar-day', 'color' => 'purple'],
+            'Prefer not to specify',
+            'Christianity',
+            'Islam',
+            'Judaism',
+            'Hinduism',
+            'Buddhism',
+            'Sikhism',
+            'Baháʼí Faith',
+            'African Traditional / Indigenous Spirituality',
+            'Other religion',
+            'Spiritual but not religious',
+            'Secular reflection',
+            'Custom',
         ];
     }
 
-    protected function chart(Request $request): ?array
+    private function practiceTypes(): array
     {
-        $counts = SpiritualPractice::where('user_id', $request->user()->id)
-            ->selectRaw('practice_type, COUNT(*) as total')
-            ->groupBy('practice_type')
-            ->pluck('total', 'practice_type');
-
-        if ($counts->isEmpty()) {
-            return null;
-        }
-
         return [
-            'type' => 'doughnut',
-            'title' => 'Practices by Type',
-            'labels' => $counts->keys()
-                ->map(fn ($label) => ucwords(str_replace('_', ' ', $label)))
-                ->all(),
-            'datasets' => [['data' => $counts->values()->all()]],
+            'prayer' => 'Prayer',
+            'meditation' => 'Meditation',
+            'worship' => 'Worship',
+            'sacred_text_reading' => 'Sacred / Inspirational Text Reading',
+            'reflection' => 'Reflection',
+            'gratitude' => 'Gratitude',
+            'fasting' => 'Fasting',
+            'mindfulness' => 'Mindfulness',
+            'community_gathering' => 'Community Gathering',
+            'service' => 'Service / Charity',
+            'chanting' => 'Chanting',
+            'pilgrimage' => 'Pilgrimage',
+            'study' => 'Study',
+            'personal_ritual' => 'Personal Ritual',
+            'other' => 'Other',
         ];
     }
 }

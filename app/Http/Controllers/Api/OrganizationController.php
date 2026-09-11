@@ -1,184 +1,335 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Mail\OrganizationInviteMail;
+use App\Mail\OrganizationMemberAccountCreatedMail;
 use App\Models\Organization;
 use App\Models\OrganizationMember;
+use App\Models\User;
+use App\Services\OrganizationMembershipService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
+use RuntimeException;
 
-/**
- * Mobile equivalent of OrganizationController — same
- * invite/activate/deactivate/replace/remove logic, JSON instead of
- * redirects. Accepting an invite still happens via the emailed link
- * (which opens in a browser) rather than a mobile-specific flow — no
- * separate accept-invite endpoint needed here.
- */
-class OrganizationController extends Controller
+final class OrganizationController extends Controller
 {
-    private function managedOrganization(Request $request): ?Organization
-    {
-        $user = $request->user();
-
-        $owned = Organization::where('owner_user_id', $user->id)->first();
-        if ($owned) {
-            return $owned;
-        }
-
-        if ($user->organization_id && $user->organization_role === 'admin') {
-            return $user->organization;
-        }
-
-        return null;
-    }
+    public function __construct(
+        private readonly OrganizationMembershipService $members
+    ) {}
 
     public function show(Request $request): JsonResponse
     {
-        $organization = $this->managedOrganization($request);
+        $organization = $this->members
+            ->ensureManagedOrganization($request->user());
 
         if (! $organization) {
-            return response()->json(['data' => null]);
+            return response()->json([
+                'message' =>
+                    'Your current subscription does not include team member management.',
+                'data' => null,
+            ], 403);
         }
 
-        $organization->load('plan');
-        $members = $organization->members()->with('user')->orderByDesc('id')->get();
+        $rows = $organization->members()
+            ->with('user')
+            ->orderByDesc('id')
+            ->get();
 
-        return response()->json(['data' => [
-            'id' => $organization->id,
-            'name' => $organization->name,
-            'plan_name' => $organization->plan?->name,
-            'plan_category' => $organization->plan?->category,
-            'seats_used' => $organization->seatsUsed(),
-            'seat_limit' => $organization->seatLimit(),
-            'remaining_seats' => $organization->remainingSeats(),
-            'members' => $members->map(fn ($m) => [
-                'id' => $m->id,
-                'email' => $m->user->email ?? $m->invited_email,
-                'role' => $m->role,
-                'status' => $m->status,
-            ]),
-        ]]);
+        return response()->json([
+            'data' => [
+                'organization' => [
+                    'id' => $organization->id,
+                    'name' => $organization->name,
+                ],
+                'plan_name' => $organization->plan?->name,
+                'plan_category' => $organization->plan?->category,
+                'seat_limit' => $this->members->seatLimit($organization),
+                'seats_used' => $this->members->seatsUsed($organization),
+                'remaining_seats' =>
+                    $this->members->remainingSeats($organization),
+                'can_manage' => true,
+                'members' => $rows->map(
+                    fn (OrganizationMember $member): array => [
+                        'id' => $member->id,
+                        'membership_id' => $member->id,
+                        'user_id' => $member->user_id,
+                        'name' => $member->user?->name
+                            ?? $member->invited_email
+                            ?? 'Pending member',
+                        'email' => $member->user?->email
+                            ?? $member->invited_email
+                            ?? '',
+                        'role' => $member->role,
+                        'status' => $member->status,
+                        'is_pending' => $member->status === 'invited',
+                        'invited_at' => $member->invited_at?->toIso8601String(),
+                    ]
+                )->values(),
+            ],
+        ]);
     }
 
     public function invite(Request $request): JsonResponse
     {
         $organization = $this->managedOrganization($request);
-        if (! $organization) {
-            return response()->json(['message' => 'You do not manage a team.'], 403);
-        }
 
         $data = $request->validate([
+            'name' => ['nullable', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255'],
-            'role' => ['required', 'in:admin,staff'],
+            'role' => [
+                'required',
+                Rule::in(['admin', 'staff', 'member', 'viewer']),
+            ],
+            'temporary_password' => ['nullable', 'confirmed', Password::min(8)->letters()->numbers()],
         ]);
 
-        if (! $organization->hasSeatAvailable()) {
-            return response()->json(['message' => 'No member slots available on your current plan — remove someone first or upgrade your plan.'], 422);
+        $email = strtolower(trim($data['email']));
+
+        try {
+            $existing = User::query()
+                ->whereRaw('LOWER(email) = ?', [$email])
+                ->first();
+
+            if ($existing) {
+                $member = $this->members->addExistingUser(
+                    $organization,
+                    $existing,
+                    $data['role']
+                );
+
+                return response()->json([
+                    'message' =>
+                        'Existing user added successfully. Their existing password was not changed.',
+                    'data' => [
+                        'id' => $member->id,
+                        'status' => $member->status,
+                        'existing_user' => true,
+                    ],
+                ], 201);
+            }
+
+            if (empty(trim((string) ($data['name'] ?? '')))) {
+                return response()->json([
+                    'message' =>
+                        'Name is required when creating a new member account.',
+                    'errors' => [
+                        'name' => [
+                            'Name is required when creating a new member account.',
+                        ],
+                    ],
+                ], 422);
+            }
+
+            if (empty($data['temporary_password'])) {
+                return response()->json([
+                    'message' =>
+                        'Set a temporary password for a new member account.',
+                    'errors' => [
+                        'temporary_password' => [
+                            'Set a temporary password for a new member account.',
+                        ],
+                    ],
+                ], 422);
+            }
+
+            $member = $this->members->createAndAddNewUser(
+                $organization,
+                trim((string) $data['name']),
+                $email,
+                (string) $data['temporary_password'],
+                $data['role']
+            );
+
+            $mailSent = true;
+
+            try {
+                Mail::to($member->user->email)->send(
+                    new OrganizationMemberAccountCreatedMail(
+                        $member->user,
+                        $organization,
+                        $member->role
+                    )
+                );
+            } catch (\Throwable $e) {
+                report($e);
+                $mailSent = false;
+            }
+
+            return response()->json([
+                'message' =>
+                    'New member account created. Share the temporary password separately.',
+                'data' => [
+                    'id' => $member->id,
+                    'status' => $member->status,
+                    'existing_user' => false,
+                    'mail_sent' => $mailSent,
+                ],
+            ], 201);
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
         }
-
-        if ($organization->members()->where('invited_email', $data['email'])->whereIn('status', ['invited', 'active'])->exists()) {
-            return response()->json(['message' => 'That email already has a pending invite or is already a member of this organization.'], 422);
-        }
-
-        $member = $organization->members()->create([
-            'invited_email' => $data['email'],
-            'role' => $data['role'],
-            'status' => 'invited',
-            'invite_token' => Str::random(48),
-            'invited_at' => now(),
-        ]);
-
-        Mail::to($data['email'])->send(new OrganizationInviteMail($member, $organization));
-
-        return response()->json(['message' => 'Invitation sent to ' . $data['email'] . '.']);
     }
 
-    public function activate(Request $request, OrganizationMember $member): JsonResponse
-    {
-        $this->authorizeMember($request, $member);
-
-        $member->update(['status' => 'active', 'activated_at' => now()]);
-        $member->user?->update(['organization_id' => $member->organization_id, 'organization_role' => $member->role]);
-
-        return response()->json(['message' => 'Member reactivated.']);
-    }
-
-    public function deactivate(Request $request, OrganizationMember $member): JsonResponse
-    {
-        $this->authorizeMember($request, $member);
-
-        $member->update(['status' => 'inactive', 'deactivated_at' => now()]);
-
-        return response()->json(['message' => 'Member deactivated — access paused.']);
-    }
-
-    public function removeMember(Request $request, OrganizationMember $member): JsonResponse
-    {
-        $this->authorizeMember($request, $member);
-
-        $user = $member->user;
-        $member->delete();
-
-        if ($user) {
-            $user->update([
-                'organization_id' => null,
-                'organization_role' => null,
-                'offboarded_at' => now(),
-                'subscription_status' => 'trialing',
-                'trial_ends_at' => now()->addDays(7),
-                'subscription_plan_id' => null,
-                'subscription_expires_at' => null,
-            ]);
-        }
-
-        return response()->json(['message' => 'Removed from the organization — a member slot is now free.']);
-    }
-
-    public function replace(Request $request, OrganizationMember $member): JsonResponse
-    {
-        $this->authorizeMember($request, $member);
+    public function editMember(
+        Request $request,
+        OrganizationMember $member
+    ): JsonResponse {
+        $organization = $this->managedOrganization($request);
 
         $data = $request->validate([
-            'new_email' => ['required', 'email', 'max:255'],
-            'new_role' => ['required', 'in:admin,staff'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'role' => [
+                'required',
+                Rule::in(['admin', 'staff', 'member', 'viewer']),
+            ],
         ]);
 
-        $organization = $member->organization;
-        $user = $member->user;
-        $member->delete();
-
-        if ($user) {
-            $user->update([
-                'organization_id' => null,
-                'organization_role' => null,
-                'offboarded_at' => now(),
-                'subscription_status' => 'trialing',
-                'trial_ends_at' => now()->addDays(7),
-                'subscription_plan_id' => null,
-                'subscription_expires_at' => null,
-            ]);
+        if (
+            $member->status === 'invited'
+            && empty($data['email'])
+        ) {
+            return response()->json([
+                'message' =>
+                    'Email is required for a pending invitation.',
+            ], 422);
         }
 
-        $newMember = $organization->members()->create([
-            'invited_email' => $data['new_email'],
-            'role' => $data['new_role'],
-            'status' => 'invited',
-            'invite_token' => Str::random(48),
-            'invited_at' => now(),
+        try {
+            $this->members->editMember(
+                $organization,
+                $member,
+                $data
+            );
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'message' => 'Member workspace details updated.',
         ]);
-
-        Mail::to($data['new_email'])->send(new OrganizationInviteMail($newMember, $organization));
-
-        return response()->json(['message' => 'Member slot is now free, and a new invitation was sent to ' . $data['new_email'] . '.']);
     }
 
-    private function authorizeMember(Request $request, OrganizationMember $member): void
-    {
+    public function updateRole(
+        Request $request,
+        OrganizationMember $member
+    ): JsonResponse {
         $organization = $this->managedOrganization($request);
-        abort_unless($organization && $organization->id === $member->organization_id, 403);
+
+        $data = $request->validate([
+            'role' => [
+                'required',
+                Rule::in(['admin', 'staff', 'member', 'viewer']),
+            ],
+        ]);
+
+        try {
+            $this->members->updateRole(
+                $organization,
+                $member,
+                $data['role']
+            );
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'message' => 'Member role updated.',
+        ]);
+    }
+
+    public function activate(
+        Request $request,
+        OrganizationMember $member
+    ): JsonResponse {
+        $organization = $this->managedOrganization($request);
+
+        $this->members->setActive($organization, $member, true);
+
+        return response()->json([
+            'message' => 'Member reactivated.',
+        ]);
+    }
+
+    public function deactivate(
+        Request $request,
+        OrganizationMember $member
+    ): JsonResponse {
+        $organization = $this->managedOrganization($request);
+
+        $this->members->setActive($organization, $member, false);
+
+        return response()->json([
+            'message' => 'Member access suspended.',
+        ]);
+    }
+
+    public function removeMember(
+        Request $request,
+        OrganizationMember $member
+    ): JsonResponse {
+        $organization = $this->managedOrganization($request);
+
+        $this->members->remove($organization, $member);
+
+        return response()->json([
+            'message' =>
+                'Member removed. Their personal diary data was not deleted.',
+        ]);
+    }
+
+    private function managedOrganization(Request $request): Organization
+    {
+        $organization = $this->members
+            ->ensureManagedOrganization($request->user());
+
+        abort_unless(
+            $organization,
+            403,
+            'Your current subscription does not include team member management.'
+        );
+
+        $user = $request->user();
+
+        $allowed =
+            (int) $organization->owner_user_id === (int) $user->id
+            || (
+                isset($user->organization_id)
+                && (int) $user->organization_id === (int) $organization->id
+                && strtolower((string) ($user->organization_role ?? '')) === 'admin'
+            );
+
+        abort_unless($allowed, 403);
+
+        return $organization;
+    }
+
+    private function sendInvite(
+        OrganizationMember $member,
+        Organization $organization
+    ): bool {
+        try {
+            Mail::to($member->invited_email)->send(
+                new OrganizationInviteMail($member, $organization)
+            );
+
+            return true;
+        } catch (\Throwable $e) {
+            report($e);
+            return false;
+        }
     }
 }

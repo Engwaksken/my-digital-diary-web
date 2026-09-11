@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Income;
+use App\Services\IncomeSummaryService;
+use Illuminate\Http\Request;
 
 class IncomeController extends CrudController
 {
@@ -14,11 +16,15 @@ class IncomeController extends CrudController
     protected string $dateField = 'received_at';
 
     protected array $fields = [
-        ['name' => 'source', 'label' => 'Source (e.g. Salary, Freelance)', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g. Acme Corp Salary'],
+        ['name' => 'source', 'label' => 'Source (e.g. Salary, Freelance)', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g. Salary'],
         ['name' => 'category', 'label' => 'Category', 'type' => 'text', 'placeholder' => 'e.g. Employment, Business, Gift'],
         ['name' => 'amount', 'label' => 'Amount', 'type' => 'number', 'required' => true, 'placeholder' => '0.00', 'money' => true],
         ['name' => 'frequency', 'label' => 'Frequency', 'type' => 'select', 'required' => true, 'options' => [
-            'one_time' => 'One-time', 'daily' => 'Daily', 'weekly' => 'Weekly', 'monthly' => 'Monthly', 'annually' => 'Annually',
+            'one_time' => 'One-time',
+            'daily' => 'Daily',
+            'weekly' => 'Weekly',
+            'monthly' => 'Monthly',
+            'annually' => 'Annually',
         ]],
         ['name' => 'received_at', 'label' => 'Date Received', 'type' => 'date', 'required' => true],
         ['name' => 'notes', 'label' => 'Notes', 'type' => 'textarea'],
@@ -33,30 +39,56 @@ class IncomeController extends CrudController
         'notes' => 'nullable|string',
     ];
 
-    protected function stats(\Illuminate\Http\Request $request): array
+    protected function stats(Request $request): array
     {
-        $userId = $request->user()->id;
-        $base = Income::where('user_id', $userId);
-        $thisMonth = (clone $base)->whereBetween('received_at', [now()->startOfMonth(), now()->endOfMonth()])->sum('amount');
-        $thisYear = (clone $base)->whereBetween('received_at', [now()->startOfYear(), now()->endOfYear()])->sum('amount');
+        $summary = app(IncomeSummaryService::class)
+            ->forUser($request->user());
 
         return [
-            ['label' => 'This month', 'value' => format_money($thisMonth), 'icon' => 'fa-solid fa-money-bill-wave', 'color' => 'emerald'],
-            ['label' => 'This year', 'value' => format_money($thisYear), 'icon' => 'fa-solid fa-calendar-check', 'color' => 'teal'],
-            ['label' => 'Entries', 'value' => (string) $base->count(), 'icon' => 'fa-solid fa-list-ol', 'color' => 'slate'],
+            [
+                'label' => 'Total Income',
+                'value' => format_money($summary['total_income']),
+                'icon' => 'fa-solid fa-sack-dollar',
+                'color' => 'emerald',
+            ],
+            [
+                'label' => 'Monthly Income',
+                'value' => format_money($summary['monthly_income']),
+                'icon' => 'fa-solid fa-calendar-days',
+                'color' => 'teal',
+            ],
+            [
+                'label' => 'Balance',
+                'value' => format_money($summary['balance']),
+                'icon' => 'fa-solid fa-scale-balanced',
+                'color' => $summary['balance'] >= 0 ? 'indigo' : 'rose',
+            ],
+            [
+                'label' => 'Total Income Out',
+                'value' => format_money($summary['total_income_out']),
+                'icon' => 'fa-solid fa-arrow-up-right-from-square',
+                'color' => 'amber',
+            ],
         ];
     }
 
-    protected function chart(\Illuminate\Http\Request $request): ?array
+    protected function chart(Request $request): ?array
     {
         $userId = $request->user()->id;
-        $months = collect(range(5, 0))->map(fn ($m) => now()->subMonthsNoOverflow($m)->startOfMonth());
+        $months = collect(range(5, 0))
+            ->map(fn ($monthsAgo) => now()
+                ->subMonthsNoOverflow($monthsAgo)
+                ->startOfMonth());
 
-        $totals = $months->map(function ($month) use ($userId) {
-            return (float) Income::where('user_id', $userId)
-                ->whereBetween('received_at', [$month->copy()->startOfMonth(), $month->copy()->endOfMonth()])
-                ->sum('amount');
-        });
+        $totals = $months->map(
+            fn ($month) => (float) Income::query()
+                ->where('user_id', $userId)
+                ->whereBetween('received_at', [
+                    $month->copy()->startOfMonth(),
+                    $month->copy()->endOfMonth(),
+                ])
+                ->sum('amount')
+        );
 
         if ($totals->sum() <= 0) {
             return null;
@@ -65,8 +97,13 @@ class IncomeController extends CrudController
         return [
             'type' => 'bar',
             'title' => 'Income (last 6 months)',
-            'labels' => $months->map(fn ($m) => $m->format('M Y'))->all(),
-            'datasets' => [['label' => 'Income', 'data' => $totals->all()]],
+            'labels' => $months->map(fn ($month) => $month->format('M Y'))->all(),
+            'datasets' => [
+                [
+                    'label' => 'Income',
+                    'data' => $totals->all(),
+                ],
+            ],
         ];
     }
 }

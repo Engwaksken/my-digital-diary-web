@@ -305,6 +305,12 @@
                 document.documentElement.classList.toggle('pm-a11y-' + key, !!prefs[key]);
             });
             document.documentElement.style.fontSize = prefs.fontScale + '%';
+
+            // Let dashboard/page runtimes react immediately. This is especially
+            // important for dashboard components that use fixed pixel sizes.
+            window.dispatchEvent(new CustomEvent('pm:a11y-change', {
+                detail: { preferences: Object.assign({}, prefs) }
+            }));
         }
 
         // Runs immediately (this script tag executes as soon as it's

@@ -18,14 +18,16 @@ class ExternalCalendarSyncService
      *
      * @return array{imported:int, updated:int, connections:int, errors:array<int,string>}
      */
-    public function syncUser(int $userId): array
+    public function syncUser(int $userId, ?Carbon $from = null, ?Carbon $to = null, ?string $provider = null, bool $includeRecurring = true): array
     {
-        $connections = UserMeetingConnection::where('user_id', $userId)->get();
+        $connections = UserMeetingConnection::where('user_id', $userId)
+            ->when($provider, fn ($q) => $q->where('platform', $provider))
+            ->get();
         $result = ['imported' => 0, 'updated' => 0, 'connections' => 0, 'errors' => []];
 
         foreach ($connections as $connection) {
             try {
-                $stats = $this->syncConnection($connection);
+                $stats = $this->syncConnection($connection, $from, $to, $includeRecurring);
                 $result['imported'] += $stats['imported'];
                 $result['updated'] += $stats['updated'];
                 $result['connections']++;
@@ -45,7 +47,7 @@ class ExternalCalendarSyncService
     /**
      * @return array{imported:int,updated:int}
      */
-    public function syncConnection(UserMeetingConnection $connection): array
+    public function syncConnection(UserMeetingConnection $connection, ?Carbon $from = null, ?Carbon $to = null, bool $includeRecurring = true): array
     {
         $platform = $connection->platform;
         // Existing user connections can continue syncing with their current
@@ -67,12 +69,35 @@ class ExternalCalendarSyncService
         }
 
         $events = match ($platform) {
-            'google' => $this->fetchGoogleEvents($connection),
-            'microsoft' => $this->fetchMicrosoftEvents($connection),
+            'google' => $this->fetchGoogleEvents($connection, $from, $to, $includeRecurring),
+            'microsoft' => $this->fetchMicrosoftEvents($connection, $from, $to),
             'zoom' => $this->fetchZoomMeetings($connection),
             'webex' => $this->fetchWebexMeetings($connection),
             default => [],
         };
+
+        // Google and Microsoft already accept a server-side date window.
+        // Zoom/Webex APIs may return a broader list, so apply the selected
+        // period again here for every provider. This guarantees that the
+        // user's From/To dates are respected consistently.
+        if ($from || $to) {
+            $rangeStart = ($from ?: now()->subMonths(6))->copy()->startOfDay();
+            $rangeEnd = ($to ?: $rangeStart->copy()->addMonth())->copy()->endOfDay();
+
+            $events = array_values(array_filter($events, function (array $event) use ($rangeStart, $rangeEnd): bool {
+                if (empty($event['start_at'])) {
+                    return false;
+                }
+
+                try {
+                    $eventStart = Carbon::parse($event['start_at']);
+                } catch (\Throwable) {
+                    return false;
+                }
+
+                return $eventStart->betweenIncluded($rangeStart, $rangeEnd);
+            }));
+        }
 
         $imported = 0;
         $updated = 0;
@@ -159,12 +184,12 @@ class ExternalCalendarSyncService
      * not just the primary calendar. Events are paginated to avoid the old
      * maxResults=50 truncation.
      */
-    private function fetchGoogleEvents(UserMeetingConnection $connection): array
+    private function fetchGoogleEvents(UserMeetingConnection $connection, ?Carbon $from = null, ?Carbon $to = null, bool $includeRecurring = true): array
     {
         $calendarList = $this->getJsonWithToken($connection, 'https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250');
         $events = [];
-        $timeMin = now()->subMonths(6)->startOfDay()->toIso8601String();
-        $timeMax = now()->addMonths(18)->endOfDay()->toIso8601String();
+        $timeMin = ($from ?: now()->subMonths(6))->copy()->startOfDay()->toIso8601String();
+        $timeMax = ($to ?: now()->addMonths(18))->copy()->endOfDay()->toIso8601String();
 
         foreach ($calendarList['items'] ?? [] as $calendar) {
             if (($calendar['deleted'] ?? false) || ! isset($calendar['id'])) {
@@ -178,8 +203,8 @@ class ExternalCalendarSyncService
                 $url = 'https://www.googleapis.com/calendar/v3/calendars/' . $calendarId . '/events';
                 $query = [
                     'maxResults' => 250,
-                    'orderBy' => 'startTime',
-                    'singleEvents' => 'true',
+                    'orderBy' => $includeRecurring ? 'startTime' : 'updated',
+                    'singleEvents' => $includeRecurring ? 'true' : 'false',
                     'timeMin' => $timeMin,
                     'timeMax' => $timeMax,
                     'showDeleted' => 'true',
@@ -216,13 +241,13 @@ class ExternalCalendarSyncService
     }
 
     /** Microsoft Outlook/Teams calendar view for a broad useful window. */
-    private function fetchMicrosoftEvents(UserMeetingConnection $connection): array
+    private function fetchMicrosoftEvents(UserMeetingConnection $connection, ?Carbon $from = null, ?Carbon $to = null): array
     {
         $events = [];
         $url = 'https://graph.microsoft.com/v1.0/me/calendarView';
         $query = [
-            'startDateTime' => now()->subMonths(6)->utc()->toIso8601String(),
-            'endDateTime' => now()->addMonths(18)->utc()->toIso8601String(),
+            'startDateTime' => ($from ?: now()->subMonths(6))->copy()->startOfDay()->utc()->toIso8601String(),
+            'endDateTime' => ($to ?: now()->addMonths(18))->copy()->endOfDay()->utc()->toIso8601String(),
             '$top' => 100,
             '$orderby' => 'start/dateTime',
             '$select' => 'id,subject,start,end,location,onlineMeeting,attendees,bodyPreview,isCancelled,webLink',

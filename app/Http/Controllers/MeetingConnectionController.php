@@ -9,6 +9,8 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Illuminate\Support\Carbon;
+use App\Services\DailyInsightService;
 
 class MeetingConnectionController extends Controller
 {
@@ -152,16 +154,19 @@ class MeetingConnectionController extends Controller
 
     public function sync(Request $request, ExternalCalendarSyncService $syncService): RedirectResponse
     {
-        $result = $syncService->syncUser((int) $request->user()->id);
-
-        $message = "Calendar sync complete: {$result['imported']} new, {$result['updated']} updated.";
-        if ($result['errors']) {
-            return redirect()->route('meetings.index')
-                ->with('success', $message)
-                ->withErrors(['calendar_sync' => implode(' ', $result['errors'])]);
-        }
-
-        return redirect()->route('meetings.index')->with('success', $message);
+        $data=$request->validate([
+            'provider'=>['nullable','in:google,microsoft,zoom,webex'],
+            'sync_from_date'=>['required','date'],
+            'sync_to_date'=>['nullable','date','after_or_equal:sync_from_date'],
+            'include_recurring'=>['nullable','boolean'],
+        ]);
+        $from=Carbon::parse($data['sync_from_date']);
+        $to=!empty($data['sync_to_date'])?Carbon::parse($data['sync_to_date']):$from->copy()->addMonth();
+        $result=$syncService->syncUser((int)$request->user()->id,$from,$to,$data['provider'] ?? null,(bool)($data['include_recurring'] ?? true));
+        app(DailyInsightService::class)->invalidateFor($request->user());
+        $message="Calendar sync complete for {$from->format('d M Y')} – {$to->format('d M Y')}: {$result['imported']} new, {$result['updated']} updated.";
+        if($result['errors']) return redirect()->route('meetings.index')->with('success',$message)->withErrors(['calendar_sync'=>implode(' ',$result['errors'])]);
+        return redirect()->route('meetings.index')->with('success',$message);
     }
 
     private function redirectUri(string $platform): string

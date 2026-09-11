@@ -14,6 +14,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // The preceding repair migration creates this table for legacy
+        // installations, including fresh SQLite test databases.
+        if (Schema::hasTable('organizations')) {
+            return;
+        }
+
         Schema::create('organizations', function (Blueprint $table) {
             $table->id();
             $table->string('name');

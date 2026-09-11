@@ -3,320 +3,1115 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\SubscriptionPlan;
 use App\Models\User;
-use App\Models\UserRecycleBinItem;
-use App\Services\UserDataVaultService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
-/**
- * Admin account management — subscriptions, suspension (login access),
- * roles, and account creation/removal.
- *
- * DELIBERATE BOUNDARY: this controller (and every view it renders) only
- * ever touches columns on the `users` table itself. It never queries
- * plans, incomes, expenses, diet_logs, sleep_logs, health_checkups,
- * projects, education_plans, network_contacts, or personal_relationships.
- * An admin managing the platform should never be able to read what a
- * specific person actually tracked about their own life. If you extend
- * this controller, preserve that boundary.
- */
 class AdminUserController extends Controller
 {
+    /**
+     * Central role list for Admin user creation/editing.
+     *
+     * Internal values are deliberately stable:
+     * - support = Support Officer
+     * - finance = Finance Officer
+     *
+     * Add extra application roles here later without changing the forms.
+     */
+    public static function availableRoles(): array
+    {
+        return [
+            'user' => 'User',
+            'support' => 'Support Officer',
+            'finance' => 'Finance Officer',
+            'admin' => 'Admin',
+            'super_admin' => 'Super Admin',
+        ];
+    }
+
     public function index(Request $request): View
     {
-        $query = User::query();
+        $search = trim((string) $request->query('search', ''));
+        $subscriptionStatus = trim(
+            (string) $request->query('subscription_status', '')
+        );
 
-        $search = $request->query('q');
-        if ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', '%' . $search . '%')
-                  ->orWhere('email', 'like', '%' . $search . '%');
-            });
+        $users = User::query()
+            ->with('subscriptionPlan')
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($sub) use ($search): void {
+                    $sub->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
+
+                    if (Schema::hasColumn('users', 'phone')) {
+                        $sub->orWhere('phone', 'like', "%{$search}%");
+                    }
+                });
+            })
+            ->when(
+                $subscriptionStatus !== ''
+                    && Schema::hasColumn('users', 'subscription_status'),
+                fn ($query) =>
+                    $query->where(
+                        'subscription_status',
+                        $subscriptionStatus
+                    )
+            )
+            ->latest('id')
+            ->paginate(25)
+            ->withQueryString();
+
+        $plansQuery = SubscriptionPlan::query()
+            ->where('is_enabled', true);
+
+        if (Schema::hasColumn('subscription_plans', 'display_order')) {
+            $plansQuery->orderBy('display_order');
         }
 
-        $period = $request->query('period');
-        $from = $request->query('from');
-        $to = $request->query('to');
-
-        match ($period) {
-            'daily' => $query->whereDate('created_at', now()->toDateString()),
-            'weekly' => $query->whereBetween('created_at', [now()->startOfWeek(), now()->endOfWeek()]),
-            'monthly' => $query->whereBetween('created_at', [now()->startOfMonth(), now()->endOfMonth()]),
-            'range' => ($from && $to)
-                ? $query->whereBetween('created_at', [$from . ' 00:00:00', $to . ' 23:59:59'])
-                : null,
-            default => null,
-        };
-
-        $users = $query->orderByDesc('id')->paginate(20)->withQueryString();
-
-        $usageByUser = [];
-        foreach ($users as $listedUser) {
-            $usageByUser[$listedUser->id] = $this->usageProgress((int) $listedUser->id);
+        if (Schema::hasColumn('subscription_plans', 'name')) {
+            $plansQuery->orderBy('name');
+        } elseif (Schema::hasColumn('subscription_plans', 'title')) {
+            $plansQuery->orderBy('title');
+        } else {
+            $plansQuery->orderBy('id');
         }
 
-        $stats = [
-            ['label' => 'Total users', 'value' => (string) User::count(), 'icon' => 'fa-solid fa-users', 'color' => 'blue'],
-            ['label' => 'New this week', 'value' => (string) User::where('created_at', '>=', now()->startOfWeek())->count(), 'icon' => 'fa-solid fa-user-plus', 'color' => 'emerald'],
-            ['label' => 'On trial', 'value' => (string) User::where('subscription_status', 'trialing')->count(), 'icon' => 'fa-solid fa-hourglass-half', 'color' => 'amber'],
-            ['label' => 'Active subscribers', 'value' => (string) User::where('subscription_status', 'active')->count(), 'icon' => 'fa-solid fa-crown', 'color' => 'indigo'],
-            ['label' => 'Suspended', 'value' => (string) User::whereNotNull('suspended_at')->count(), 'icon' => 'fa-solid fa-user-slash', 'color' => 'rose'],
+        $plans = $plansQuery->get();
+
+        $statsQuery = User::query();
+
+        $userStats = [
+            'total' => (clone $statsQuery)->count(),
+            'active' => 0,
+            'trial' => 0,
+            'expired_inactive' => 0,
+            'suspended' => 0,
         ];
 
-        return view('admin.users.index', compact('users', 'stats', 'search', 'period', 'from', 'to', 'usageByUser'));
+        if (Schema::hasColumn('users', 'subscription_status')) {
+            $counts = User::query()
+                ->selectRaw(
+                    "LOWER(TRIM(COALESCE(subscription_status, ''))) AS state, COUNT(*) AS total"
+                )
+                ->groupBy('state')
+                ->pluck('total', 'state');
+
+            $userStats['active'] =
+                (int) ($counts['active'] ?? 0);
+
+            $userStats['trial'] =
+                (int) ($counts['trial'] ?? 0)
+                + (int) ($counts['trialing'] ?? 0);
+
+            $userStats['expired_inactive'] =
+                (int) ($counts['expired'] ?? 0)
+                + (int) ($counts['inactive'] ?? 0)
+                + (int) ($counts['cancelled'] ?? 0)
+                + (int) ($counts['canceled'] ?? 0);
+        }
+
+        if (Schema::hasColumn('users', 'account_status')) {
+            $userStats['suspended'] = User::query()
+                ->where('account_status', 'suspended')
+                ->count();
+        } elseif (Schema::hasColumn('users', 'is_suspended')) {
+            $userStats['suspended'] = User::query()
+                ->where('is_suspended', true)
+                ->count();
+        } elseif (Schema::hasColumn('users', 'suspended')) {
+            $userStats['suspended'] = User::query()
+                ->where('suspended', true)
+                ->count();
+        }
+
+        return view('admin.users.index', [
+            'users' => $users,
+            'plans' => $plans,
+            'userStats' => $userStats,
+            'availableRoles' => self::availableRoles(),
+        ]);
     }
 
     public function create(): View
     {
-        return view('admin.users.create');
-    }
+        $plansQuery = SubscriptionPlan::query()
+            ->where('is_enabled', true);
 
-    public function show(User $user): View
-    {
-        $usageProgress = $this->usageProgress((int) $user->id);
-        $recoverableCount = Schema::hasTable('user_recycle_bin_items')
-            ? UserRecycleBinItem::where('user_id', $user->id)
-                ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
-                ->count()
-            : 0;
+        if (Schema::hasColumn('subscription_plans', 'display_order')) {
+            $plansQuery->orderBy('display_order');
+        }
 
-        return view('admin.users.show', compact('user', 'usageProgress', 'recoverableCount'));
+        if (Schema::hasColumn('subscription_plans', 'name')) {
+            $plansQuery->orderBy('name');
+        } elseif (Schema::hasColumn('subscription_plans', 'title')) {
+            $plansQuery->orderBy('title');
+        } else {
+            $plansQuery->orderBy('id');
+        }
+
+        $plans = $plansQuery->get();
+
+        return view('admin.users.create', [
+            'plans' => $plans,
+            'availableRoles' => self::availableRoles(),
+        ]);
     }
 
     public function store(Request $request): RedirectResponse
     {
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8'],
-            'role' => ['required', 'in:user,admin'],
-        ]);
-
-        // Deliberately does NOT set data_consent_at — consent must come from
-        // the account holder themselves, not be granted on their behalf by
-        // whoever created the account. They'll see their consent status
-        // (and can review the Privacy Policy) from their own Privacy & Data
-        // page once they log in.
-        //
-        // DOES set email_verified_at, unlike self-registration — an admin
-        // creating an account on someone's behalf (e.g. from a support
-        // request) has no "click the confirmation link" loop to go
-        // through; there's no unverified inbox to wait on here.
-        User::create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'password' => Hash::make($data['password']),
-            'role' => $data['role'],
-            'email_verified_at' => now(),
-        ]);
-
-        return redirect()->route('admin.users.index')->with('success', 'User created.');
-    }
-
-    public function suspend(Request $request, User $user): RedirectResponse
-    {
-        if ($blocked = $this->blockIfSelf($request, $user, 'suspend your own account')) {
-            return $blocked;
-        }
-
-        $user->update(['suspended_at' => now()]);
-
-        return back()->with('success', "{$user->name}'s account has been suspended.");
-    }
-
-    public function unsuspend(Request $request, User $user): RedirectResponse
-    {
-        $user->update(['suspended_at' => null]);
-
-        return back()->with('success', "{$user->name}'s account has been reactivated.");
-    }
-
-    public function updateSubscription(Request $request, User $user): RedirectResponse
-    {
-        $data = $request->validate([
-            'subscription_status' => ['required', 'in:trialing,active,canceled,expired'],
-            'extend_trial_days' => ['nullable', 'integer', 'min:1', 'max:365'],
-        ]);
-
-        $update = ['subscription_status' => $data['subscription_status']];
-
-        if ($data['subscription_status'] === 'active') {
-            $update['subscribed_at'] = $user->subscribed_at ?? now();
-        }
-
-        if (! empty($data['extend_trial_days'])) {
-            $base = ($user->trial_ends_at && $user->trial_ends_at->isFuture()) ? $user->trial_ends_at : now();
-            // Same TypeError risk as AdminSettingsController's trial_days —
-            // validate()'s 'integer' rule doesn't cast the value, and it
-            // arrives as a numeric string from the form.
-            $update['trial_ends_at'] = $base->copy()->addDays((int) $data['extend_trial_days']);
-        }
-
-        $user->update($update);
-
-        return back()->with('success', "{$user->name}'s subscription was updated.");
-    }
-
-    public function updateRole(Request $request, User $user): RedirectResponse
-    {
-        if ($blocked = $this->blockIfSelf($request, $user, 'change your own role')) {
-            return $blocked;
-        }
+        $roles = array_keys(self::availableRoles());
 
         $data = $request->validate([
-            'role' => ['required', 'in:user,admin'],
+            'name' => ['required', 'string', 'max:150'],
+            'email' => [
+                'required',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email'),
+            ],
+            'phone' => ['nullable', 'string', 'max:30'],
+            'role' => ['required', Rule::in($roles)],
+            'password' => [
+                'nullable',
+                'string',
+                'min:8',
+                'max:255',
+            ],
+            'send_password_setup' => ['nullable', 'boolean'],
+            'subscription_plan_id' => [
+                'nullable',
+                'integer',
+                'exists:subscription_plans,id',
+            ],
+            'subscription_status' => [
+                'nullable',
+                Rule::in([
+                    'active',
+                    'trial',
+                    'inactive',
+                    'expired',
+                    'suspended',
+                    'cancelled',
+                ]),
+            ],
+            'subscription_started_at' => [
+                'nullable',
+                'date',
+            ],
+            'subscription_expires_at' => [
+                'nullable',
+                'date',
+            ],
+            'trial_ends_at' => [
+                'nullable',
+                'date',
+            ],
         ]);
 
-        $user->update(['role' => $data['role']]);
+        $sendSetup = $request->boolean('send_password_setup');
 
-        return back()->with('success', "{$user->name} is now a {$data['role']}.");
-    }
-
-    public function destroy(Request $request, User $user): RedirectResponse
-    {
-        if ($blocked = $this->blockIfSelf($request, $user, 'delete your own account from here')) {
-            return $blocked;
+        if (
+            blank($data['password'] ?? null)
+            && ! $sendSetup
+        ) {
+            return back()
+                ->withInput($request->except('password'))
+                ->withErrors([
+                    'password' =>
+                        'Enter a temporary password or select Send password setup email.',
+                ]);
         }
 
-        // Same cascadeOnDelete() foreign keys as self-service account
-        // deletion (see PrivacyController::destroyAccount) — removes every
-        // module record the user ever created.
-        $user->delete();
+        $user = DB::transaction(function () use ($data): User {
+            $user = new User();
 
-        return redirect()->route('admin.users.index')->with('success', 'User deleted.');
-    }
+            $this->assignIfColumn(
+                $user,
+                'name',
+                $data['name']
+            );
 
+            $this->assignIfColumn(
+                $user,
+                'email',
+                strtolower(trim($data['email']))
+            );
 
-    /**
-     * Restore all still-recoverable records for a user without exposing the
-     * record payloads to the administrator. The account holder is emailed a
-     * simple confirmation after recovery.
-     */
-    public function restoreData(Request $request, User $user, UserDataVaultService $vault): RedirectResponse
-    {
-        if (! Schema::hasTable('user_recycle_bin_items')) {
-            return back()->withErrors(['restore' => 'The recycle bin is not available yet. Run the data-recovery migration first.']);
+            if (
+                Schema::hasColumn('users', 'phone')
+                && ! blank($data['phone'] ?? null)
+            ) {
+                $user->phone = trim($data['phone']);
+            }
+
+            /*
+             * A random internal password is used when the administrator
+             * chooses the password-setup-email flow. The random value is
+             * never displayed or sent.
+             */
+            $user->password = Hash::make(
+                ! blank($data['password'] ?? null)
+                    ? $data['password']
+                    : bin2hex(random_bytes(32))
+            );
+
+            $this->setRole(
+                $user,
+                $data['role']
+            );
+
+            if (Schema::hasColumn('users', 'account_status')) {
+                $user->account_status = 'active';
+            }
+
+            if (Schema::hasColumn('users', 'subscription_plan_id')) {
+                $user->subscription_plan_id =
+                    ! empty($data['subscription_plan_id'])
+                        ? (int) $data['subscription_plan_id']
+                        : $this->monthlyPlanId();
+            }
+
+            if (Schema::hasColumn('users', 'subscription_status')) {
+                $user->subscription_status =
+                    $data['subscription_status']
+                    ?? (
+                        ! empty($data['subscription_plan_id'])
+                            ? 'active'
+                            : 'trial'
+                    );
+            }
+
+            foreach ([
+                'subscription_started_at',
+                'subscription_expires_at',
+                'trial_ends_at',
+            ] as $column) {
+                if (
+                    Schema::hasColumn('users', $column)
+                    && array_key_exists($column, $data)
+                ) {
+                    $user->{$column} =
+                        $data[$column] ?: null;
+                }
+            }
+
+            if (
+                Schema::hasColumn('users', 'email_verified_at')
+                && blank($user->email_verified_at)
+            ) {
+                /*
+                 * Admin-created accounts still need to authenticate normally.
+                 * Marking the email as verified avoids blocking a legitimate
+                 * staff account behind a second verification workflow.
+                 */
+                $user->email_verified_at = now();
+            }
+
+            $user->save();
+
+            return $user;
+        });
+
+        $setupEmailSent = false;
+
+        if ($sendSetup) {
+            try {
+                $status = Password::sendResetLink([
+                    'email' => $user->email,
+                ]);
+
+                $setupEmailSent =
+                    $status === Password::RESET_LINK_SENT;
+            } catch (\Throwable $e) {
+                Log::warning(
+                    'Admin-created user password setup email failed',
+                    [
+                        'user_id' => $user->id,
+                        'message' => $e->getMessage(),
+                    ]
+                );
+            }
         }
 
-        $items = UserRecycleBinItem::where('user_id', $user->id)
-            ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
-            ->orderBy('deleted_at')
+        $message = 'User created successfully.';
+
+        if ($sendSetup) {
+            $message .= $setupEmailSent
+                ? ' A password setup email was sent.'
+                : ' The account was created, but the password setup email could not be sent. Use Forgot Password or set a temporary password.';
+        }
+
+        return redirect()
+            ->route('admin.users.index')
+            ->with('success', $message);
+    }
+
+    public function show(User $user): View
+    {
+        $user->loadMissing('subscriptionPlan');
+
+        return view('admin.users.show', [
+            'user' => $user,
+            'availableRoles' => self::availableRoles(),
+        ]);
+    }
+
+    public function updateRole(
+        Request $request,
+        User $user
+    ): RedirectResponse {
+        abort_if(
+            (int) $request->user()->id === (int) $user->id,
+            422,
+            'You cannot change your own role here.'
+        );
+
+        $data = $request->validate([
+            'role' => [
+                'required',
+                Rule::in(
+                    array_keys(self::availableRoles())
+                ),
+            ],
+        ]);
+
+        $this->setRole(
+            $user,
+            $data['role']
+        );
+
+        $user->save();
+
+        return back()->with(
+            'success',
+            'User role updated to '
+                .self::availableRoles()[$data['role']]
+                .'.'
+        );
+    }
+
+    public function suspend(
+        Request $request,
+        User $user
+    ): RedirectResponse {
+        abort_if(
+            (int) $request->user()->id === (int) $user->id,
+            422,
+            'You cannot suspend your own account.'
+        );
+
+        $data = $request->validate([
+            'reason' => [
+                'nullable',
+                'string',
+                'max:1000',
+            ],
+        ]);
+
+        if (Schema::hasColumn('users', 'account_status')) {
+            $user->account_status = 'suspended';
+        }
+
+        if (Schema::hasColumn('users', 'is_suspended')) {
+            $user->is_suspended = true;
+        }
+
+        if (Schema::hasColumn('users', 'suspended')) {
+            $user->suspended = true;
+        }
+
+        if (Schema::hasColumn('users', 'suspended_at')) {
+            $user->suspended_at = now();
+        }
+
+        if (Schema::hasColumn('users', 'suspended_reason')) {
+            $user->suspended_reason =
+                $data['reason'] ?? null;
+        }
+
+        $user->save();
+
+        return back()->with(
+            'success',
+            'User suspended.'
+        );
+    }
+
+    public function unsuspend(User $user): RedirectResponse
+    {
+        if (Schema::hasColumn('users', 'account_status')) {
+            $user->account_status = 'active';
+        }
+
+        if (Schema::hasColumn('users', 'is_suspended')) {
+            $user->is_suspended = false;
+        }
+
+        if (Schema::hasColumn('users', 'suspended')) {
+            $user->suspended = false;
+        }
+
+        if (Schema::hasColumn('users', 'suspended_at')) {
+            $user->suspended_at = null;
+        }
+
+        if (Schema::hasColumn('users', 'suspended_reason')) {
+            $user->suspended_reason = null;
+        }
+
+        $user->save();
+
+        return back()->with(
+            'success',
+            'User reactivated.'
+        );
+    }
+
+    public function updateSubscription(
+        Request $request,
+        User $user
+    ): RedirectResponse {
+        $data = $request->validate([
+            'subscription_status' => [
+                'required',
+                'string',
+                Rule::in([
+                    'active',
+                    'trial',
+                    'inactive',
+                    'expired',
+                    'suspended',
+                    'cancelled',
+                ]),
+            ],
+            'subscription_plan_id' => [
+                'nullable',
+                'integer',
+                'exists:subscription_plans,id',
+            ],
+            'subscription_started_at' => [
+                'nullable',
+                'date',
+            ],
+            'subscription_expires_at' => [
+                'nullable',
+                'date',
+            ],
+            'trial_ends_at' => [
+                'nullable',
+                'date',
+            ],
+        ]);
+
+        $status = strtolower(trim((string) $data['subscription_status']));
+        $planId = filled($data['subscription_plan_id'] ?? null)
+            ? (int) $data['subscription_plan_id']
+            : null;
+
+        $plan = $planId !== null
+            ? SubscriptionPlan::query()->find($planId)
+            : null;
+
+        $startedAt = filled($data['subscription_started_at'] ?? null)
+            ? Carbon::parse($data['subscription_started_at'])->startOfDay()
+            : null;
+
+        $expiresAt = filled($data['subscription_expires_at'] ?? null)
+            ? Carbon::parse($data['subscription_expires_at'])->endOfDay()
+            : null;
+
+        $trialEndsAt = filled($data['trial_ends_at'] ?? null)
+            ? Carbon::parse($data['trial_ends_at'])->endOfDay()
+            : null;
+
+        if ($status === 'active' && $startedAt === null) {
+            $startedAt = now();
+        }
+
+        if ($status === 'active') {
+            $trialEndsAt = null;
+
+            if ($expiresAt === null && $plan !== null) {
+                $isLifetime = method_exists($plan, 'isLifetime')
+                    ? (bool) $plan->isLifetime()
+                    : (Schema::hasColumn('subscription_plans', 'is_lifetime')
+                        ? (bool) $plan->getAttribute('is_lifetime')
+                        : false);
+
+                if (! $isLifetime) {
+                    $months = max(1, (int) ($plan->duration_months ?? 1));
+                    $expiresAt = ($startedAt ?? now())
+                        ->copy()
+                        ->addMonths($months)
+                        ->endOfDay();
+                }
+            }
+        }
+
+        if ($status === 'trial' && $trialEndsAt === null) {
+            $trialEndsAt = now()->addDays(14)->endOfDay();
+        }
+
+        if (
+            $startedAt !== null
+            && $expiresAt !== null
+            && $expiresAt->lt($startedAt)
+        ) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'subscription_expires_at' =>
+                        'Subscription expiry date cannot be before the start date.',
+                ]);
+        }
+
+        try {
+            DB::transaction(function () use (
+                $user,
+                $status,
+                $planId,
+                $plan,
+                $startedAt,
+                $expiresAt,
+                $trialEndsAt
+            ): void {
+                $updates = [];
+
+                if (Schema::hasColumn('users', 'subscription_status')) {
+                    $updates['subscription_status'] = $status;
+                }
+
+                if (Schema::hasColumn('users', 'subscription_plan_id')) {
+                    $updates['subscription_plan_id'] = $planId;
+                }
+
+                if (Schema::hasColumn('users', 'subscription_started_at')) {
+                    $updates['subscription_started_at'] = $startedAt;
+                }
+
+                if (Schema::hasColumn('users', 'subscription_expires_at')) {
+                    $updates['subscription_expires_at'] = $expiresAt;
+                }
+
+                if (Schema::hasColumn('users', 'trial_ends_at')) {
+                    $updates['trial_ends_at'] = $trialEndsAt;
+                }
+
+                if (Schema::hasColumn('users', 'account_status')) {
+                    if ($status === 'suspended') {
+                        $updates['account_status'] = 'suspended';
+                    } elseif ((string) $user->account_status === 'suspended') {
+                        $updates['account_status'] = 'active';
+                    }
+                }
+
+                if (Schema::hasColumn('users', 'is_suspended')) {
+                    $updates['is_suspended'] = $status === 'suspended';
+                }
+
+                if (Schema::hasColumn('users', 'suspended')) {
+                    $updates['suspended'] = $status === 'suspended';
+                }
+
+                if (
+                    Schema::hasColumn('users', 'suspended_at')
+                    && $status !== 'suspended'
+                ) {
+                    $updates['suspended_at'] = null;
+                }
+
+                if (
+                    Schema::hasColumn('users', 'auto_renew_subscription')
+                    && in_array(
+                        $status,
+                        ['inactive', 'expired', 'suspended', 'cancelled'],
+                        true
+                    )
+                ) {
+                    $updates['auto_renew_subscription'] = false;
+                }
+
+                if (
+                    Schema::hasColumn('users', 'auto_renew_disabled_at')
+                    && in_array(
+                        $status,
+                        ['inactive', 'expired', 'suspended', 'cancelled'],
+                        true
+                    )
+                ) {
+                    $updates['auto_renew_disabled_at'] = now();
+                }
+
+                if ($updates !== []) {
+                    $user->forceFill($updates)->save();
+                }
+
+                if (
+                    $plan !== null
+                    && class_exists(\App\Models\Organization::class)
+                ) {
+                    $isIndividual = method_exists($plan, 'isIndividual')
+                        ? (bool) $plan->isIndividual()
+                        : true;
+
+                    if (! $isIndividual) {
+                        $organization = \App\Models\Organization::query()
+                            ->where('owner_user_id', $user->id)
+                            ->first();
+
+                        if ($organization !== null) {
+                            $organization->forceFill([
+                                'subscription_plan_id' => $plan->id,
+                            ])->save();
+                        }
+                    }
+                }
+            });
+
+            return redirect()
+                ->route('admin.users.index')
+                ->with(
+                    'success',
+                    'Subscription for '.$user->name.' updated successfully.'
+                );
+        } catch (\Throwable $e) {
+            Log::error('Admin subscription update failed', [
+                'user_id' => $user->id,
+                'admin_id' => auth()->id(),
+                'subscription_status' => $status,
+                'subscription_plan_id' => $planId,
+                'message' => $e->getMessage(),
+            ]);
+
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'subscription' =>
+                        'The subscription could not be updated. Please review the selected plan and dates and try again.',
+                ]);
+        }
+    }
+
+    public function bulk(Request $request): RedirectResponse
+    {
+        $roles = array_keys(self::availableRoles());
+
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:users,id'],
+            'action' => [
+                'required',
+                Rule::in([
+                    'role',
+                    'subscription',
+                    'suspend',
+                    'reactivate',
+                    'delete',
+                ]),
+            ],
+
+            // Bulk role
+            'role' => [
+                'nullable',
+                Rule::in($roles),
+            ],
+
+            // Bulk subscription
+            'subscription_plan_id' => [
+                'nullable',
+                'integer',
+                'exists:subscription_plans,id',
+            ],
+            'subscription_status' => [
+                'nullable',
+                Rule::in([
+                    'active',
+                    'trial',
+                    'inactive',
+                    'expired',
+                    'suspended',
+                    'cancelled',
+                ]),
+            ],
+            'subscription_started_at' => [
+                'nullable',
+                'date',
+            ],
+            'subscription_expires_at' => [
+                'nullable',
+                'date',
+            ],
+            'trial_ends_at' => [
+                'nullable',
+                'date',
+            ],
+
+            // Bulk suspension/delete confirmation
+            'reason' => [
+                'nullable',
+                'string',
+                'max:1000',
+            ],
+            'confirmation' => [
+                'nullable',
+                'string',
+                'max:20',
+            ],
+        ]);
+
+        $currentUserId = (int) $request->user()->id;
+
+        $ids = collect($data['ids'])
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        if (
+            in_array(
+                $data['action'],
+                ['role', 'suspend', 'delete'],
+                true
+            )
+            && $ids->contains($currentUserId)
+        ) {
+            return back()->withErrors([
+                'bulk' =>
+                    'Your own signed-in account cannot be role-changed, suspended or deleted through a bulk action.',
+            ]);
+        }
+
+        if (
+            $data['action'] === 'role'
+            && blank($data['role'] ?? null)
+        ) {
+            return back()->withErrors([
+                'role' =>
+                    'Choose the role to assign to the selected users.',
+            ]);
+        }
+
+        if (
+            $data['action'] === 'subscription'
+            && blank($data['subscription_status'] ?? null)
+            && blank($data['subscription_plan_id'] ?? null)
+            && blank($data['subscription_started_at'] ?? null)
+            && blank($data['subscription_expires_at'] ?? null)
+            && blank($data['trial_ends_at'] ?? null)
+        ) {
+            return back()->withErrors([
+                'subscription' =>
+                    'Choose at least one subscription value to update.',
+            ]);
+        }
+
+        if ($data['action'] === 'delete') {
+            abort_unless(
+                strtoupper(
+                    trim(
+                        (string) ($data['confirmation'] ?? '')
+                    )
+                ) === 'DELETE',
+                422,
+                'Type DELETE to confirm bulk deletion.'
+            );
+        }
+
+        $users = User::query()
+            ->whereIn('id', $ids)
             ->get();
 
-        if ($items->isEmpty()) {
-            return back()->with('status', 'There is no recoverable data for this user.');
-        }
+        DB::transaction(
+            function () use (
+                $users,
+                $data,
+                $currentUserId
+            ): void {
+                foreach ($users as $user) {
+                    switch ($data['action']) {
+                        case 'role':
+                            if ((int) $user->id === $currentUserId) {
+                                continue 2;
+                            }
 
-        $restored = 0;
-        $failed = 0;
-        foreach ($items as $item) {
-            try {
-                $vault->restore($item);
-                $restored++;
-            } catch (\Throwable $e) {
-                report($e);
-                $failed++;
+                            $this->setRole(
+                                $user,
+                                $data['role']
+                            );
+
+                            $user->save();
+                            break;
+
+                        case 'subscription':
+                            foreach ([
+                                'subscription_plan_id',
+                                'subscription_status',
+                                'subscription_started_at',
+                                'subscription_expires_at',
+                                'trial_ends_at',
+                            ] as $column) {
+                                if (
+                                    Schema::hasColumn(
+                                        'users',
+                                        $column
+                                    )
+                                    && array_key_exists(
+                                        $column,
+                                        $data
+                                    )
+                                    && $data[$column] !== null
+                                    && $data[$column] !== ''
+                                ) {
+                                    $user->{$column} =
+                                        $data[$column];
+                                }
+                            }
+
+                            if (
+                                ($data['subscription_status'] ?? null)
+                                    === 'active'
+                                && Schema::hasColumn(
+                                    'users',
+                                    'trial_ends_at'
+                                )
+                            ) {
+                                $user->trial_ends_at = null;
+                            }
+
+                            $user->save();
+                            break;
+
+                        case 'suspend':
+                            if ((int) $user->id === $currentUserId) {
+                                continue 2;
+                            }
+
+                            if (
+                                Schema::hasColumn(
+                                    'users',
+                                    'account_status'
+                                )
+                            ) {
+                                $user->account_status =
+                                    'suspended';
+                            }
+
+                            if (
+                                Schema::hasColumn(
+                                    'users',
+                                    'is_suspended'
+                                )
+                            ) {
+                                $user->is_suspended = true;
+                            }
+
+                            if (
+                                Schema::hasColumn(
+                                    'users',
+                                    'suspended'
+                                )
+                            ) {
+                                $user->suspended = true;
+                            }
+
+                            if (
+                                Schema::hasColumn(
+                                    'users',
+                                    'suspended_at'
+                                )
+                            ) {
+                                $user->suspended_at = now();
+                            }
+
+                            if (
+                                Schema::hasColumn(
+                                    'users',
+                                    'suspended_reason'
+                                )
+                            ) {
+                                $user->suspended_reason =
+                                    $data['reason'] ?? null;
+                            }
+
+                            $user->save();
+                            break;
+
+                        case 'reactivate':
+                            if (
+                                Schema::hasColumn(
+                                    'users',
+                                    'account_status'
+                                )
+                            ) {
+                                $user->account_status = 'active';
+                            }
+
+                            if (
+                                Schema::hasColumn(
+                                    'users',
+                                    'is_suspended'
+                                )
+                            ) {
+                                $user->is_suspended = false;
+                            }
+
+                            if (
+                                Schema::hasColumn(
+                                    'users',
+                                    'suspended'
+                                )
+                            ) {
+                                $user->suspended = false;
+                            }
+
+                            if (
+                                Schema::hasColumn(
+                                    'users',
+                                    'suspended_at'
+                                )
+                            ) {
+                                $user->suspended_at = null;
+                            }
+
+                            if (
+                                Schema::hasColumn(
+                                    'users',
+                                    'suspended_reason'
+                                )
+                            ) {
+                                $user->suspended_reason = null;
+                            }
+
+                            $user->save();
+                            break;
+
+                        case 'delete':
+                            if ((int) $user->id === $currentUserId) {
+                                continue 2;
+                            }
+
+                            $user->delete();
+                            break;
+                    }
+                }
             }
-        }
+        );
 
-        if ($restored > 0 && filter_var($user->email, FILTER_VALIDATE_EMAIL)) {
-            try {
-                Mail::raw(
-                    "Hello {$user->name},\n\nAn administrator restored {$restored} recoverable record(s) to your My Digital Diary account.\n\nPlease sign in and review your information. If you did not request this recovery, contact support.\n\nMy Digital Diary Support",
-                    fn ($message) => $message->to($user->email)->subject('Your My Digital Diary data was restored')
-                );
-            } catch (\Throwable $e) {
-                report($e);
-            }
-        }
+        $count = $users->count();
 
-        $message = "{$restored} record(s) restored for {$user->name}. A confirmation was sent to {$user->email}.";
-        if ($failed > 0) {
-            $message .= " {$failed} item(s) could not be restored and were left in the recycle bin.";
-        }
-
-        return back()->with('success', $message);
+        return back()->with(
+            'success',
+            $count.' selected user'
+                .($count === 1 ? '' : 's')
+                .' updated successfully.'
+        );
     }
 
-    private function usageProgress(int $userId): int
-    {
-        $total = 0;
-        $used = 0;
+    public function destroy(
+        Request $request,
+        User $user
+    ): RedirectResponse {
+        abort_if(
+            (int) $request->user()->id === (int) $user->id,
+            422,
+            'You cannot delete your own account.'
+        );
 
-        foreach (UserDataVaultService::MODELS as $class) {
-            if (! class_exists($class) || ! method_exists($class, 'query')) {
+        $confirmation = strtoupper(
+            trim((string) $request->input(
+                'confirmation',
+                'DELETE'
+            ))
+        );
+
+        abort_unless(
+            $confirmation === 'DELETE',
+            422,
+            'Type DELETE to confirm.'
+        );
+
+        $user->delete();
+
+        return redirect()
+            ->route('admin.users.index')
+            ->with('success', 'User deleted.');
+    }
+
+    private function setRole(
+        User $user,
+        string $role
+    ): void {
+        /*
+         * Older deployments may use `role`; newer user-management updates
+         * may use `system_role`. Keep both synchronised when both exist.
+         */
+        if (Schema::hasColumn('users', 'system_role')) {
+            $user->system_role = $role;
+        }
+
+        if (Schema::hasColumn('users', 'role')) {
+            $user->role = $role;
+        }
+    }
+
+
+    private function monthlyPlanId(): ?int
+    {
+        if (! Schema::hasTable('subscription_plans')) {
+            return null;
+        }
+
+        foreach (['code', 'slug', 'name', 'title'] as $column) {
+            if (! Schema::hasColumn('subscription_plans', $column)) {
                 continue;
             }
 
-            try {
-                $hasRecords = $class::where('user_id', $userId)->exists();
-            } catch (\Throwable $e) {
-                continue;
-            }
+            $id = SubscriptionPlan::query()
+                ->whereRaw(
+                    'LOWER(TRIM('.$column.')) = ?',
+                    ['monthly']
+                )
+                ->value('id');
 
-            $total++;
-            if ($hasRecords) {
-                $used++;
+            if ($id) {
+                return (int) $id;
             }
         }
 
-        return $total > 0 ? (int) round(($used / $total) * 100) : 0;
-    }
+        if (
+            Schema::hasColumn(
+                'subscription_plans',
+                'billing_interval'
+            )
+        ) {
+            $id = SubscriptionPlan::query()
+                ->whereRaw(
+                    'LOWER(TRIM(billing_interval)) = ?',
+                    ['monthly']
+                )
+                ->value('id');
 
-    /**
-     * Returns a redirect-with-error response if the admin is targeting
-     * their own account for a self-service-only action, or null to
-     * continue normally.
-     */
-    private function blockIfSelf(Request $request, User $user, string $action): ?RedirectResponse
-    {
-        if ($request->user()->id === $user->id) {
-            return back()->withErrors(['self' => "You can't {$action} from here. Ask another admin, or use your own Privacy & Data page."]);
+            return $id ? (int) $id : null;
         }
 
         return null;
     }
 
-    /**
-     * Bulk suspend/unsuspend/delete from the checkboxes on the Users
-     * table. The current admin's own row is never rendered with a
-     * checkbox at all (see admin/users/index.blade.php), but this also
-     * filters it out server-side as a second, independent safeguard —
-     * never trust that a client-side omission alone is enough.
-     */
-    public function bulk(Request $request): RedirectResponse
-    {
-        $data = $request->validate([
-            'action' => ['required', 'in:suspend,unsuspend,delete'],
-            'user_ids' => ['required', 'array'],
-            'user_ids.*' => ['integer', 'exists:users,id'],
-        ]);
-
-        $users = User::whereIn('id', $data['user_ids'])
-            ->where('id', '!=', $request->user()->id)
-            ->get();
-
-        $count = 0;
-        foreach ($users as $user) {
-            match ($data['action']) {
-                'suspend' => $user->update(['suspended_at' => $user->suspended_at ?? now()]),
-                'unsuspend' => $user->update(['suspended_at' => null]),
-                'delete' => $user->delete(),
-            };
-            $count++;
+    private function assignIfColumn(
+        User $user,
+        string $column,
+        mixed $value
+    ): void {
+        if (Schema::hasColumn('users', $column)) {
+            $user->{$column} = $value;
         }
-
-        $verb = match ($data['action']) {
-            'suspend' => 'suspended',
-            'unsuspend' => 'reactivated',
-            'delete' => 'deleted',
-        };
-
-        return redirect()->route('admin.users.index')->with('success', "{$count} user(s) {$verb}.");
     }
 }

@@ -17,7 +17,7 @@ class AuthenticationTest extends TestCase
         $response->assertStatus(200);
     }
 
-    public function test_users_can_authenticate_using_the_login_screen(): void
+    public function test_users_with_valid_credentials_are_prompted_for_an_otp(): void
     {
         $user = User::factory()->create();
 
@@ -26,8 +26,8 @@ class AuthenticationTest extends TestCase
             'password' => 'password',
         ]);
 
-        $this->assertAuthenticated();
-        $response->assertRedirect(route('dashboard', absolute: false));
+        $this->assertGuest();
+        $response->assertRedirect(route('otp.verify', absolute: false));
     }
 
     public function test_users_can_not_authenticate_with_invalid_password(): void

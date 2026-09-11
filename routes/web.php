@@ -36,6 +36,7 @@ use App\Http\Controllers\ReminderController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SavingsContributionController;
 use App\Http\Controllers\SavingsGoalController;
+use App\Http\Controllers\SavingsOverviewController;
 use App\Http\Controllers\SocialMediaAccountController;
 use App\Http\Controllers\SleepLogController;
 use App\Http\Controllers\SocialMediaPlannerController;
@@ -46,6 +47,8 @@ use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SupportController;
 use App\Http\Controllers\SupportAttachmentController;
 use App\Http\Controllers\TermsOfUseController;
+use App\Http\Controllers\IoTecSubscriptionPaymentController;
+use App\Http\Controllers\IoTecSubscriptionWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -95,30 +98,34 @@ Route::get('/organization/accept-invite/{token}', [\App\Http\Controllers\Organiz
 // unguessable session id, never by "whoever is currently logged in."
 Route::get('/subscription/pay/card/callback', [SubscriptionController::class, 'payWithCardCallback'])->name('subscription.pay.card.callback');
 
-// Public — IoTec's own servers call this directly to report a
-// collection's final status. IMPORTANT: this route must be added to the
-// CSRF exception list in bootstrap/app.php (withMiddleware ->
-// validateCsrfTokens(except: [...])) — I don't have that file in front
-// of me to edit safely (it's never been touched before in this project),
-// so without that one line added manually, every webhook call from
-// IoTec will get rejected with a 419 before it ever reaches the
-// controller. See the deployment notes for the exact line to add.
-//
-// This now routes through the generic PaymentGatewayWebhookController
-// (see app/PaymentGateways/) rather than the IoTec-specific one, so the
-// SAME webhook handling logic works for any future aggregator too — the
-// URL stays /webhooks/iotec (already registered on IoTec's side) but
-// resolves gateway_code='iotec' internally rather than needing its own
-// dedicated controller.
-Route::post('/webhooks/iotec', [\App\Http\Controllers\PaymentGatewayWebhookController::class, 'handle'])
-    ->name('webhooks.iotec')
-    ->defaults('gatewayCode', 'iotec');
+
+// Public browser return from ioTec Visa / MasterCard hosted checkout.
+Route::get(
+    '/subscription/pay/iotec/callback',
+    [IoTecSubscriptionPaymentController::class, 'callback']
+)->name('subscription.pay.iotec.callback');
+
+// ioTec subscription webhook.
+Route::post(
+    '/webhooks/iotec/subscriptions',
+    IoTecSubscriptionWebhookController::class
+)->middleware('throttle:10,1')->name('webhooks.iotec.subscriptions');
+
+Route::post(
+    '/webhooks/iotec',
+    [\App\Http\Controllers\PaymentGatewayWebhookController::class, 'handle']
+)
+    ->defaults('gatewayCode', 'iotec')
+    ->middleware('throttle:10,1')
+    ->name('webhooks.iotec');
+
 
 // Generic — for any FUTURE aggregator, register
 // https://yourdomain/webhooks/{gateway_code} on their side (matching
 // whatever gateway_code you set in Admin -> Payment Gateways) instead of
 // needing a new named route added here each time.
 Route::post('/webhooks/{gatewayCode}', [\App\Http\Controllers\PaymentGatewayWebhookController::class, 'handle'])
+    ->middleware('throttle:10,1')
     ->name('webhooks.gateway');
 
 // Subscription/billing + profile routes are intentionally OUTSIDE the
@@ -134,16 +141,48 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/support/attachments/{attachment}', [SupportAttachmentController::class, 'download'])
         ->where('attachment', '[^/]+')
         ->name('support.attachment.download');
-    Route::get('/subscription', [SubscriptionController::class, 'show'])->name('subscription.show');
-    Route::post('/subscription/subscribe', [SubscriptionController::class, 'subscribe'])->name('subscription.subscribe');
-    Route::post('/subscription/cancel', [SubscriptionController::class, 'cancel'])->name('subscription.cancel');
-    Route::post('/subscription/pay/card', [SubscriptionController::class, 'payWithCard'])->name('subscription.pay.card');
-    Route::post('/subscription/pay/mobile-money', [SubscriptionController::class, 'payWithMobileMoney'])->name('subscription.pay.mobile-money');
+    Route::get('/subscription', [SubscriptionController::class, 'show'])->middleware(\App\Http\Middleware\OrganizationMemberBillingContext::class)
+        ->name('subscription.show');
+    Route::post('/subscription/subscribe', [SubscriptionController::class, 'subscribe'])->middleware(\App\Http\Middleware\OrganizationMemberBillingContext::class)
+        ->name('subscription.subscribe');
+    Route::post('/subscription/cancel', [SubscriptionController::class, 'cancel'])->middleware(\App\Http\Middleware\OrganizationMemberBillingContext::class)
+        ->name('subscription.cancel');
+    Route::put('/subscription/auto-renew', [SubscriptionController::class, 'updateAutoRenew'])
+        ->middleware(\App\Http\Middleware\OrganizationMemberBillingContext::class)
+        ->name('subscription.auto-renew');
+    Route::post('/subscription/pay/card', [SubscriptionController::class, 'payWithCard'])->middleware(\App\Http\Middleware\OrganizationMemberBillingContext::class)
+        ->name('subscription.pay.card');
+    Route::post('/subscription/pay/mobile-money', [SubscriptionController::class, 'payWithMobileMoney'])->middleware(\App\Http\Middleware\OrganizationMemberBillingContext::class)
+        ->name('subscription.pay.mobile-money');
+
+    // ioTec subscription payments: Mobile Money or Visa / MasterCard.
+    Route::post(
+        '/subscription/pay/iotec',
+        [IoTecSubscriptionPaymentController::class, 'initiate']
+    )->middleware(\App\Http\Middleware\OrganizationMemberBillingContext::class)
+        ->name('subscription.pay.iotec');
+
+    Route::get(
+        '/subscription/pay/iotec/{transaction}/status',
+        [IoTecSubscriptionPaymentController::class, 'status']
+    )
+        ->whereNumber('transaction')
+        ->name('subscription.pay.iotec.status');
     Route::get('/subscription/receipt/{payment}', [SubscriptionController::class, 'downloadReceipt'])->name('subscription.receipt');
     Route::get('/subscription/invoice/{invoice}', [SubscriptionController::class, 'downloadInvoice'])->name('subscription.invoice');
-    Route::post('/subscription/pay/manual', [SubscriptionController::class, 'submitManualPayment'])->name('subscription.pay.manual');
-    Route::post('/subscription/payment/{payment}/mobile-money', [SubscriptionController::class, 'retryPendingMobileMoney'])->name('subscription.payment.mobile-money');
-    Route::post('/subscription/payment/{payment}/bank', [SubscriptionController::class, 'submitPendingBankPayment'])->name('subscription.payment.bank');
+    Route::post('/subscription/pay/manual', [SubscriptionController::class, 'submitManualPayment'])->middleware(\App\Http\Middleware\OrganizationMemberBillingContext::class)
+        ->name('subscription.pay.manual');
+    Route::post('/subscription/payment/{payment}/mobile-money', [SubscriptionController::class, 'retryPendingMobileMoney'])->middleware(\App\Http\Middleware\OrganizationMemberBillingContext::class)
+        ->name('subscription.payment.mobile-money');
+    Route::post('/subscription/payment/{payment}/bank', [SubscriptionController::class, 'submitPendingBankPayment'])->middleware(\App\Http\Middleware\OrganizationMemberBillingContext::class)
+        ->name('subscription.payment.bank');
+    Route::post(
+        '/subscription/payment/{payment}/cancel',
+        [SubscriptionController::class, 'cancelPendingPayment']
+    )
+        ->whereNumber('payment')
+        ->middleware(\App\Http\Middleware\OrganizationMemberBillingContext::class)
+        ->name('subscription.payment.cancel');
 
     // Same reasoning: data export/deletion are rights a user should be
     // able to exercise even if their trial/subscription has lapsed.
@@ -168,7 +207,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
-    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::patch('/profile', [ProfileController::class, 'update'])
+        ->middleware(\App\Http\Middleware\LockOrganizationMemberEmail::class)
+        ->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
     Route::post('/profile/avatar', [ProfileController::class, 'updateAvatar'])->name('profile.avatar');
@@ -182,6 +223,13 @@ Route::middleware(['auth'])->group(function () {
         ->name('profile.social-media');
     Route::post('/profile/social-media/accounts', [SocialMediaAccountController::class, 'store'])
         ->name('profile.social-media.accounts.store');
+
+    Route::put(
+        '/profile/social-media/accounts/{account}',
+        [SocialMediaAccountController::class, 'update']
+    )
+        ->whereNumber('account')
+        ->name('profile.social-media.accounts.update');
     Route::delete('/profile/social-media/accounts/{account}', [SocialMediaAccountController::class, 'destroy'])
         ->whereNumber('account')
         ->name('profile.social-media.accounts.destroy');
@@ -189,10 +237,11 @@ Route::middleware(['auth'])->group(function () {
         ->name('profile.social-media.whatsapp');
 });
 
-Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
+Route::middleware(['auth', 'verified', \App\Http\Middleware\EnsureSubscribedOrOrganizationMember::class])->group(function () {
     Route::get('/getting-started', [\App\Http\Controllers\OnboardingController::class, 'show'])->name('onboarding.show');
     Route::post('/getting-started', [\App\Http\Controllers\OnboardingController::class, 'store'])->name('onboarding.store');
     Route::get('/dashboard', DashboardController::class . '@index')->name('dashboard');
+    Route::post('/dashboard/today-insight/refresh', [DashboardController::class, 'refreshTodayInsight'])->name('dashboard.today-insight.refresh');
     Route::get('/activity', DashboardController::class . '@activity')->name('activity');
     Route::get('/monthly-review', \App\Http\Controllers\MonthlyReviewController::class)->name('monthly-review');
 
@@ -213,6 +262,8 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
 
             Route::get('/reports', [SocialMediaReportController::class, 'index'])
                 ->name('reports.index');
+            Route::post('/reports/sync', [SocialMediaReportController::class, 'sync'])
+                ->name('reports.sync');
             Route::get('/reports/csv', [SocialMediaReportController::class, 'csv'])
                 ->name('reports.csv');
 
@@ -221,6 +272,8 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
 
             Route::get('/{socialMediaPost}/analytics', [SocialMediaAnalyticsController::class, 'show'])
                 ->whereNumber('socialMediaPost')->name('analytics.show');
+            Route::post('/{socialMediaPost}/analytics/sync', [SocialMediaAnalyticsController::class, 'sync'])
+                ->whereNumber('socialMediaPost')->name('analytics.sync');
             Route::put('/{socialMediaPost}/analytics', [SocialMediaAnalyticsController::class, 'update'])
                 ->whereNumber('socialMediaPost')->name('analytics.update');
 
@@ -337,10 +390,18 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
     Route::delete('relationships/bulk-destroy', [PersonalRelationshipController::class, 'bulkDestroy'])->name('relationships.bulk-destroy');
     Route::delete('feedback/bulk-destroy', [FeedbackController::class, 'bulkDestroy'])->name('feedback.bulk-destroy');
 
+    // Budget document extraction/import routes must be before Route::resource('budgets', ...).
+    Route::post('budgets/extract', [BudgetController::class, 'extractImport'])->name('budgets.extract');
+    Route::post('budgets/import/confirm', [BudgetController::class, 'confirmImport'])->name('budgets.import.confirm');
+
     Route::resource('incomes', IncomeController::class);
     Route::resource('budgets', BudgetController::class);
     Route::resource('expenses', ExpenseController::class);
+    Route::get('debts/reminders', [DebtController::class, 'remindersPage'])->name('debts.reminders');
+    Route::post('debts/{debt}/reminders/send', [DebtController::class, 'sendReminder'])->name('debts.reminders.send');
+    Route::get('debts/{debt}/reminders/history', [DebtController::class, 'reminderHistory'])->name('debts.reminders.history');
     Route::resource('debts', DebtController::class);
+    Route::get('savings', [SavingsOverviewController::class, 'index'])->name('savings.index');
     Route::resource('savings-goals', SavingsGoalController::class);
     Route::resource('savings-contributions', SavingsContributionController::class);
     Route::resource('diet-logs', DietLogController::class);
@@ -383,7 +444,7 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
     Route::get('reminders/items-for-module', [ReminderController::class, 'itemsForModule'])->name('reminders.items-for-module');
     Route::resource('reminders', ReminderController::class);
 
-    Route::resource('education-plans', EducationPlanController::class);
+    Route::resource('education-plans', EducationPlanController::class)->except(['show']);
     Route::resource('network-contacts', NetworkContactController::class);
     Route::resource('relationships', PersonalRelationshipController::class);
     Route::resource('spiritual-practices', SpiritualPracticeController::class);
@@ -409,6 +470,8 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
 
     Route::get('organization', [\App\Http\Controllers\OrganizationController::class, 'show'])->name('organization.show');
     Route::post('organization/invite', [\App\Http\Controllers\OrganizationController::class, 'invite'])->name('organization.invite');
+    Route::put('organization/members/{member}', [\App\Http\Controllers\OrganizationController::class, 'editMember'])->name('organization.members.edit');
+    Route::put('organization/members/{member}/role', [\App\Http\Controllers\OrganizationController::class, 'updateRole'])->name('organization.members.role');
     Route::post('organization/members/{member}/activate', [\App\Http\Controllers\OrganizationController::class, 'activate'])->name('organization.members.activate');
     Route::post('organization/members/{member}/deactivate', [\App\Http\Controllers\OrganizationController::class, 'deactivate'])->name('organization.members.deactivate');
     Route::post('organization/members/{member}/replace', [\App\Http\Controllers\OrganizationController::class, 'replace'])->name('organization.members.replace');
@@ -427,7 +490,6 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
 
     Route::get('ai-plans', [AiPlanController::class, 'index'])->name('ai-plans.index');
     Route::post('ai-plans', [AiPlanController::class, 'store'])->name('ai-plans.store');
-    Route::get('ai-plans/{aiPlan}/preview', [AiPlanController::class, 'previewPdf'])->name('ai-plans.preview');
     Route::get('ai-plans/{aiPlan}/pdf', [AiPlanController::class, 'downloadPdf'])->name('ai-plans.pdf');
     Route::delete('ai-plans/bulk-destroy', [AiPlanController::class, 'bulkDestroy'])->name('ai-plans.bulk-destroy');
     Route::delete('ai-plans/{aiPlan}', [AiPlanController::class, 'destroy'])->name('ai-plans.destroy');
@@ -438,15 +500,29 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
     
 });
 
-// Loads Breeze's login/register/password-reset/email-verification routes
-// (routes/auth.php) — including the 'login' named route that the 'auth'
-// middleware redirects to. `breeze:install` normally auto-appends this
-// line to web.php; since this file REPLACES that generated web.php, the
-// line has to be restored here explicitly, or every auth-protected route
-// throws "Route [login] not defined."
-require __DIR__.'/auth.php';
+/*
+|--------------------------------------------------------------------------
+| Route Modules
+|--------------------------------------------------------------------------
+|
+| Each feature route file below is loaded exactly once.
+| Do not re-add the retired patch files.
+|
+*/
 
-// Admin area (account/subscription management, statistics) — see
-// routes/admin.php for why it's kept separate and gated by ['auth','admin']
-// rather than 'subscribed'.
+require __DIR__.'/auth.php';
 require __DIR__.'/admin.php';
+require __DIR__.'/growth_web.php';
+require __DIR__.'/team_workspace.php';
+require __DIR__.'/team_chat.php';
+
+// Health, diet, sleep and Daily Wellbeing AI routes.
+require __DIR__ . '/health-ai.php';
+
+require __DIR__ . '/wellbeing_linked_updates.php';
+
+// Daily Food Journal compatibility routes.
+require __DIR__ . '/daily_food_journal_compat.php';
+
+// AI-assisted CRUD forms: Spiritual Practices, Relationships and Networks.
+require __DIR__ . '/ai-form-assist.php';

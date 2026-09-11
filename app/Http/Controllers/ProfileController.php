@@ -43,7 +43,7 @@ class ProfileController extends Controller
 
         $user->save();
 
-        return back()->with('profile_status', 'profile-updated');
+        return redirect()->route('profile.edit')->with('profile_status', 'profile-updated');
     }
 
 
@@ -131,7 +131,7 @@ class ProfileController extends Controller
      */
     public function destroy(Request $request): RedirectResponse
     {
-        $request->validate([
+        $request->validateWithBag('userDeletion', [
             'password' => ['required', 'current_password'],
         ]);
 

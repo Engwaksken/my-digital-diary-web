@@ -19,9 +19,11 @@ return new class extends Migration
         // Doctrine's schema builder can't reliably ALTER an existing
         // ENUM's allowed values, so this is a raw statement — adds
         // 'aggregator' alongside the existing bank/mobile_money/card.
-        \Illuminate\Support\Facades\DB::statement(
-            "ALTER TABLE payment_gateways MODIFY type ENUM('bank', 'mobile_money', 'card', 'aggregator') NOT NULL"
-        );
+        if (\Illuminate\Support\Facades\DB::getDriverName() !== 'sqlite') {
+            \Illuminate\Support\Facades\DB::statement(
+                "ALTER TABLE payment_gateways MODIFY type ENUM('bank', 'mobile_money', 'card', 'aggregator') NOT NULL"
+            );
+        }
 
         Schema::table('payment_gateways', function (Blueprint $table) {
             $table->string('gateway_code')->nullable()->unique()->after('id');
@@ -63,8 +65,10 @@ return new class extends Migration
             ]);
         });
 
-        \Illuminate\Support\Facades\DB::statement(
-            "ALTER TABLE payment_gateways MODIFY type ENUM('bank', 'mobile_money', 'card') NOT NULL"
-        );
+        if (\Illuminate\Support\Facades\DB::getDriverName() !== 'sqlite') {
+            \Illuminate\Support\Facades\DB::statement(
+                "ALTER TABLE payment_gateways MODIFY type ENUM('bank', 'mobile_money', 'card') NOT NULL"
+            );
+        }
     }
 };

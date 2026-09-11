@@ -1,52 +1,13 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\PaymentGateways;
 
-use App\Models\PaymentGateway;
-use App\Models\PaymentTransactionLog;
-use RuntimeException;
-
-/**
- * Structural placeholder — the admin form, database schema, encryption,
- * and factory routing for PayPal all work today; only the actual API
- * calls (what an OAuth/API-key exchange with PayPal looks like, their
- * specific collection/charge request shape, and their webhook payload
- * format) are not implemented, since that needs their real API docs and
- * live sandbox credentials to get right — same situation as IoTec was
- * before it got built out. Filling in the method bodies below with
- * PayPal's actual API is a self-contained task that doesn't touch
- * anything else in the app.
- */
-class PayPalDriver implements PaymentGatewayDriverInterface
+final class PayPalDriver extends UnsupportedGatewayDriver
 {
-    public function __construct(protected PaymentGateway $gateway)
+    protected function providerName(): string
     {
-    }
-
-    public function testConnection(): array
-    {
-        return ['success' => false, 'message' => 'PayPal is not implemented yet — this gateway type is a placeholder.'];
-    }
-
-    public function initiateCollection(
-        string $externalReference,
-        float $amount,
-        string $currency,
-        ?string $phoneNumber,
-        ?string $network,
-        ?int $userId,
-        ?int $paymentId
-    ): PaymentTransactionLog {
-        throw new RuntimeException('PayPal is not implemented yet — choose a different active gateway, or ask your developer to complete PayPalDriver.');
-    }
-
-    public function verifyTransaction(PaymentTransactionLog $log): array
-    {
-        throw new RuntimeException('PayPal is not implemented yet.');
-    }
-
-    public function parseWebhookPayload(array $payload): array
-    {
-        return ['external_reference' => null, 'status' => 'pending'];
+        return 'PayPal';
     }
 }

@@ -12,6 +12,7 @@ class EducationPlanController extends CrudController
     protected string $icon = 'fa-solid fa-graduation-cap';
     protected string $accent = 'purple';
     protected string $dateField = 'target_completion_date';
+    protected bool $excludeArchived = true;
 
     protected array $fields = [
         ['name' => 'title', 'label' => 'Title (e.g. AWS Certification, MBA)', 'type' => 'text', 'required' => true, 'placeholder' => 'e.g. AWS Solutions Architect Certification'],
@@ -44,7 +45,7 @@ class EducationPlanController extends CrudController
     protected function stats(\Illuminate\Http\Request $request): array
     {
         $userId = $request->user()->id;
-        $base = EducationPlan::where('user_id', $userId);
+        $base = EducationPlan::where('user_id', $userId)->where('is_archived', false);
         $totalCost = (clone $base)->sum('cost');
 
         return [
@@ -58,6 +59,7 @@ class EducationPlanController extends CrudController
     {
         $userId = $request->user()->id;
         $counts = EducationPlan::where('user_id', $userId)
+            ->where('is_archived', false)
             ->selectRaw('status, COUNT(*) as total')->groupBy('status')->pluck('total', 'status');
 
         if ($counts->isEmpty()) {

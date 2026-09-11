@@ -1,17 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Invitation not found</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
-    <div class="max-w-sm text-center">
-        <i class="fa-solid fa-circle-exclamation text-4xl text-amber-500 mb-4"></i>
-        <h1 class="text-lg font-bold text-slate-800 mb-2">This invitation isn't valid</h1>
-        <p class="text-sm text-slate-500">It may have already been used, or the link may be incorrect. Ask whoever invited you to send a new one.</p>
-        <a href="/" class="inline-block mt-4 text-sm text-emerald-700 hover:underline">Go to homepage</a>
-    </div>
-</body>
-</html>
+@extends('layouts.app')
+@section('title', 'Invalid Invitation')
+@section('content')
+<div class="mx-auto max-w-xl apple-surface rounded-2xl p-6 text-center">
+    <i class="fa-solid fa-link-slash text-3xl text-slate-300"></i>
+    <h1 class="mt-3 text-xl font-black text-slate-900">Invitation unavailable</h1>
+    <p class="mt-2 text-sm text-slate-500">This invitation is invalid, expired, or has already been used.</p>
+    <a href="{{ route('dashboard') }}" class="mt-4 inline-flex apple-btn rounded-xl px-4 py-2.5 text-sm font-bold">Go to Dashboard</a>
+</div>
+@endsection

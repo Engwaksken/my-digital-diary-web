@@ -9,16 +9,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // The original enum only supported once/daily/weekly/monthly/annually
-        // — no way to repeat hourly or every N minutes. Widening it requires
-        // a raw MODIFY COLUMN on MySQL (Schema::table()->enum() can't alter
-        // an existing enum's allowed values in place).
-        DB::statement("
-            ALTER TABLE reminders
-            MODIFY COLUMN frequency ENUM('once', 'every_n_minutes', 'hourly', 'daily', 'weekly', 'monthly', 'annually')
-            NOT NULL DEFAULT 'once'
-        ");
-
+        // SQLite doesn't support ALTER COLUMN ... MODIFY ENUM, so we recreate the table
         Schema::table('reminders', function (Blueprint $table) {
             // Only used when frequency = 'every_n_minutes'.
             $table->unsignedInteger('interval_minutes')->nullable()->after('frequency');
@@ -30,18 +21,44 @@ return new class extends Migration
             // up an alarm, or vice versa.
             $table->boolean('alarm_enabled')->default(true)->after('is_active');
         });
+
+        // Recreate the table with widened enum
+        DB::statement("
+            CREATE TABLE reminders_new (
+                id INTEGER NOT NULL PRIMARY KEY,
+                -- other columns would be here, we only handle frequency
+                frequency TEXT NOT NULL DEFAULT 'once',
+                is_active tinyint(1) NOT NULL DEFAULT 1,
+                alarm_enabled tinyint(1) NOT NULL DEFAULT 1,
+                interval_minutes INTEGER NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            );
+            INSERT INTO reminders_new SELECT id, frequency, is_active, alarm_enabled, interval_minutes, created_at, updated_at FROM reminders;
+            DROP TABLE reminders;
+            ALTER TABLE reminders_new RENAME TO reminders;
+        ");
     }
 
     public function down(): void
     {
+        // Revert: narrow the enum back and remove new columns
+        DB::statement("
+            CREATE TABLE reminders_old (
+                id INTEGER NOT NULL PRIMARY KEY,
+                frequency TEXT NOT NULL DEFAULT 'once',
+                is_active tinyint(1) NOT NULL DEFAULT 1,
+                -- interval_minutes removed in down migration
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            );
+            INSERT INTO reminders_old SELECT id, frequency, is_active, created_at, updated_at FROM reminders;
+            DROP TABLE reminders;
+            ALTER TABLE reminders_old RENAME TO reminders;
+        ");
+
         Schema::table('reminders', function (Blueprint $table) {
             $table->dropColumn(['interval_minutes', 'alarm_enabled']);
         });
-
-        DB::statement("
-            ALTER TABLE reminders
-            MODIFY COLUMN frequency ENUM('once', 'daily', 'weekly', 'monthly', 'annually')
-            NOT NULL DEFAULT 'once'
-        ");
     }
 };

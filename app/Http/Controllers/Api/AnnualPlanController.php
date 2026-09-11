@@ -8,6 +8,7 @@ use App\Models\Reminder;
 use App\Models\PersonalGoal;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Services\AnnualPlanWellbeingSyncService;
 use Illuminate\Support\Carbon;
 
 class AnnualPlanController extends Controller
@@ -72,6 +73,10 @@ class AnnualPlanController extends Controller
         $data['user_id'] = $request->user()->id;
         $plan = Plan::create($data);
         $this->syncReminder($request, $plan);
+        if ((int) $plan->progress_percent >= 100) {
+            app(AnnualPlanWellbeingSyncService::class)
+                ->syncCompletion($request->user(), $plan->fresh(), true);
+        }
         return response()->json($plan->fresh(), 201);
     }
 
@@ -79,8 +84,15 @@ class AnnualPlanController extends Controller
     {
         $this->authorizeOwner($request, $annualPlan);
         $annualPlan->update($this->normalize($this->validated($request)));
-        $this->syncReminder($request, $annualPlan->fresh());
-        return response()->json($annualPlan->fresh());
+        $freshPlan = $annualPlan->fresh();
+        $this->syncReminder($request, $freshPlan);
+        app(AnnualPlanWellbeingSyncService::class)
+            ->syncCompletion(
+                $request->user(),
+                $freshPlan,
+                (int) $freshPlan->progress_percent >= 100
+            );
+        return response()->json($freshPlan);
     }
 
     public function toggle(Request $request, Plan $annualPlan): JsonResponse
@@ -91,8 +103,15 @@ class AnnualPlanController extends Controller
             'status' => $completed ? 'completed' : 'in_progress',
             'progress_percent' => $completed ? 100 : min(99, max(0, (int) $annualPlan->progress_percent)),
         ]);
-        $this->syncReminder($request, $annualPlan->fresh());
-        return response()->json($annualPlan->fresh());
+        $freshPlan = $annualPlan->fresh();
+        $this->syncReminder($request, $freshPlan);
+        $syncMessage = app(AnnualPlanWellbeingSyncService::class)
+            ->syncCompletion($request->user(), $freshPlan, $completed);
+        return response()->json([
+            'data' => $freshPlan,
+            'message' => $syncMessage
+                ?: ($completed ? 'Plan marked complete.' : 'Plan reopened.'),
+        ]);
     }
 
     public function destroy(Request $request, Plan $annualPlan): JsonResponse

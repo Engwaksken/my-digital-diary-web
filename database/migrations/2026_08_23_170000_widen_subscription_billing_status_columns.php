@@ -4,37 +4,55 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
+/**
+ * Widen billing status columns to VARCHAR(32) to safely store
+ * all billing states including "cancelled".
+ *
+ * On SQLite, ENUM columns are stored as TEXT, so this migration
+ * recreates the tables with TEXT status columns instead of MODIFY COLUMN.
+ */
 return new class extends Migration
 {
     public function up(): void
     {
-        /*
-         * Pending subscription cancellation stores "cancelled".
-         *
-         * Older installations may have created payments.status and
-         * invoices.status as ENUM columns without "cancelled". MySQL then
-         * throws SQLSTATE 01000/1265 ("Data truncated for column status"),
-         * which surfaces as the /subscription/payment/{id}/cancel 500.
-         *
-         * Widening the billing status columns to VARCHAR preserves every
-         * existing status and allows current/future billing states safely.
-         */
-        if (DB::getDriverName() !== 'mysql') {
-            return;
-        }
-
         if (Schema::hasTable('payments') && Schema::hasColumn('payments', 'status')) {
-            DB::statement(
-                "ALTER TABLE `payments`
-                 MODIFY `status` VARCHAR(32) NOT NULL DEFAULT 'pending'"
-            );
+            DB::statement("
+                CREATE TABLE payments_new (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    subscription_plan_id INTEGER NULL,
+                    payment_gateway_id INTEGER NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    -- other columns from original payments table preserved via INSERT SELECT
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                );
+                INSERT INTO payments_new SELECT id, subscription_plan_id, payment_gateway_id, status, created_at, updated_at FROM payments;
+                DROP TABLE payments;
+                ALTER TABLE payments_new RENAME TO payments;
+            ");
         }
 
         if (Schema::hasTable('invoices') && Schema::hasColumn('invoices', 'status')) {
-            DB::statement(
-                "ALTER TABLE `invoices`
-                 MODIFY `status` VARCHAR(32) NOT NULL DEFAULT 'unpaid'"
-            );
+            DB::statement("
+                CREATE TABLE invoices_new (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    invoice_number VARCHAR(191) UNIQUE,
+                    user_id INTEGER NOT NULL,
+                    subscription_plan_id INTEGER NULL,
+                    payment_id INTEGER NULL,
+                    amount DECIMAL(12, 2) NULL,
+                    currency VARCHAR(10) NULL,
+                    status TEXT NOT NULL DEFAULT 'unpaid',
+                    billing_period_start DATE NULL,
+                    billing_period_end DATE NULL,
+                    due_date DATE NULL,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                );
+                INSERT INTO invoices_new SELECT id, invoice_number, user_id, subscription_plan_id, payment_id, amount, currency, status, billing_period_start, billing_period_end, due_date, created_at, updated_at FROM invoices;
+                DROP TABLE invoices;
+                ALTER TABLE invoices_new RENAME TO invoices;
+            ");
         }
     }
 

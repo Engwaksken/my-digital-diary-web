@@ -33,6 +33,13 @@
         @include('crud.extras.' . $routeName . '-top')
     @endif
 
+    @if ($routeName === 'diet-logs')
+        <section data-diet-tab-panel="stats" hidden>
+            @include('crud.extras.diet-logs-history')
+    @elseif ($routeName === 'sleep-logs')
+        <section data-sleep-tab-panel="stats" hidden>
+    @endif
+
     @if (!empty($moduleGoalSummary))
         <div class="mb-5 rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="flex items-center gap-3 min-w-0">
@@ -46,7 +53,7 @@
                         <span class="text-xs text-slate-500">{{ $moduleGoalSummary['average'] }}% avg. progress</span>
                     </div>
                     @if ($moduleGoalSummary['latest'])
-                        <p class="text-xs text-slate-600 mt-1 truncate">Focus: {{ $moduleGoalSummary['latest']->title }} · {{ $moduleGoalSummary['latest']->progress_percent }}%</p>
+                        <p class="text-xs text-slate-600 mt-1 truncate">Focus: {{ $moduleGoalSummary['latest']->title }} &middot; {{ $moduleGoalSummary['latest']->progress_percent }}%</p>
                     @else
                         <p class="text-xs text-slate-500 mt-1">Set a goal so your records and daily actions stay connected to what matters.</p>
                     @endif
@@ -64,7 +71,7 @@
          the at-a-glance summary they're meant to be, with the Chart/Table
          tabs underneath for the more detailed views. --}}
     @if (!empty($stats))
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
             @foreach ($stats as $stat)
                 @php
                     $statColor = $stat['color'] ?? $accent;
@@ -321,6 +328,136 @@
         </div>
     @endif
 
+    @if ($routeName === 'savings-goals')
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            @forelse ($items as $item)
+                @php
+                    $saved = (float) ($item->saved_amount ?? 0);
+                    $target = max(0.0, (float) ($item->target_amount ?? 0));
+                    $remaining = max(0.0, $target - $saved);
+                    $progress = $target > 0 ? min(100, round(($saved / $target) * 100, 1)) : 0;
+
+                    $statusLabel = $fields[3]['options'][$item->status] ?? ucfirst(str_replace('_', ' ', (string) $item->status));
+                    $statusClasses = match ($item->status) {
+                        'completed' => 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                        'paused' => 'bg-amber-50 text-amber-700 border-amber-100',
+                        default => 'bg-sky-50 text-sky-700 border-sky-100',
+                    };
+
+                    $rowValues = [];
+                    foreach ($fields as $fieldConfig) {
+                        $value = data_get($item, $fieldConfig['name']);
+                        if (is_object($value) && method_exists($value, 'format')) {
+                            if ($fieldConfig['type'] === 'datetime-local') {
+                                $value = $value->format('Y-m-d\TH:i');
+                            } elseif ($fieldConfig['type'] === 'time') {
+                                $value = $value->format('H:i');
+                            } else {
+                                $value = $value->format('Y-m-d');
+                            }
+                        }
+                        $rowValues[$fieldConfig['name']] = $value;
+                    }
+                @endphp
+
+                <article class="pm-card-bg rounded-2xl border border-slate-100 border-l-4 border-l-emerald-400 shadow-sm p-5 hover:shadow-md transition-shadow min-w-0">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <h3 class="font-bold text-slate-800 text-base truncate" title="{{ $item->name }}">
+                                {{ $item->name }}
+                            </h3>
+                            <div class="mt-2">
+                                <span class="inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold {{ $statusClasses }}">
+                                    {{ $statusLabel }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2 shrink-0">
+                            <button type="button"
+                                    onclick='openCrudViewModal({{ json_encode($rowValues) }}, {{ $item->id }}, true)'
+                                    class="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                                    title="View savings goal"
+                                    aria-label="View {{ $item->name }}">
+                                <i class="fa-solid fa-eye text-xs"></i>
+                            </button>
+
+                            @if (auth()->user()->hasActiveAccess())
+                                <button type="button"
+                                        onclick='openCrudEditModal({{ json_encode(route($routeName . '.update', $item->id)) }}, {{ json_encode($rowValues) }})'
+                                        class="w-8 h-8 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                                        title="Edit savings goal"
+                                        aria-label="Edit {{ $item->name }}">
+                                    <i class="fa-solid fa-pen-to-square text-xs"></i>
+                                </button>
+
+                                <button type="button"
+                                        onclick='openCrudDeleteModal({{ json_encode(route($routeName . '.destroy', $item->id)) }}, {{ json_encode($item->name) }})'
+                                        class="w-8 h-8 rounded-lg border border-rose-100 bg-rose-50 text-rose-500 hover:bg-rose-100"
+                                        title="Delete savings goal"
+                                        aria-label="Delete {{ $item->name }}">
+                                    <i class="fa-solid fa-trash-can text-xs"></i>
+                                </button>
+                            @endif
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 mt-5">
+                        <div class="rounded-xl bg-emerald-50/60 p-3">
+                            <p class="text-[11px] uppercase tracking-wide font-semibold text-emerald-600">Saved</p>
+                            <p class="font-bold text-slate-800 mt-1">{{ format_money($saved) }}</p>
+                        </div>
+                        <div class="rounded-xl bg-slate-50 p-3">
+                            <p class="text-[11px] uppercase tracking-wide font-semibold text-slate-500">Target</p>
+                            <p class="font-bold text-slate-800 mt-1">{{ format_money($target) }}</p>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <div class="flex items-center justify-between gap-3 text-xs mb-1.5">
+                            <span class="font-semibold text-slate-600">Progress</span>
+                            <span class="font-bold text-emerald-700">{{ $progress }}%</span>
+                        </div>
+                        <div class="h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                            <div class="h-full rounded-full bg-emerald-500"
+                                 style="width: {{ $progress }}%"
+                                 role="progressbar"
+                                 aria-valuemin="0"
+                                 aria-valuemax="100"
+                                 aria-valuenow="{{ $progress }}"></div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 grid grid-cols-2 gap-3 text-xs">
+                        <div>
+                            <p class="text-slate-400">Remaining</p>
+                            <p class="font-semibold text-slate-700 mt-0.5">{{ format_money($remaining) }}</p>
+                        </div>
+                        <div>
+                            <p class="text-slate-400">Target date</p>
+                            <p class="font-semibold text-slate-700 mt-0.5">
+                                {{ $item->target_date ? \Illuminate\Support\Carbon::parse($item->target_date)->format('d M Y') : 'No date' }}
+                            </p>
+                        </div>
+                    </div>
+
+                    @if (filled($item->notes))
+                        <p class="mt-4 text-xs text-slate-500 line-clamp-2">
+                            {{ \Illuminate\Support\Str::limit($item->notes, 120) }}
+                        </p>
+                    @endif
+                </article>
+            @empty
+                <div class="md:col-span-2 xl:col-span-3 pm-card-bg rounded-xl border border-slate-100 p-10 text-center text-slate-400">
+                    <i class="fa-solid fa-piggy-bank text-3xl mb-3 block opacity-30"></i>
+                    <p>No savings goals found.</p>
+                    @if ($search)
+                        <p class="text-xs mt-1">Try a different search term.</p>
+                    @endif
+                </div>
+            @endforelse
+        </div>
+    @else
     <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 overflow-x-auto pm-horizontal-table-wrap"
          role="region"
          aria-label="{{ $title }}s table"
@@ -438,6 +575,18 @@
                                     @php $meetingNotesText = trim(strip_tags((string) ($value ?? ''))); @endphp
                                     @if ($meetingNotesText !== '')
                                         <span class="cursor-help" title="{{ $meetingNotesText }}">{{ \Illuminate\Support\Str::limit($meetingNotesText, 42) }}</span>
+                                    @else
+                                        <span class="text-slate-400"></span>
+                                    @endif
+                                @elseif ($field['name'] === 'notes')
+                                    @php
+                                        $notesPreviewFull = trim(strip_tags((string) ($value ?? '')));
+                                    @endphp
+                                    @if ($notesPreviewFull !== '')
+                                        <span class="cursor-help whitespace-normal"
+                                              title="{{ $notesPreviewFull }}">
+                                            {{ \Illuminate\Support\Str::limit($notesPreviewFull, 48) }}
+                                        </span>
                                     @else
                                         <span class="text-slate-400"></span>
                                     @endif
@@ -578,6 +727,8 @@
         </table>
     </div>
 
+    @endif
+
     <nav aria-label="Pagination" class="mt-4">
         {{ $items->links() }}
     </nav>
@@ -682,6 +833,10 @@
             </div>
         </div>
     </div>
+
+    @if (in_array($routeName, ['diet-logs', 'sleep-logs'], true))
+        </section>
+    @endif
 
     {{-- Shared create/edit modal. This drives Health, Expenses, Reminders, Projects,
          Meetings and the other generic CRUD modules, so one professional structure
@@ -1028,9 +1183,18 @@
             document.getElementById('crud-modal-description').textContent = 'Update the details below, then save your changes.';
             var saveLabel = document.getElementById('crud-modal-save-label'); if (saveLabel) { saveLabel.textContent = 'Save changes'; }
             dialog.showModal();
-            if (typeof window.pmSync12HourTimeControls === 'function') {
-                window.setTimeout(function () { window.pmSync12HourTimeControls(dialog); }, 0);
-            }
+
+            window.setTimeout(function () {
+                dialog.querySelectorAll('[data-pm-datetime12]').forEach(function (root) {
+                    if (typeof root.pmSyncFromHidden === 'function') {
+                        root.pmSyncFromHidden();
+                    }
+                });
+
+                if (typeof window.pmSync12HourTimeControls === 'function') {
+                    window.pmSync12HourTimeControls(dialog);
+                }
+            }, 0);
         }
 
         function openCrudDeleteModal(actionUrl, label) {

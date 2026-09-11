@@ -71,24 +71,9 @@ class AiPlanController extends Controller
     }
 
     /**
-     * Preview a generated AI plan PDF in the browser instead of forcing a
-     * download. The plan is always resolved through the authenticated user's
-     * relationship so one user can never preview another user's plan.
-     */
-    public function previewPdf(Request $request, int $aiPlan)
-    {
-        $plan = $request->user()->aiPlans()->findOrFail($aiPlan);
-
-        $pdf = Pdf::loadView('ai-plans.pdf', [
-            'plan' => $plan,
-            'user' => $request->user(),
-        ])->setPaper('a4');
-
-        return $pdf->stream('ai-plan-' . $plan->created_at->format('Y-m-d') . '.pdf');
-    }
-
-    /**
-     * Download the exact same PDF shown by previewPdf().
+     * Download the AI plan as a PDF. The plan is always resolved through
+     * the authenticated user's relationship so one user can never download
+     * another user's plan.
      */
     public function downloadPdf(Request $request, int $aiPlan)
     {

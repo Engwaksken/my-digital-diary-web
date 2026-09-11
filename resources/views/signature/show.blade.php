@@ -12,29 +12,8 @@
     --}}
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
-        function pmConfigurePdfJs() {
-            if (typeof pdfjsLib === 'undefined') return false;
+        if (typeof pdfjsLib !== 'undefined') {
             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-            return true;
-        }
-        pmConfigurePdfJs();
-
-        function pmEnsurePdfJs() {
-            if (pmConfigurePdfJs()) return Promise.resolve(true);
-            return new Promise(function (resolve, reject) {
-                var existing = document.getElementById('pm-pdfjs-fallback');
-                if (existing) {
-                    existing.addEventListener('load', function () { resolve(pmConfigurePdfJs()); }, { once: true });
-                    existing.addEventListener('error', function () { reject(new Error('PDF preview library could not be loaded.')); }, { once: true });
-                    return;
-                }
-                var script = document.createElement('script');
-                script.id = 'pm-pdfjs-fallback';
-                script.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
-                script.onload = function () { pmConfigurePdfJs() ? resolve(true) : reject(new Error('PDF preview library did not initialise.')); };
-                script.onerror = function () { reject(new Error('PDF preview library could not be loaded.')); };
-                document.head.appendChild(script);
-            });
         }
     </script>
 
@@ -69,6 +48,8 @@
         </button>
     </div>
 
+    <div id="pm-signature-inline-alert" class="mb-4 max-w-3xl" hidden></div>
+
     {{-- ================= MY SIGNATURES (the library) ================= --}}
     <div role="tabpanel" id="pm-sig-panel-mine" aria-labelledby="pm-sig-tab-mine" tabindex="0" class="pm-sig-panel max-w-3xl space-y-6">
         <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl p-6">
@@ -79,7 +60,7 @@
             </p>
 
             @if ($signatures->isEmpty())
-                <p class="text-sm text-slate-400 mb-4">No signatures saved yet  add one below.</p>
+                <x-empty-state icon="fa-solid fa-signature" title="No signatures saved yet" message="Add one below to start signing documents." />
             @else
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                     @foreach ($signatures as $signature)
@@ -100,28 +81,51 @@
                 </div>
             @endif
 
-            <form method="POST" action="{{ route('signature.signatures.store') }}" enctype="multipart/form-data" class="border-t border-slate-100 pt-5">
+            <form method="POST" action="{{ route('signature.signatures.store') }}" enctype="multipart/form-data" class="border-t border-slate-100 pt-5" onsubmit="return pmPrepareSignatureSubmit(this)">
                 @csrf
-                <h3 class="text-sm font-semibold text-slate-700 mb-3">Add a signature</h3>
-                <div class="flex flex-col sm:flex-row gap-3 items-start">
-                    <div class="flex-1 w-full">
-                        <label for="signature-label" class="sr-only">Name this signature</label>
-                        <input type="text" id="signature-label" name="label" placeholder="e.g. Full signature, Initials" class="pm-input">
+                <h3 class="text-sm font-semibold text-slate-700 mb-1">Create or upload an e-signature</h3>
+                <p class="text-xs text-slate-500 mb-4">Sign naturally with your finger, stylus or digital pen, or upload an existing signature image.</p>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="rounded-xl border border-slate-200 p-3 bg-slate-50">
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                            <div>
+                                <p class="text-sm font-semibold text-slate-700">Finger / Pen</p>
+                                <p class="text-[11px] text-slate-500">Use a finger on touch screens or a stylus/mouse.</p>
+                            </div>
+                            <button type="button" onclick="pmClearSignaturePad()" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">Clear</button>
+                        </div>
+                        <div class="overflow-hidden rounded-xl border border-slate-300 bg-white touch-none">
+                            <canvas id="pm-signature-pad" class="block w-full" style="height:220px; touch-action:none; cursor:crosshair;" aria-label="Draw your signature"></canvas>
+                        </div>
+                        <input type="hidden" name="drawn_signature" id="pm-drawn-signature">
+                        <p id="pm-signature-pad-hint" class="mt-2 text-[11px] text-slate-400">Sign inside the box. Pressure/stylus input is supported by the browser where available.</p>
                     </div>
-                    <div class="flex-1 w-full">
-                        <label for="signature-file" class="sr-only">Signature image</label>
-                        <input type="file" id="signature-file" name="signature" accept="image/*" required class="block w-full text-sm">
+
+                    <div class="rounded-xl border border-slate-200 p-3 bg-white">
+                        <p class="text-sm font-semibold text-slate-700 mb-1">Upload e-signature</p>
+                        <p class="text-[11px] text-slate-500 mb-3">PNG with transparent background works best. JPG/JPEG/WEBP are also accepted.</p>
+                        <label for="signature-file" class="block rounded-xl border-2 border-dashed border-slate-200 p-5 text-center cursor-pointer hover:border-[var(--brand-1)] transition-colors">
+                            <i class="fa-solid fa-cloud-arrow-up text-2xl text-[var(--brand-1)]" aria-hidden="true"></i>
+                            <span class="mt-2 block text-sm font-medium text-slate-700">Choose signature image</span>
+                            <span id="pm-signature-file-name" class="mt-1 block text-xs text-slate-400">No file selected</span>
+                        </label>
+                        <input type="file" id="signature-file" name="signature" accept="image/png,image/jpeg,image/webp" class="sr-only" onchange="pmSignatureFileChanged(this)">
+                    </div>
+                </div>
+
+                <div class="mt-4 flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
+                    <div class="flex-1">
+                        <label for="signature-label" class="block text-xs font-semibold text-slate-600 mb-1">Signature name (optional)</label>
+                        <input type="text" id="signature-label" name="label" value="{{ old('label') }}" placeholder="e.g. Full signature, Initials" class="pm-input">
                     </div>
                     <button type="submit" class="btn-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all whitespace-nowrap">
-                        Add Signature
+                        <i class="fa-solid fa-floppy-disk mr-1" aria-hidden="true"></i> Save Signature
                     </button>
                 </div>
-                <p class="text-xs text-slate-400 mt-2">
-                    A PNG with a transparent background works best, so it doesn't paste onto documents with a white box around it.
-                </p>
-                @error('signature')
-                    <p role="alert" class="text-sm text-rose-600 mt-2">{{ $message }}</p>
-                @enderror
+
+                @error('signature')<p role="alert" class="text-sm text-rose-600 mt-2">{{ $message }}</p>@enderror
+                @error('drawn_signature')<p role="alert" class="text-sm text-rose-600 mt-2">{{ $message }}</p>@enderror
             </form>
         </div>
     </div>
@@ -220,28 +224,13 @@
                         <input type="file" id="document" name="document" accept="image/*,application/pdf" class="sr-only" onchange="pmLoadDocumentForEditing(this)">
                         <input type="file" id="pm-scan-document" accept="image/*" capture="environment" class="sr-only" onchange="pmUseScannedDocument(this)">
                         <p id="pm-document-name" class="mt-2 text-xs font-medium text-slate-600"></p>
-                        <p class="text-xs text-slate-400">Max 10MB. PDF pages are rendered below; scanned images open directly in the placement editor.</p>
+                        <p class="text-xs text-slate-400">Max 10MB. After you choose a file, the editable page preview appears below.</p>
                         <div id="pm-sign-loading" class="hidden mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                             <i class="fa-solid fa-spinner fa-spin mr-1" aria-hidden="true"></i>
                             <span id="pm-sign-loading-text">Loading document preview...</span>
                         </div>
+                        <div id="pm-sign-notice" class="hidden mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800"></div>
 
-                        {{-- Always-visible local preview fallback. PDF.js renders editable pages below,
-                             but this area makes the selected file visible immediately even when the
-                             PDF worker/CDN is unavailable on a phone or restricted network. --}}
-                        <div id="pm-local-document-preview" class="hidden mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                            <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-2">
-                                <div class="min-w-0">
-                                    <p class="text-xs font-semibold text-slate-700">Document preview</p>
-                                    <p id="pm-local-preview-name" class="truncate text-[11px] text-slate-500"></p>
-                                </div>
-                                <button type="button" onclick="pmClearDocumentSelection()" class="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
-                                    <i class="fa-solid fa-xmark mr-1" aria-hidden="true"></i> Remove
-                                </button>
-                            </div>
-                            <div id="pm-local-preview-body" class="flex min-h-[260px] max-h-[62vh] items-center justify-center overflow-auto bg-slate-100 p-2"></div>
-                            <p id="pm-local-preview-note" class="hidden border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"></p>
-                        </div>
                         @error('document')
                             <p role="alert" class="text-sm text-rose-600 mt-3">{{ $message }}</p>
                         @enderror
@@ -384,71 +373,79 @@
             </form>
         </div>
 
-        <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto" role="region" aria-label="Signed documents" tabindex="0">
-            <table class="min-w-full text-sm">
-                <caption class="sr-only">Documents you've signed, with download, remove, and multi-select bulk actions.</caption>
-                <thead class="bg-slate-50 text-left border-b border-slate-100">
-                    <tr>
-                        <th scope="col" class="px-4 py-3 w-4">
-                            <label class="sr-only" for="pm-sig-select-all">Select all documents</label>
-                            <input type="checkbox" id="pm-sig-select-all" onchange="pmToggleAllDocuments(this)" class="rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]">
-                        </th>
-                        <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Document</th>
-                        <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Signatures Placed</th>
-                        <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Pages</th>
-                        <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Date</th>
-                        <th scope="col" class="px-4 py-3"><span class="sr-only">Actions</span></th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100">
-                    @forelse ($documents as $doc)
+        <div class="pm-documents-scroll pm-card-bg shadow-sm border border-slate-100 rounded-xl" role="region" aria-label="Signed documents" tabindex="0">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm" style="min-width: 900px; table-layout: auto;">
+                    <caption class="sr-only">Documents you've signed, with download, remove, and multi-select bulk actions.</caption>
+                    <thead class="bg-slate-50 text-left border-b border-slate-100">
                         <tr>
-                            <td class="px-4 py-3">
-                                <label class="sr-only" for="pm-sig-doc-{{ $doc->id }}">Select {{ $doc->original_filename }}</label>
-                                <input type="checkbox" id="pm-sig-doc-{{ $doc->id }}" name="document_ids[]" value="{{ $doc->id }}"
-                                       form="pm-sig-bulk-delete-form"
-                                       data-filename="{{ $doc->original_filename }}"
-                                       data-url="{{ \Illuminate\Support\Facades\URL::temporarySignedRoute('signature.documents.shared', now()->addDays(30), ['signedDocument' => $doc->id]) }}"
-                                       class="pm-sig-doc-checkbox rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]"
-                                       onchange="pmUpdateBulkBar()">
-                            </td>
-                            <td class="px-4 py-3">
-                                <i class="fa-solid {{ $doc->was_stamped ? 'fa-file-circle-check text-emerald-500' : 'fa-file text-slate-400' }} mr-1.5" aria-hidden="true"></i>
-                                {{ $doc->original_filename }}
-                                @if (! $doc->was_stamped && $doc->stamp_error)
-                                    <span class="block text-xs text-amber-600 mt-0.5">
-                                        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> {{ $doc->stamp_error }}
-                                    </span>
-                                @endif
-                            </td>
-                            <td class="px-4 py-3">{{ $doc->placements->count() }}</td>
-                            <td class="px-4 py-3">{{ $doc->placements->pluck('page_number')->unique()->sort()->implode(', ') ?: '' }}</td>
-                            <td class="px-4 py-3">{{ $doc->signed_at?->format('Y-m-d H:i') ?? $doc->created_at->format('Y-m-d H:i') }}</td>
-                            <td class="px-4 py-3 text-right whitespace-nowrap">
-                                <a href="{{ route('signature.documents.download', $doc->id) }}" class="text-[var(--brand-1)] hover:underline mr-3">
-                                    <i class="fa-solid fa-download" aria-hidden="true"></i> Download
-                                </a>
-                                <a href="mailto:?subject={{ urlencode('Signed document: ' . $doc->original_filename) }}&body={{ urlencode('Here is the document: ' . \Illuminate\Support\Facades\URL::temporarySignedRoute('signature.documents.shared', now()->addDays(30), ['signedDocument' => $doc->id])) }}" class="text-[var(--brand-1)] hover:underline mr-3">
-                                    <i class="fa-solid fa-envelope" aria-hidden="true"></i>
-                                </a>
-                                <a href="https://wa.me/?text={{ urlencode($doc->original_filename . ': ' . \Illuminate\Support\Facades\URL::temporarySignedRoute('signature.documents.shared', now()->addDays(30), ['signedDocument' => $doc->id])) }}" target="_blank" rel="noopener noreferrer" class="text-[var(--brand-1)] hover:underline mr-3">
-                                    <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
-                                </a>
-                                <form action="{{ route('signature.documents.destroy', $doc->id) }}" method="POST" class="inline" data-confirm="Remove this signed document? This action cannot be undone." data-confirm-title="Delete document?" data-confirm-text="Delete">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button type="submit" class="text-rose-600 hover:underline">Remove</button>
-                                </form>
-                            </td>
+                            <th scope="col" class="px-4 py-3 w-12 whitespace-nowrap">
+                                <label class="sr-only" for="pm-sig-select-all">Select all documents</label>
+                                <input type="checkbox" id="pm-sig-select-all" onchange="pmToggleAllDocuments(this)" class="rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]">
+                            </th>
+                            <th scope="col" class="px-4 py-3 min-w-[260px] font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Document</th>
+                            <th scope="col" class="px-4 py-3 min-w-[150px] font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Signatures Placed</th>
+                            <th scope="col" class="px-4 py-3 min-w-[90px] font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Pages</th>
+                            <th scope="col" class="px-4 py-3 min-w-[150px] font-semibold text-slate-500 text-xs uppercase tracking-wide whitespace-nowrap">Date</th>
+                            <th scope="col" class="px-4 py-3 min-w-[220px] whitespace-nowrap"><span class="sr-only">Actions</span></th>
                         </tr>
-                    @empty
-                        <tr>
-                            <td colspan="6" class="px-4 py-6 text-center text-slate-500">No signed documents yet.</td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @forelse ($documents as $doc)
+                            <tr>
+                                <td class="px-4 py-3 align-top whitespace-nowrap">
+                                    <label class="sr-only" for="pm-sig-doc-{{ $doc->id }}">Select {{ $doc->original_filename }}</label>
+                                    <input type="checkbox" id="pm-sig-doc-{{ $doc->id }}" name="document_ids[]" value="{{ $doc->id }}"
+                                           form="pm-sig-bulk-delete-form"
+                                           data-filename="{{ $doc->original_filename }}"
+                                           data-url="{{ \Illuminate\Support\Facades\URL::temporarySignedRoute('signature.documents.shared', now()->addDays(30), ['signedDocument' => $doc->id]) }}"
+                                           class="pm-sig-doc-checkbox rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]"
+                                           onchange="pmUpdateBulkBar()">
+                                </td>
+                                <td class="px-4 py-3 align-top min-w-[260px]">
+                                    <div class="max-w-[320px] whitespace-normal break-words leading-5 text-slate-700">
+                                        <i class="fa-solid {{ $doc->was_stamped ? 'fa-file-circle-check text-emerald-500' : 'fa-file text-slate-400' }} mr-1.5" aria-hidden="true"></i>
+                                        {{ $doc->original_filename }}
+                                        @if (! $doc->was_stamped && $doc->stamp_error)
+                                            <span class="block text-xs text-amber-600 mt-0.5">
+                                                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> {{ $doc->stamp_error }}
+                                            </span>
+                                        @endif
+                                    </div>
+                                </td>
+                                <td class="px-4 py-3 align-top whitespace-nowrap">{{ $doc->placements->count() }}</td>
+                                <td class="px-4 py-3 align-top whitespace-nowrap">{{ $doc->placements->pluck('page_number')->unique()->sort()->implode(', ') ?: '—' }}</td>
+                                <td class="px-4 py-3 align-top whitespace-nowrap">{{ $doc->signed_at?->format('Y-m-d H:i') ?? $doc->created_at->format('Y-m-d H:i') }}</td>
+                                <td class="px-4 py-3 align-top text-right whitespace-nowrap">
+                                    <a href="{{ route('signature.documents.download', $doc->id) }}" class="inline-flex items-center gap-1 text-[var(--brand-1)] hover:underline mr-3">
+                                        <i class="fa-solid fa-download" aria-hidden="true"></i> Download
+                                    </a>
+                                    <a href="mailto:?subject={{ urlencode('Signed document: ' . $doc->original_filename) }}&body={{ urlencode('Here is the document: ' . \Illuminate\Support\Facades\URL::temporarySignedRoute('signature.documents.shared', now()->addDays(30), ['signedDocument' => $doc->id])) }}" class="inline-flex items-center text-[var(--brand-1)] hover:underline mr-3" aria-label="Email document">
+                                        <i class="fa-solid fa-envelope" aria-hidden="true"></i>
+                                    </a>
+                                    <a href="https://wa.me/?text={{ urlencode($doc->original_filename . ': ' . \Illuminate\Support\Facades\URL::temporarySignedRoute('signature.documents.shared', now()->addDays(30), ['signedDocument' => $doc->id])) }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center text-[var(--brand-1)] hover:underline mr-3" aria-label="Share on WhatsApp">
+                                        <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
+                                    </a>
+                                    <form action="{{ route('signature.documents.destroy', $doc->id) }}" method="POST" class="inline" data-confirm="Remove this signed document? This action cannot be undone." data-confirm-title="Delete document?" data-confirm-text="Delete">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="text-rose-600 hover:underline">Remove</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="6" class="px-4 py-6 text-center text-slate-500">No signed documents yet.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
         </div>
+        <p class="mt-2 text-xs text-slate-400 sm:hidden">
+            <i class="fa-solid fa-arrows-left-right mr-1" aria-hidden="true"></i>
+            Swipe sideways to view all document columns.
+        </p>
 
         @if ($documents->hasPages())
             <div class="mt-4">{{ $documents->links() }}</div>
@@ -532,6 +529,53 @@
 
     </script>
 
+    <style>
+        .pm-documents-scroll {
+            overflow: hidden;
+        }
+
+        .pm-documents-scroll > .overflow-x-auto {
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior-inline: contain;
+        }
+
+        @media (max-width: 640px) {
+            #pm-sig-panel-documents {
+                max-width: 100%;
+                min-width: 0;
+            }
+
+            #pm-pages-container {
+                width: 100%;
+                min-width: 0;
+                overflow-x: visible;
+            }
+
+            .pm-page-container {
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+        }
+
+        /*
+         * Keep the rendered document underneath signature placements.
+         * The page bitmap fills the stable page box created in JavaScript.
+         */
+        .pm-page-container > .pm-rendered-page,
+        .pm-page-container > canvas {
+            position: absolute;
+            inset: 0;
+            width: 100% !important;
+            height: 100% !important;
+            z-index: 0;
+            background: #fff;
+        }
+
+        .pm-page-container > .pm-placement {
+            z-index: 10;
+        }
+    </style>
+
     <script>
         // ===== Multi-page signature placement editor =====
         // Renders every page of the uploaded document (PDF via PDF.js,
@@ -564,54 +608,17 @@
             }
         }
 
-        function pmShowImmediateLocalPreview(file) {
-            var wrapper = document.getElementById('pm-local-document-preview');
-            var body = document.getElementById('pm-local-preview-body');
-            var name = document.getElementById('pm-local-preview-name');
-            var note = document.getElementById('pm-local-preview-note');
-            if (!wrapper || !body) { return; }
-
-            pmRevokeLocalDocumentUrl();
-            body.innerHTML = '';
-            if (name) { name.textContent = file.name || 'Selected document'; }
-            if (note) {
-                note.textContent = '';
-                note.classList.add('hidden');
-            }
-
-            pmLocalDocumentObjectUrl = URL.createObjectURL(file);
-
-            if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) {
-                body.innerHTML = '<div class="p-6 text-center text-slate-500"><i class="fa-solid fa-file-pdf text-3xl mb-2 text-rose-500"></i><p class="text-sm font-semibold text-slate-700">PDF selected</p><p class="mt-1 text-xs">Rendering editable pages below…</p></div>';
-            } else if ((file.type || '').indexOf('image/') === 0) {
-                var img = document.createElement('img');
-                img.src = pmLocalDocumentObjectUrl;
-                img.alt = 'Selected document preview';
-                img.className = 'block max-h-[60vh] max-w-full object-contain rounded-lg bg-white';
-                img.onerror = function () {
-                    body.innerHTML = '<p class="p-4 text-sm text-rose-600">This image could not be previewed. Please choose another image.</p>';
-                };
-                body.appendChild(img);
-            } else {
-                body.innerHTML = '<div class="p-6 text-center text-slate-500"><i class="fa-solid fa-file text-3xl mb-2"></i><p class="text-sm">Preview is not available for this file type.</p></div>';
-            }
-
-            wrapper.classList.remove('hidden');
-        }
-
         function pmShowPreviewNotice(message) {
-            var note = document.getElementById('pm-local-preview-note');
+            var note = document.getElementById('pm-sign-notice');
             if (!note) { return; }
-            note.textContent = message;
-            note.classList.remove('hidden');
+            note.textContent = message || '';
+            note.classList.toggle('hidden', !message);
         }
 
         function pmClearDocumentSelection() {
             var documentInput = document.getElementById('document');
             var scannerInput = document.getElementById('pm-scan-document');
             var name = document.getElementById('pm-document-name');
-            var wrapper = document.getElementById('pm-local-document-preview');
-            var body = document.getElementById('pm-local-preview-body');
             var editor = document.getElementById('pm-sign-editor');
             var pagesContainer = document.getElementById('pm-pages-container');
 
@@ -624,11 +631,10 @@
                 scannerInput.removeAttribute('name');
             }
             if (name) { name.textContent = ''; }
-            if (body) { body.innerHTML = ''; }
-            if (wrapper) { wrapper.classList.add('hidden'); }
             if (pagesContainer) { pagesContainer.innerHTML = ''; }
             if (editor) { editor.classList.add('hidden'); }
             pmSetSignLoading(false);
+            pmShowPreviewNotice('');
             pmRevokeLocalDocumentUrl();
             pmArmedSignature = null;
             pmUpdatePlacementCount();
@@ -636,9 +642,9 @@
 
         function pmRenderPdfFallbackMessage(error) {
             pmSetSignLoading(false);
-            var message = 'The PDF is visible above, but editable page rendering could not start.';
+            var message = 'The editable PDF preview could not be rendered.';
             if (error && error.message) { message += ' ' + error.message; }
-            pmShowPreviewNotice(message + ' Check the PDF.js CDN/network connection, then reload or choose the file again.');
+            pmShowPreviewNotice(message + ' Check the connection, then reload or choose the file again.');
         }
 
         function pmLoadDocumentForEditing(input) {
@@ -649,7 +655,7 @@
             if (!file || !pagesContainer || !editor) { return; }
 
             if (name) { name.textContent = 'Selected: ' + file.name; }
-            pmShowImmediateLocalPreview(file);
+            pmShowPreviewNotice('');
             pagesContainer.innerHTML = '';
             editor.classList.add('hidden');
             pmSetSignLoading(true, 'Preparing editable document pages...');
@@ -662,64 +668,122 @@
                     pmRenderPdfFallbackMessage(new Error('The browser could not read this PDF.'));
                 };
                 reader.onload = function () {
-                    pmEnsurePdfJs().then(function () {
-                        var bytes = new Uint8Array(reader.result);
-                        return pdfjsLib.getDocument({ data: bytes }).promise;
-                    }).then(function (pdf) {
+                    if (typeof pdfjsLib === 'undefined') {
+                        pmRenderPdfFallbackMessage(new Error('PDF.js did not load.'));
+                        return;
+                    }
+
+                    var bytes = new Uint8Array(reader.result);
+
+                    /*
+                     * Render PDF pages to an off-screen canvas first, then place the
+                     * finished bitmap into the editor as an <img>. This is more
+                     * reliable than keeping the PDF.js canvas itself inside the
+                     * draggable/resizable placement layer. On some browsers the
+                     * canvas was being laid out correctly but painted as a blank
+                     * white page after the surrounding flex/aspect-ratio layout
+                     * recalculated.
+                     */
+                    pdfjsLib.getDocument({ data: bytes }).promise.then(function (pdf) {
                         editor.classList.remove('hidden');
-                        pagesContainer.innerHTML = '';
                         pmSetSignLoading(true, 'Rendering page 1 of ' + pdf.numPages + '...');
 
                         var renderPage = function (pageNum) {
                             if (pageNum > pdf.numPages) {
                                 pmSetSignLoading(false);
-                                var local = document.getElementById('pm-local-document-preview');
-                                if (local) local.classList.add('hidden');
+                                pmUpdatePlacementCount();
                                 return Promise.resolve();
                             }
 
                             pmSetSignLoading(true, 'Rendering page ' + pageNum + ' of ' + pdf.numPages + '...');
+
                             return pdf.getPage(pageNum).then(function (page) {
                                 var baseViewport = page.getViewport({ scale: 1 });
-                                var editorWidth = pagesContainer.clientWidth || Math.max(320, window.innerWidth - 64);
-                                var targetCssWidth = Math.min(650, Math.max(280, editorWidth - 8));
-                                var cssScale = targetCssWidth / baseViewport.width;
-                                var pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-                                var renderViewport = page.getViewport({ scale: cssScale * pixelRatio });
+
+                                var availableWidth = Math.max(
+                                    280,
+                                    Math.min(
+                                        760,
+                                        (pagesContainer.clientWidth || window.innerWidth || 760) - 8
+                                    )
+                                );
+
+                                var cssScale = availableWidth / baseViewport.width;
                                 var cssViewport = page.getViewport({ scale: cssScale });
 
-                                var container = pmCreatePageContainer(pageNum, cssViewport.width, cssViewport.height);
-                                container.style.width = Math.ceil(cssViewport.width) + 'px';
-                                container.style.height = Math.ceil(cssViewport.height) + 'px';
+                                /*
+                                 * Render at device-pixel-ratio resolution for a crisp
+                                 * preview, but display at CSS size. The page container
+                                 * uses the CSS dimensions, so signature percentages
+                                 * remain accurate.
+                                 */
+                                var pixelRatio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
+                                var renderViewport = page.getViewport({ scale: cssScale * pixelRatio });
 
-                                var canvas = document.createElement('canvas');
-                                canvas.width = Math.ceil(renderViewport.width);
-                                canvas.height = Math.ceil(renderViewport.height);
-                                canvas.style.width = '100%';
-                                canvas.style.height = '100%';
-                                canvas.style.display = 'block';
-                                canvas.style.background = '#ffffff';
-                                canvas.setAttribute('aria-label', 'PDF page ' + pageNum);
-                                container.appendChild(canvas);
-                                pagesContainer.appendChild(container);
+                                var renderCanvas = document.createElement('canvas');
+                                renderCanvas.width = Math.max(1, Math.ceil(renderViewport.width));
+                                renderCanvas.height = Math.max(1, Math.ceil(renderViewport.height));
 
-                                var context = canvas.getContext('2d', { alpha: false });
-                                if (!context) throw new Error('Your browser could not create the PDF preview canvas.');
+                                var renderContext = renderCanvas.getContext('2d', {
+                                    alpha: false,
+                                    willReadFrequently: false
+                                });
 
-                                context.save();
-                                context.fillStyle = '#ffffff';
-                                context.fillRect(0, 0, canvas.width, canvas.height);
-                                context.restore();
+                                if (!renderContext) {
+                                    throw new Error('Your browser could not create the PDF preview canvas.');
+                                }
 
-                                return page.render({ canvasContext: context, viewport: renderViewport }).promise
-                                    .then(function () { return renderPage(pageNum + 1); });
+                                /*
+                                 * Explicit white background prevents transparent PDF
+                                 * pages from appearing blank against the white editor.
+                                 */
+                                renderContext.save();
+                                renderContext.fillStyle = '#ffffff';
+                                renderContext.fillRect(0, 0, renderCanvas.width, renderCanvas.height);
+                                renderContext.restore();
+
+                                return page.render({
+                                    canvasContext: renderContext,
+                                    viewport: renderViewport,
+                                    background: 'rgb(255,255,255)'
+                                }).promise.then(function () {
+                                    var pageImage = document.createElement('img');
+                                    pageImage.alt = 'PDF page ' + pageNum;
+                                    pageImage.draggable = false;
+                                    pageImage.className = 'pm-rendered-page block w-full h-full object-fill select-none pointer-events-none';
+                                    pageImage.src = renderCanvas.toDataURL('image/png');
+
+                                    var container = pmCreatePageContainer(
+                                        pageNum,
+                                        cssViewport.width,
+                                        cssViewport.height
+                                    );
+
+                                    container.appendChild(pageImage);
+                                    pagesContainer.appendChild(container);
+
+                                    /*
+                                     * Release the large backing canvas as soon as its
+                                     * bitmap has been copied into the image to keep
+                                     * multi-page PDFs from consuming excessive memory.
+                                     */
+                                    renderCanvas.width = 1;
+                                    renderCanvas.height = 1;
+
+                                    return renderPage(pageNum + 1);
+                                });
+                            }).catch(function (err) {
+                                pmSetSignLoading(false);
+                                pmShowPreviewNotice(
+                                    'Page ' + pageNum + ' could not be rendered for signature placement. ' +
+                                    (err && err.message ? err.message : 'Please try the document again.')
+                                );
+                                throw err;
                             });
                         };
 
                         return renderPage(1);
                     }).catch(function (err) {
-                        pagesContainer.innerHTML = '';
-                        editor.classList.add('hidden');
                         pmRenderPdfFallbackMessage(err);
                     });
                 };
@@ -747,7 +811,9 @@
                     pmSetSignLoading(false);
                     pmShowPreviewNotice('The image was selected but could not be decoded by this browser. Try JPG, PNG or WebP.');
                 };
-                img.src = pmLocalDocumentObjectUrl || URL.createObjectURL(file);
+                pmRevokeLocalDocumentUrl();
+                pmLocalDocumentObjectUrl = URL.createObjectURL(file);
+                img.src = pmLocalDocumentObjectUrl;
                 return;
             }
 
@@ -757,15 +823,32 @@
 
         function pmCreatePageContainer(pageNumber, naturalWidth, naturalHeight) {
             var wrapper = document.createElement('div');
-            wrapper.className = 'pm-page-container relative border border-slate-200 rounded-lg overflow-hidden bg-white mx-auto';
+            wrapper.className = 'pm-page-container relative border border-slate-200 rounded-lg overflow-hidden bg-white mx-auto shadow-sm';
             wrapper.dataset.pageNumber = pageNumber;
-            // Cap the rendered width so a huge page doesn't overflow the
-            // editor  everything downstream works in percentages of
-            // THIS rendered size, so scaling it down doesn't affect the
-            // final stamped position/size at all.
-            wrapper.style.width = 'min(100%, 650px)';
-            wrapper.style.maxWidth = '650px';
-            wrapper.style.aspectRatio = naturalWidth + ' / ' + naturalHeight;
+
+            var safeWidth = Math.max(1, Number(naturalWidth) || 1);
+            var safeHeight = Math.max(1, Number(naturalHeight) || 1);
+            var parentWidth = Math.max(
+                280,
+                Math.min(
+                    760,
+                    (document.getElementById('pm-pages-container')?.clientWidth || window.innerWidth || 760) - 8
+                )
+            );
+            var displayWidth = Math.min(parentWidth, safeWidth);
+            var displayHeight = displayWidth * (safeHeight / safeWidth);
+
+            /*
+             * Give the page a real width and height instead of relying only
+             * on aspect-ratio. This prevents flex/grid layout from producing
+             * a visible empty box while the child canvas/image has no stable
+             * painted area.
+             */
+            wrapper.style.width = '100%';
+            wrapper.style.maxWidth = Math.round(displayWidth) + 'px';
+            wrapper.style.height = 'auto';
+            wrapper.style.aspectRatio = safeWidth + ' / ' + safeHeight;
+            wrapper.style.minHeight = Math.max(180, Math.round(displayHeight)) + 'px';
             wrapper.style.touchAction = 'none';
 
             wrapper.addEventListener('dragover', function (e) { e.preventDefault(); });
@@ -773,7 +856,7 @@
             wrapper.addEventListener('click', function (e) { pmHandlePageTap(e, wrapper); });
 
             var label = document.createElement('div');
-            label.className = 'absolute top-1 left-1 bg-slate-800/70 text-white text-xs px-2 py-0.5 rounded z-10 pointer-events-none';
+            label.className = 'absolute top-1 left-1 bg-slate-800/70 text-white text-xs px-2 py-0.5 rounded z-20 pointer-events-none';
             label.textContent = 'Page ' + pageNumber;
             wrapper.appendChild(label);
 
@@ -960,7 +1043,7 @@
             });
 
             if (placements.length === 0) {
-                alert('Drag at least one signature onto the document before applying.');
+                pmShowSignatureInlineAlert('Drag at least one signature onto the document before applying.');
                 return false;
             }
 
@@ -1020,4 +1103,88 @@ document.addEventListener('change', function (event) {
     }
 });
 </script>
+
+<script>
+(function () {
+    const canvas = document.getElementById('pm-signature-pad');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+    let hasInk = false;
+    let last = null;
+
+    function resize() {
+        const rect = canvas.getBoundingClientRect();
+        const ratio = Math.max(window.devicePixelRatio || 1, 1);
+        const snapshot = hasInk ? canvas.toDataURL('image/png') : null;
+        canvas.width = Math.max(1, Math.round(rect.width * ratio));
+        canvas.height = Math.max(1, Math.round(rect.height * ratio));
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = '#111827';
+        ctx.lineWidth = 2.4;
+        if (snapshot) {
+            const image = new Image();
+            image.onload = () => ctx.drawImage(image, 0, 0, rect.width, rect.height);
+            image.src = snapshot;
+        }
+    }
+
+    function point(e) {
+        const rect = canvas.getBoundingClientRect();
+        return {x:e.clientX-rect.left,y:e.clientY-rect.top};
+    }
+
+    canvas.addEventListener('pointerdown', e => {
+        drawing = true;
+        canvas.setPointerCapture?.(e.pointerId);
+        last = point(e);
+        e.preventDefault();
+    });
+    canvas.addEventListener('pointermove', e => {
+        if (!drawing) return;
+        const p = point(e);
+        const pressure = e.pressure && e.pressure > 0 ? e.pressure : .5;
+        ctx.lineWidth = Math.max(1.5, Math.min(4.5, 1.6 + pressure * 3));
+        ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke();
+        last = p; hasInk = true; e.preventDefault();
+    });
+    ['pointerup','pointercancel','pointerleave'].forEach(name => canvas.addEventListener(name, () => { drawing=false; last=null; }));
+    window.addEventListener('resize', resize);
+    resize();
+
+    window.pmClearSignaturePad = function () {
+        const rect = canvas.getBoundingClientRect();
+        ctx.clearRect(0,0,rect.width,rect.height);
+        hasInk = false;
+        document.getElementById('pm-drawn-signature').value = '';
+    };
+    window.pmSignatureFileChanged = function (input) {
+        document.getElementById('pm-signature-file-name').textContent = input.files?.[0]?.name || 'No file selected';
+    };
+    window.pmPrepareSignatureSubmit = function (form) {
+        const file = document.getElementById('signature-file');
+        const hidden = document.getElementById('pm-drawn-signature');
+        if (hasInk) hidden.value = canvas.toDataURL('image/png');
+        if (!hasInk && (!file.files || !file.files.length)) {
+            pmShowSignatureInlineAlert('Draw your signature with your finger/pen or upload an e-signature image.');
+            return false;
+        }
+        return true;
+    };
+})();
+</script>
+
+<script>
+function pmShowSignatureInlineAlert(message) {
+    var container = document.getElementById('pm-signature-inline-alert');
+    if (!container) return;
+    container.hidden = false;
+    container.innerHTML = '<div role="alert" class="pm-alert relative flex items-start gap-3 rounded-xl border px-4 py-3 text-sm bg-red-50 text-red-800 border-red-200"><i class="fa-solid fa-circle-exclamation mt-0.5 text-red-500" aria-hidden="true"></i><div class="flex-1 min-w-0"></div></div>';
+    container.querySelector('.flex-1').textContent = message;
+    container.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+</script>
+
 @endsection

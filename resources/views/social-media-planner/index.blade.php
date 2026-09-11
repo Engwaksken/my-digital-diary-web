@@ -174,6 +174,62 @@
         display: none;
     }
 
+
+    /* Single schedule field - prevents global time enhancer duplication */
+    #social-media-planner .smp-schedule-trigger { position: relative; }
+    #social-media-planner .smp-schedule-trigger input {
+        padding-right: 2.8rem;
+        cursor: pointer;
+        background: #fff;
+    }
+    #social-media-planner .smp-schedule-icon {
+        position: absolute;
+        right: .9rem;
+        top: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+        color: rgb(71 85 105);
+    }
+    #social-media-planner .smp-due-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        margin-bottom: .35rem;
+        padding: .2rem .5rem;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+    #social-media-planner .smp-due-today { background: rgb(236 253 245); color: rgb(4 120 87); }
+    #social-media-planner .smp-due-tomorrow { background: rgb(239 246 255); color: rgb(29 78 216); }
+    #social-media-planner .smp-due-upcoming { background: rgb(248 250 252); color: rgb(71 85 105); }
+    #social-media-planner .smp-due-overdue { background: rgb(255 247 237); color: rgb(194 65 12); }
+    #social-media-planner .smp-row-due-today { background: rgba(236, 253, 245, .42); }
+
+    #social-media-planner .smp-picker-dialog {
+        width: min(460px, calc(100vw - 24px));
+        max-width: min(460px, calc(100vw - 24px));
+        border: 0;
+        padding: 0;
+        border-radius: 1rem;
+        overflow: hidden;
+        background: #fff;
+        box-shadow: 0 24px 80px rgba(15, 23, 42, .22);
+    }
+    #social-media-planner .smp-picker-dialog::backdrop {
+        background: rgba(15, 23, 42, .48);
+    }
+    #social-media-planner .smp-picker-grid {
+        display: grid;
+        grid-template-columns: 1fr 88px 88px 88px;
+        gap: .65rem;
+        align-items: end;
+    }
+    @media (max-width: 640px) {
+        #social-media-planner .smp-picker-grid { grid-template-columns: 1fr 1fr; }
+    }
+
     @media (max-width: 767.98px) {
         #social-media-planner {
             overflow-x: hidden;
@@ -244,9 +300,12 @@
 @section('content')
 @php
     $userTimezone = auth()->user()->timezone ?: 'Africa/Kampala';
+    $todayLocal = now($userTimezone)->startOfDay();
+    $tomorrowLocal = $todayLocal->copy()->addDay();
 @endphp
 
 <div class="space-y-4" id="social-media-planner">
+    @include('social-media-planner.partials.navigation-tabs')
     <div class="apple-surface rounded-2xl p-4 sm:p-5">
         <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -260,15 +319,6 @@
             </div>
 
             <div class="flex flex-wrap gap-2">
-                <a href="{{ route('profile.social-media') }}"
-                   class="apple-btn rounded-xl px-4 py-2.5 text-sm font-bold">
-                    <i class="fa-solid fa-user-gear mr-1"></i> Accounts
-                </a>
-
-                <a href="{{ route('social-media-planner.reports.index') }}"
-                   class="apple-btn rounded-xl px-4 py-2.5 text-sm font-bold">
-                    <i class="fa-solid fa-chart-column mr-1"></i> Reports
-                </a>
 
                 <button type="button"
                         onclick="openPostModal()"
@@ -291,6 +341,72 @@
           class="hidden">
         @csrf
         @method('DELETE')
+    </form>
+
+    <form method="GET"
+          action="{{ route('social-media-planner.index') }}"
+          class="mb-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3 items-end">
+            <div class="xl:col-span-2">
+                <label for="smp-search" class="block text-xs font-semibold text-slate-500 mb-1">Search posts</label>
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                    <input type="search"
+                           id="smp-search"
+                           name="search"
+                           value="{{ $search }}"
+                           placeholder="Search title, caption, hashtag or status..."
+                           class="pm-input w-full pl-9">
+                </div>
+            </div>
+
+            <div>
+                <label for="smp-period" class="block text-xs font-semibold text-slate-500 mb-1">Period</label>
+                <select id="smp-period"
+                        name="period"
+                        class="pm-input"
+                        onchange="pmToggleSocialPeriodRange()">
+                    <option value="all" @selected($period === 'all')>All time</option>
+                    <option value="today" @selected($period === 'today')>Today</option>
+                    <option value="week" @selected($period === 'week')>Last 7 days</option>
+                    <option value="month" @selected($period === 'month')>This month</option>
+                    <option value="three_months" @selected($period === 'three_months')>Last 3 months</option>
+                    <option value="range" @selected($period === 'range')>Custom range</option>
+                </select>
+            </div>
+
+            <div data-smp-period-range>
+                <label for="smp-from" class="block text-xs font-semibold text-slate-500 mb-1">From</label>
+                <input type="date" id="smp-from" name="from" value="{{ $from }}" class="pm-input">
+            </div>
+
+            <div data-smp-period-range>
+                <label for="smp-to" class="block text-xs font-semibold text-slate-500 mb-1">To</label>
+                <input type="date" id="smp-to" name="to" value="{{ $to }}" class="pm-input">
+            </div>
+
+            <div>
+                <label for="smp-per-page" class="block text-xs font-semibold text-slate-500 mb-1">Per page</label>
+                <select id="smp-per-page" name="per_page" class="pm-input">
+                    @foreach ([10, 25, 50] as $size)
+                        <option value="{{ $size }}" @selected((int) $perPage === $size)>{{ $size }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div class="flex gap-2">
+                <button type="submit"
+                        class="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-700">
+                    <i class="fa-solid fa-filter"></i>
+                    Apply
+                </button>
+
+                <a href="{{ route('social-media-planner.index') }}"
+                   class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+                    Clear
+                </a>
+            </div>
+        </div>
     </form>
 
     <div class="apple-surface rounded-2xl overflow-hidden smp-table-card">
@@ -322,7 +438,7 @@
                             <th class="px-4 py-3"></th>
                             <th class="px-4 py-3 text-left">Post</th>
                             <th class="px-4 py-3 text-left">Platforms</th>
-                            <th class="px-4 py-3 text-left">Schedule</th>
+                            <th class="px-4 py-3 text-left">Due / Schedule</th>
                             <th class="px-4 py-3 text-left">Status</th>
                             <th class="px-4 py-3 text-right">Actions</th>
                         </tr>
@@ -359,6 +475,7 @@
                                     'title' => (string) ($post->title ?? ''),
                                     'text' => $post->shareText(),
                                     'media_url' => $post->publicMediaUrl(),
+                                    'media_type' => (string) ($post->media_type ?? 'text'),
                                     'link_url' => $post->attachedLink(),
                                 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}'
                             );
@@ -370,9 +487,40 @@
                                 'scheduled' => 'bg-amber-50 text-amber-700 border-amber-200',
                                 default => 'bg-slate-50 text-slate-600 border-slate-200',
                             };
+
+                            $scheduledLocal = $post->scheduled_at
+                                ? $post->scheduled_at->copy()->timezone($userTimezone)
+                                : null;
+
+                            $dueLabel = null;
+                            $dueClass = 'smp-due-upcoming';
+                            $isDueToday = false;
+
+                            if ($scheduledLocal) {
+                                $scheduledDay = $scheduledLocal->copy()->startOfDay();
+
+                                if ($scheduledDay->equalTo($todayLocal)) {
+                                    $dueLabel = 'Due today';
+                                    $dueClass = 'smp-due-today';
+                                    $isDueToday = true;
+                                } elseif ($scheduledDay->equalTo($tomorrowLocal)) {
+                                    $dueLabel = 'Tomorrow';
+                                    $dueClass = 'smp-due-tomorrow';
+                                } elseif ($scheduledDay->lessThan($todayLocal)) {
+                                    $dueLabel = $status === 'published' ? 'Past' : 'Overdue';
+                                    $dueClass = $status === 'published'
+                                        ? 'smp-due-upcoming'
+                                        : 'smp-due-overdue';
+                                } else {
+                                    $dueLabel = 'Upcoming';
+                                    $dueClass = 'smp-due-upcoming';
+                                }
+                            }
                         @endphp
 
-                        <tr>
+                        <tr class="{{ $isDueToday ? 'smp-row-due-today' : '' }}"
+                            data-schedule="{{ $scheduledLocal ? $scheduledLocal->format('Y-m-d\TH:i') : '' }}"
+                            data-due-today="{{ $isDueToday ? '1' : '0' }}">
                             <td class="px-4 py-3 align-top">
                                 <input type="checkbox"
                                        class="post-checkbox"
@@ -400,6 +548,7 @@
                                         @endif
                                     </div>
                                 @endif
+
                             </td>
 
                             <td class="px-4 py-3 align-top">
@@ -417,10 +566,25 @@
                             </td>
 
                             <td class="px-4 py-3 align-top text-xs text-slate-600 whitespace-nowrap">
-                                @if($post->scheduled_at)
-                                    {{ $post->scheduled_at->timezone($userTimezone)->format('d M Y, g:i A') }}
+                                @if($scheduledLocal)
+                                    <div>
+                                        <span class="smp-due-badge {{ $dueClass }}">
+                                            @if($isDueToday)
+                                                <i class="fa-solid fa-circle-dot"></i>
+                                            @elseif($dueLabel === 'Overdue')
+                                                <i class="fa-solid fa-triangle-exclamation"></i>
+                                            @else
+                                                <i class="fa-regular fa-calendar"></i>
+                                            @endif
+                                            {{ $dueLabel }}
+                                        </span>
+                                    </div>
+                                    <div class="font-bold text-slate-700">{{ $scheduledLocal->format('d M Y') }}</div>
+                                    <div class="mt-0.5 text-[11px] text-slate-500">{{ $scheduledLocal->format('g:i A') }}</div>
                                 @else
-                                    Draft
+                                    <span class="smp-due-badge smp-due-upcoming">
+                                        <i class="fa-regular fa-pen-to-square"></i> Draft
+                                    </span>
                                 @endif
                             </td>
 
@@ -471,7 +635,25 @@
                 </table>
             </div>
 
-        <div class="p-4">{{ $posts->links() }}</div>
+        <div class="border-t border-slate-100 p-4">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p class="text-sm text-slate-500">
+                    Showing
+                    <span class="font-semibold text-slate-700">{{ $posts->firstItem() ?? 0 }}</span>
+                    to
+                    <span class="font-semibold text-slate-700">{{ $posts->lastItem() ?? 0 }}</span>
+                    of
+                    <span class="font-semibold text-slate-700">{{ $posts->total() }}</span>
+                    posts
+                </p>
+
+                @if($posts->hasPages())
+                    <nav aria-label="Social media posts pagination">
+                        {{ $posts->onEachSide(1)->links() }}
+                    </nav>
+                @endif
+            </div>
+        </div>
     </div>
 </div>
 
@@ -497,13 +679,36 @@
         <div class="pm-modal-body">
             <div class="grid gap-3 md:grid-cols-2">
                 <div class="md:col-span-2">
-                    <label class="text-xs font-bold">Post title</label>
-                    <input name="title" id="post-title" required class="pm-input mt-1 w-full">
+                    <div class="flex items-center justify-between gap-3">
+                        <label class="text-xs font-bold">Post title</label>
+                        <button type="button"
+                                id="post-ai-generate"
+                                onclick="generateSocialPostAiDraft()"
+                                class="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-100">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            <span>AI Generate</span>
+                        </button>
+                    </div>
+                    <input name="title"
+                           id="post-title"
+                           required
+                           class="pm-input mt-1 w-full"
+                           placeholder="Enter the post title or topic first">
+                    <p id="post-ai-status" class="mt-1 text-[11px] text-slate-500">
+                        Enter a title, then AI Generate will create a 3–5 paragraph caption and populate the other editable post fields.
+                    </p>
                 </div>
 
                 <div class="md:col-span-2">
                     <label class="text-xs font-bold">Caption</label>
-                    <textarea name="caption" id="post-caption" rows="5" class="pm-input mt-1 w-full"></textarea>
+                    <textarea name="caption"
+                              id="post-caption"
+                              rows="10"
+                              class="pm-input mt-1 w-full"
+                              placeholder="AI Generate creates 3–5 short, natural paragraphs here. Hashtags stay in the Hashtags field below."></textarea>
+                    <p class="mt-1 text-[11px] text-slate-500">
+                        AI keeps the caption short, natural and easy to read, with 3–5 brief paragraphs. Hashtags stay separate.
+                    </p>
                 </div>
 
                 <div>
@@ -512,11 +717,50 @@
                 </div>
 
                 <div>
+                    <label class="text-xs font-bold">Content objective</label>
+                    <input name="content_objective"
+                           id="post-content-objective"
+                           class="pm-input mt-1 w-full"
+                           placeholder="e.g. awareness, engagement, promotion">
+                </div>
+
+                <div class="md:col-span-2">
+                    <label class="text-xs font-bold">Media idea</label>
+                    <textarea name="media_idea"
+                              id="post-media-idea"
+                              rows="2"
+                              class="pm-input mt-1 w-full"
+                              placeholder="Suggested image, video or carousel idea"></textarea>
+                </div>
+
+                <div class="md:col-span-2">
+                    <label class="text-xs font-bold">Call to action</label>
+                    <input name="call_to_action"
+                           id="post-call-to-action"
+                           class="pm-input mt-1 w-full"
+                           placeholder="What should the audience do next?">
+                </div>
+
+                <div>
                     <label class="text-xs font-bold">Schedule</label>
-                    <input type="datetime-local"
-                           name="scheduled_at"
-                           id="post-schedule"
-                           class="pm-input mt-1 w-full">
+                    <input type="hidden" name="scheduled_at" id="post-schedule">
+
+                    <div class="smp-schedule-trigger mt-1">
+                        <input type="text"
+                               id="post-schedule-display"
+                               class="pm-input w-full"
+                               placeholder="Choose date and time"
+                               autocomplete="off"
+                               readonly
+                               onclick="openSchedulePicker()">
+                        <span class="smp-schedule-icon">
+                            <i class="fa-regular fa-calendar"></i>
+                        </span>
+                    </div>
+
+                    <p class="mt-1 text-[11px] text-slate-500">
+                        One schedule only. Time is shown in 12-hour AM/PM format.
+                    </p>
                 </div>
 
                 <div class="md:col-span-2 rounded-xl border border-slate-200 p-3">
@@ -527,6 +771,7 @@
                            accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm"
                            class="pm-input mt-1 w-full">
                     <p class="mt-1 text-[11px] text-slate-500">Images and videos up to 50 MB. A new upload replaces the current media.</p>
+                    <div id="new-media-preview" class="mt-2 hidden rounded-xl border border-slate-200 bg-slate-50 p-2"></div>
                     <div id="current-media-row" class="mt-2 hidden items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-xs">
                         <a id="current-media-link" href="#" target="_blank" rel="noopener" class="font-bold text-sky-700">View current media</a>
                         <label class="flex items-center gap-2 font-bold text-rose-600">
@@ -552,7 +797,7 @@
                             <span>
                                 <strong class="block text-xs">Automatic posting</strong>
                                 <span class="block text-[11px] text-slate-500">
-                                    Laravel posts at the scheduled time when the selected account has authorised API access.
+                                    App posts at the scheduled time when the selected account has authorised API/provider access. WhatsApp Status/Channel requires a configured automation provider.
                                 </span>
                             </span>
                         </label>
@@ -611,6 +856,69 @@
     </form>
 </dialog>
 
+
+<dialog id="social-schedule-picker" class="smp-picker-dialog">
+    <div class="border-b border-slate-100 px-4 py-4">
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <h3 class="text-base font-black text-slate-900">Choose Schedule</h3>
+                <p class="mt-1 text-xs text-slate-500">Select one date and one time.</p>
+            </div>
+            <button type="button" class="rounded-lg px-2 py-1 text-xl text-slate-500"
+                    onclick="closeSchedulePicker()">&times;</button>
+        </div>
+    </div>
+
+    <div class="p-4">
+        <div class="smp-picker-grid">
+            <div>
+                <label class="text-xs font-bold">Date</label>
+                <input type="date" id="schedule-picker-date" class="pm-input mt-1 w-full">
+            </div>
+
+            <div>
+                <label class="text-xs font-bold">Hour</label>
+                <select id="schedule-picker-hour" class="pm-input mt-1 w-full">
+                    @for($hour = 1; $hour <= 12; $hour++)
+                        <option value="{{ $hour }}">{{ $hour }}</option>
+                    @endfor
+                </select>
+            </div>
+
+            <div>
+                <label class="text-xs font-bold">Minute</label>
+                <select id="schedule-picker-minute" class="pm-input mt-1 w-full">
+                    @for($minute = 0; $minute < 60; $minute += 5)
+                        <option value="{{ str_pad((string) $minute, 2, '0', STR_PAD_LEFT) }}">
+                            {{ str_pad((string) $minute, 2, '0', STR_PAD_LEFT) }}
+                        </option>
+                    @endfor
+                </select>
+            </div>
+
+            <div>
+                <label class="text-xs font-bold">AM / PM</label>
+                <select id="schedule-picker-ampm" class="pm-input mt-1 w-full">
+                    <option value="AM">AM</option>
+                    <option value="PM">PM</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="mt-4 flex flex-wrap items-center justify-between gap-2">
+            <button type="button" class="apple-btn rounded-xl px-3 py-2 text-xs font-bold"
+                    onclick="clearSchedule()">Clear</button>
+
+            <div class="flex gap-2">
+                <button type="button" class="apple-btn rounded-xl px-3 py-2 text-xs font-bold"
+                        onclick="closeSchedulePicker()">Cancel</button>
+                <button type="button" class="btn-primary rounded-xl px-4 py-2 text-xs font-bold text-white"
+                        onclick="applySchedulePicker()">Apply Schedule</button>
+            </div>
+        </div>
+    </div>
+</dialog>
+
 <script>
 (function () {
     'use strict';
@@ -618,6 +926,92 @@
     const modal = document.getElementById('social-post-modal');
     const form = document.getElementById('social-post-form');
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+    const schedulePicker = document.getElementById('social-schedule-picker');
+    const scheduleHidden = document.getElementById('post-schedule');
+    const scheduleDisplay = document.getElementById('post-schedule-display');
+    const scheduleDate = document.getElementById('schedule-picker-date');
+    const scheduleHour = document.getElementById('schedule-picker-hour');
+    const scheduleMinute = document.getElementById('schedule-picker-minute');
+    const scheduleAmPm = document.getElementById('schedule-picker-ampm');
+
+    const pad2 = value => String(value).padStart(2, '0');
+
+    function formatScheduleDisplay(value) {
+        if (!value || !String(value).includes('T')) return '';
+
+        const [datePart, timePart] = String(value).split('T');
+        const [year, month, day] = datePart.split('-').map(Number);
+        const [hour, minute] = timePart.split(':').map(Number);
+        const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+
+        return new Intl.DateTimeFormat('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        }).format(date);
+    }
+
+    function setPickerFromValue(value) {
+        let date = new Date();
+
+        if (value && String(value).includes('T')) {
+            const [datePart, timePart] = String(value).split('T');
+            const [year, month, day] = datePart.split('-').map(Number);
+            const [hour, minute] = timePart.split(':').map(Number);
+            date = new Date(year, month - 1, day, hour, minute, 0, 0);
+        } else {
+            const next = Math.ceil(date.getMinutes() / 5) * 5;
+            if (next >= 60) date.setHours(date.getHours() + 1, 0, 0, 0);
+            else date.setMinutes(next, 0, 0);
+        }
+
+        scheduleDate.value =
+            `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+
+        scheduleHour.value = String(date.getHours() % 12 || 12);
+        scheduleMinute.value = pad2(Math.floor(date.getMinutes() / 5) * 5);
+        scheduleAmPm.value = date.getHours() >= 12 ? 'PM' : 'AM';
+    }
+
+    window.openSchedulePicker = function () {
+        const now = new Date();
+        scheduleDate.min =
+            `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+
+        setPickerFromValue(scheduleHidden.value);
+        schedulePicker?.showModal();
+    };
+
+    window.closeSchedulePicker = function () {
+        schedulePicker?.close();
+    };
+
+    window.clearSchedule = function () {
+        scheduleHidden.value = '';
+        scheduleDisplay.value = '';
+        schedulePicker?.close();
+    };
+
+    window.applySchedulePicker = function () {
+        if (!scheduleDate.value) {
+            scheduleDate.focus();
+            return;
+        }
+
+        let hour24 = Number(scheduleHour.value) % 12;
+        if (scheduleAmPm.value === 'PM') hour24 += 12;
+
+        const value =
+            `${scheduleDate.value}T${pad2(hour24)}:${pad2(scheduleMinute.value)}`;
+
+        scheduleHidden.value = value;
+        scheduleDisplay.value = formatScheduleDisplay(value);
+        schedulePicker?.close();
+    };
 
     function decodePayload(value) {
         try {
@@ -641,9 +1035,12 @@
         document.getElementById('post-title').value = post?.title || '';
         document.getElementById('post-caption').value = post?.caption || '';
         document.getElementById('post-hashtags').value = post?.hashtags || '';
-        document.getElementById('post-schedule').value = post?.scheduled_at || '';
+        const scheduledValue = post?.scheduled_at || '';
+        scheduleHidden.value = scheduledValue;
+        scheduleDisplay.value = formatScheduleDisplay(scheduledValue);
         document.getElementById('post-link-url').value = post?.link_url || '';
         document.getElementById('post-attachment').value = '';
+        if (typeof clearNewMediaPreview === 'function') clearNewMediaPreview();
         document.getElementById('remove-media').checked = false;
 
         const mediaRow = document.getElementById('current-media-row');
@@ -685,9 +1082,123 @@
         });
     });
 
+    const plannerBody = document.querySelector('.smp-table tbody');
+    if (plannerBody) {
+        const rows = [...plannerBody.querySelectorAll('tr[data-schedule]')];
+
+        rows.sort((a, b) => {
+            const aToday = a.dataset.dueToday === '1';
+            const bToday = b.dataset.dueToday === '1';
+
+            if (aToday !== bToday) return aToday ? -1 : 1;
+
+            const aSchedule = a.dataset.schedule || '';
+            const bSchedule = b.dataset.schedule || '';
+
+            if (!aSchedule && !bSchedule) return 0;
+            if (!aSchedule) return 1;
+            if (!bSchedule) return -1;
+
+            return aSchedule.localeCompare(bSchedule);
+        });
+
+        rows.forEach(row => plannerBody.appendChild(row));
+    }
+
+    async function mediaFileFromUrl(post) {
+        if (!post?.media_url) return null;
+
+        const response = await fetch(post.media_url, {
+            credentials: 'same-origin',
+            cache: 'no-store'
+        });
+
+        if (!response.ok) {
+            throw new Error(`Could not load attached media (${response.status}).`);
+        }
+
+        const blob = await response.blob();
+        const type = blob.type || (
+            post.media_type === 'video' ? 'video/mp4' : 'image/jpeg'
+        );
+
+        const extByType = {
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/webp': '.webp',
+            'image/gif': '.gif',
+            'video/mp4': '.mp4',
+            'video/quicktime': '.mov',
+            'video/webm': '.webm',
+        };
+
+        const extension = extByType[type] || '';
+        const base = (post.title || 'social-post')
+            .replace(/[^a-z0-9_-]+/gi, '-')
+            .replace(/^-+|-+$/g, '')
+            .toLowerCase() || 'social-post';
+
+        return new File([blob], `${base}${extension}`, { type });
+    }
+
+    async function shareManualPost(post) {
+        const text = post.text || post.title || '';
+        const shareData = {
+            title: post.title || 'Social media post',
+            text
+        };
+
+        if (post.link_url) shareData.url = post.link_url;
+
+        if (post.media_url && navigator.share) {
+            try {
+                const file = await mediaFileFromUrl(post);
+                if (file) {
+                    const dataWithFile = { ...shareData, files: [file] };
+
+                    if (!navigator.canShare || navigator.canShare(dataWithFile)) {
+                        await navigator.share(dataWithFile);
+                        return;
+                    }
+                }
+            } catch (error) {
+                if (error?.name === 'AbortError') return;
+                console.warn('File sharing is not available:', error);
+            }
+        }
+
+        if (navigator.share) {
+            try {
+                await navigator.share(shareData);
+                if (post.media_url) {
+                    window.open(post.media_url, '_blank', 'noopener');
+                }
+                return;
+            } catch (error) {
+                if (error?.name === 'AbortError') return;
+            }
+        }
+
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch (_) {}
+
+        if (post.media_url) {
+            window.open(post.media_url, '_blank', 'noopener');
+        }
+
+        if (!post.media_url) {
+            window.prompt('Copy this post:', text);
+        }
+    }
+
     document.querySelectorAll('.js-post-now').forEach(button => {
         button.addEventListener('click', async () => {
             const post = decodePayload(button.dataset.post);
+            const original = button.innerHTML;
+
+            button.disabled = true;
+            button.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Preparing';
 
             try {
                 await fetch(button.dataset.url, {
@@ -698,32 +1209,73 @@
                         'X-CSRF-TOKEN': csrf
                     }
                 });
-            } catch (_) {}
 
-            const text = post.text || post.title || '';
+                await shareManualPost(post);
+            } catch (error) {
+                console.error(error);
 
-            if (navigator.share) {
                 try {
-                    const shareData = {
-                        title: post.title || 'Social media post',
-                        text
-                    };
-                    if (post.link_url) shareData.url = post.link_url;
-                    await navigator.share(shareData);
-                    return;
+                    await navigator.clipboard.writeText(
+                        post.text || post.title || ''
+                    );
                 } catch (_) {}
-            }
 
-            try {
-                await navigator.clipboard.writeText(text);
-                const original = button.innerHTML;
-                button.innerHTML = '<i class="fa-solid fa-check mr-1"></i>Copied';
-                setTimeout(() => button.innerHTML = original, 1600);
-            } catch (_) {
-                window.prompt('Copy this post:', text);
+                if (post.media_url) {
+                    window.open(post.media_url, '_blank', 'noopener');
+                }
+            } finally {
+                button.disabled = false;
+                button.innerHTML = original;
             }
         });
     });
+
+    const attachmentInput = document.getElementById('post-attachment');
+    const previewBox = document.getElementById('new-media-preview');
+    let previewObjectUrl = null;
+
+    function clearNewMediaPreview() {
+        if (previewObjectUrl) {
+            URL.revokeObjectURL(previewObjectUrl);
+            previewObjectUrl = null;
+        }
+
+        if (previewBox) {
+            previewBox.innerHTML = '';
+            previewBox.classList.add('hidden');
+        }
+    }
+
+    attachmentInput?.addEventListener('change', () => {
+        clearNewMediaPreview();
+
+        const file = attachmentInput.files?.[0];
+        if (!file || !previewBox) return;
+
+        previewObjectUrl = URL.createObjectURL(file);
+        previewBox.classList.remove('hidden');
+
+        const info = document.createElement('div');
+        info.className = 'mb-2 text-xs font-bold text-slate-700';
+        info.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+        previewBox.appendChild(info);
+
+        if (file.type.startsWith('video/')) {
+            const video = document.createElement('video');
+            video.src = previewObjectUrl;
+            video.controls = true;
+            video.preload = 'metadata';
+            video.className = 'max-h-48 w-full rounded-lg bg-black';
+            previewBox.appendChild(video);
+        } else {
+            const image = document.createElement('img');
+            image.src = previewObjectUrl;
+            image.alt = 'Selected attachment preview';
+            image.className = 'max-h-48 w-full rounded-lg object-contain';
+            previewBox.appendChild(image);
+        }
+    });
+
 
     const all = document.getElementById('select-all-posts');
     const boxes = [...document.querySelectorAll('.post-checkbox')];
@@ -751,4 +1303,103 @@
     updateBulkState();
 })();
 </script>
+
+<script>
+async function generateSocialPostAiDraft() {
+    const form = document.getElementById('social-post-form');
+    const title = document.getElementById('post-title');
+    const button = document.getElementById('post-ai-generate');
+    const status = document.getElementById('post-ai-status');
+
+    if (!form || !title || !button || !status) return;
+
+    const topic = title.value.trim();
+
+    if (!topic) {
+        status.textContent = 'Enter the post title or topic first.';
+        title.focus();
+        return;
+    }
+
+    const platforms = Array.from(
+        form.querySelectorAll('input[name="platforms[]"]:checked')
+    ).map(input => input.value);
+
+    const original = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Generating...</span>';
+    status.textContent = 'Creating an editable post draft from your title...';
+
+    try {
+        const response = await fetch(@json(route('social-media-planner.store')), {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || ''
+            },
+            body: JSON.stringify({
+                _ai_generate: true,
+                title: topic,
+                platforms
+            })
+        });
+
+        const json = await response.json();
+
+        if (!response.ok || !json.ok) {
+            throw new Error(json.message || 'Could not generate the post draft.');
+        }
+
+        const fields = {
+            caption: 'post-caption',
+            hashtags: 'post-hashtags',
+            content_objective: 'post-content-objective',
+            media_idea: 'post-media-idea',
+            call_to_action: 'post-call-to-action'
+        };
+
+        let populated = 0;
+
+        Object.entries(fields).forEach(([name, id]) => {
+            const field = document.getElementById(id);
+            const value = json.data?.[name];
+
+            if (!field || value === undefined || value === null) return;
+
+            field.value = String(value);
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            field.dispatchEvent(new Event('change', { bubbles: true }));
+            populated++;
+        });
+
+        status.textContent =
+            `AI draft ready. ${populated} field${populated === 1 ? '' : 's'} populated. Review and edit before saving.`;
+
+        button.innerHTML =
+            '<i class="fa-solid fa-rotate"></i><span>Regenerate</span>';
+    } catch (error) {
+        status.textContent =
+            error.message || 'AI could not generate the post. Your current fields were kept.';
+        button.innerHTML = original;
+    } finally {
+        button.disabled = false;
+    }
+}
+</script>
+
 @endsection
+
+<script>
+function pmToggleSocialPeriodRange() {
+    const select = document.getElementById('smp-period');
+    const show = select && select.value === 'range';
+
+    document.querySelectorAll('[data-smp-period-range]').forEach(function (element) {
+        element.classList.toggle('hidden', !show);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', pmToggleSocialPeriodRange);
+</script>

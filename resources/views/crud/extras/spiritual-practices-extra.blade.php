@@ -2,41 +2,47 @@
 (function () {
     'use strict';
 
-    function closestFieldWrapper(input) {
-        return input ? input.closest('div') : null;
+    function wrap(el) {
+        return el ? el.closest('div') : null;
     }
 
-    function syncSpiritualRecurrenceFields() {
+    function syncSpiritualFields() {
         const repeat = document.getElementById('field-recurrence_frequency');
         const weekly = document.getElementById('field-recurrence_days_of_week');
         const until = document.getElementById('field-recurrence_ends_at');
+        const faith = document.getElementById('field-faith_path');
+        const custom = document.getElementById('field-custom_faith_path');
 
-        if (!repeat) return;
+        if (repeat) {
+            if (wrap(weekly)) {
+                wrap(weekly).style.display = repeat.value === 'weekly' ? '' : 'none';
+            }
 
-        const weeklyWrap = closestFieldWrapper(weekly);
-        const untilWrap = closestFieldWrapper(until);
-        const recurring = repeat.value !== '';
-
-        if (weeklyWrap) {
-            weeklyWrap.style.display = repeat.value === 'weekly' ? '' : 'none';
-            if (repeat.value !== 'weekly' && weekly) weekly.value = '';
+            if (wrap(until)) {
+                wrap(until).style.display = repeat.value ? '' : 'none';
+            }
         }
 
-        if (untilWrap) {
-            untilWrap.style.display = recurring ? '' : 'none';
-            if (!recurring && until) until.value = '';
+        if (faith && wrap(custom)) {
+            wrap(custom).style.display = faith.value === 'Custom' ? '' : 'none';
         }
     }
 
     document.addEventListener('change', function (event) {
-        if (event.target && event.target.id === 'field-recurrence_frequency') {
-            syncSpiritualRecurrenceFields();
+        if ([
+            'field-recurrence_frequency',
+            'field-faith_path'
+        ].includes(event.target?.id)) {
+            syncSpiritualFields();
         }
     });
 
-    document.addEventListener('DOMContentLoaded', syncSpiritualRecurrenceFields);
+    document.addEventListener('DOMContentLoaded', syncSpiritualFields);
 
-    const observer = new MutationObserver(syncSpiritualRecurrenceFields);
-    observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
+    new MutationObserver(syncSpiritualFields).observe(document.body, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['open']
+    });
 })();
 </script>

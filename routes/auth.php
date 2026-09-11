@@ -63,3 +63,12 @@ Route::middleware('auth')->group(function () {
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])
         ->name('logout');
 });
+
+
+Route::middleware('auth')->group(function (): void {
+    Route::post(
+        '/logout',
+        [AuthenticatedSessionController::class, 'destroy']
+    )->name('logout');
+});
+

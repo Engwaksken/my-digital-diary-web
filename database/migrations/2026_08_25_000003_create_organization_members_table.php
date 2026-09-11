@@ -15,6 +15,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // The preceding repair migration creates this table for legacy
+        // installations, including fresh SQLite test databases.
+        if (Schema::hasTable('organization_members')) {
+            return;
+        }
+
         Schema::create('organization_members', function (Blueprint $table) {
             $table->id();
             $table->foreignId('organization_id')->constrained()->cascadeOnDelete();

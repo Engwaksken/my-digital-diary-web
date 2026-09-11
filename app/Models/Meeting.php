@@ -12,13 +12,19 @@ class Meeting extends Model
     protected $fillable = [
         'user_id', 'title', 'start_at', 'end_at', 'location', 'attendees', 'status', 'notes',
         'external_platform', 'external_id', 'meeting_status', 'is_archived',
-        'recurrence_frequency', 'recurrence_days_of_week', 'recurrence_ends_at', 'recurrence_parent_id',];
+        'recurrence_frequency', 'recurrence_days_of_week', 'recurrence_ends_at', 'recurrence_parent_id',
+        'calendar_provider', 'external_calendar_id', 'external_event_id', 'external_series_id',
+        'calendar_synced_at', 'calendar_sync_from_date', 'calendar_sync_to_date',
+    ];
 
     protected $casts = [
         'start_at' => 'datetime',
         'end_at' => 'datetime',
         'recurrence_days_of_week' => 'array',
         'recurrence_ends_at' => 'date',
+        'calendar_synced_at' => 'datetime',
+        'calendar_sync_from_date' => 'date',
+        'calendar_sync_to_date' => 'date',
     ];
 
     public function isRecurring(): bool
@@ -64,5 +70,55 @@ class Meeting extends Model
         }
 
         return 'scheduled';
+    }
+
+    public function getStartDateAttribute(): ?string
+    {
+        return $this->start_at?->format('Y-m-d');
+    }
+
+    public function getStartTimeAttribute(): ?string
+    {
+        return $this->start_at?->format('H:i');
+    }
+
+    public function getEndDateAttribute(): ?string
+    {
+        return $this->end_at?->format('Y-m-d');
+    }
+
+    public function getEndTimeAttribute(): ?string
+    {
+        return $this->end_at?->format('H:i');
+    }
+
+    public function getStartHourAttribute(): ?string
+    {
+        return $this->start_at?->format('g');
+    }
+
+    public function getStartMinuteAttribute(): ?string
+    {
+        return $this->start_at?->format('i');
+    }
+
+    public function getStartMeridiemAttribute(): ?string
+    {
+        return $this->start_at?->format('A');
+    }
+
+    public function getEndHourAttribute(): ?string
+    {
+        return $this->end_at?->format('g');
+    }
+
+    public function getEndMinuteAttribute(): ?string
+    {
+        return $this->end_at?->format('i');
+    }
+
+    public function getEndMeridiemAttribute(): ?string
+    {
+        return $this->end_at?->format('A');
     }
 }

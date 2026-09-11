@@ -257,9 +257,11 @@
                 <div>
                     <label for="supported_payment_methods" class="block text-sm font-medium text-slate-700 mb-1">Supported Payment Methods</label>
                     <input type="text" id="supported_payment_methods" name="supported_payment_methods"
-                           value="{{ old('supported_payment_methods', is_array($gateway->supported_payment_methods) ? implode(', ', $gateway->supported_payment_methods) : '') }}"
-                           placeholder="mobile_money, card, bank_transfer" class="pm-input text-sm">
-                    <p class="text-xs text-slate-400 mt-1">Comma-separated — for your own reference and future filtering, not enforced yet.</p>
+                           value="{{ old('supported_payment_methods', is_array($gateway->supported_payment_methods) ? implode(', ', $gateway->supported_payment_methods) : $gateway->supported_payment_methods) }}"
+                           placeholder="mobile_money, card, visa, mastercard" class="pm-input text-sm">
+                    <p class="text-xs text-slate-400 mt-1">
+                        For ioTec use <strong>mobile_money, card, visa, mastercard</strong> when both Mobile Money and Visa/MasterCard are enabled.
+                    </p>
                 </div>
                 <div>
                     <label for="supported_currencies" class="block text-sm font-medium text-slate-700 mb-1">Supported Currencies</label>

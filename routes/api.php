@@ -1,5 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\DailyRoutineController;
+use App\Http\Controllers\Api\SavingsOverviewController;
+use App\Http\Controllers\Api\DebtReminderController;
+
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AdminSocialMediaController;
 use App\Http\Controllers\Api\EngagementReviewController;
@@ -125,6 +129,11 @@ Route::middleware(['auth:sanctum', 'mobile.idempotent'])->name('api.')->group(fu
     Route::get('dashboard/today-insight', [DashboardController::class, 'todayInsight']);
     Route::get('dashboard/finance-summary', [DashboardController::class, 'financeSummaryData']);
     Route::get('dashboard/recent-activity', [DashboardController::class, 'recentActivityFull']);
+    Route::get('savings', [SavingsOverviewController::class, 'index']);
+    Route::post('debts/{debt}/reminders/send', [DebtReminderController::class, 'send']);
+    Route::get('debts/{debt}/reminders/history', [DebtReminderController::class, 'history']);
+    Route::get('daily-routine/start', [DailyRoutineController::class, 'start']);
+    Route::get('daily-routine/end', [DailyRoutineController::class, 'end']);
     Route::get('monthly-review', [\App\Http\Controllers\Api\MonthlyReviewController::class, 'show']);
 
     /*
@@ -149,13 +158,6 @@ Route::middleware(['auth:sanctum', 'mobile.idempotent'])->name('api.')->group(fu
         'index',
     ])->name('social-media-planner.reports');
 
-    Route::post('social-media-planner/reports/sync', [
-        SocialMediaReportController::class,
-        'sync',
-    ])->name('social-media-planner.reports.sync');
-
-    Route::post('social-media-planner/{socialMediaPost}/analytics/sync', [SocialMediaAnalyticsController::class, 'sync'])
-        ->whereNumber('socialMediaPost')->name('social-media-planner.analytics.sync');
     Route::get('social-media-planner/{socialMediaPost}/analytics', [SocialMediaAnalyticsController::class, 'show'])
         ->whereNumber('socialMediaPost')->name('social-media-planner.analytics.show');
     Route::put('social-media-planner/{socialMediaPost}/analytics', [SocialMediaAnalyticsController::class, 'update'])
@@ -235,6 +237,12 @@ Route::middleware(['auth:sanctum', 'mobile.idempotent'])->name('api.')->group(fu
     Route::patch('annual-plans/{annualPlan}/toggle', [\App\Http\Controllers\Api\AnnualPlanController::class, 'toggle']);
     Route::post('annual-plans/bulk-delete', [\App\Http\Controllers\Api\AnnualPlanController::class, 'bulkDestroy']);
     Route::delete('annual-plans/{annualPlan}', [\App\Http\Controllers\Api\AnnualPlanController::class, 'destroy']);
+
+    // Literal module actions MUST remain before the shared apiResource loop.
+    Route::post('meetings/sync-calendar', [MeetingController::class, 'syncCalendar'])->name('meetings.sync-calendar');
+    Route::post('budgets/extract', [BudgetController::class, 'extractImport'])->name('budgets.extract');
+    Route::post('budgets/import/confirm', [BudgetController::class, 'confirmImport'])->name('budgets.import.confirm');
+    Route::post('dashboard/today-insight/refresh', [DashboardController::class, 'refreshTodayInsight'])->name('dashboard.today-insight.refresh');
 
     // Full module set — every web CRUD module now has a matching JSON
     // endpoint here, following the exact same ApiCrudController pattern.
@@ -321,6 +329,7 @@ Route::middleware(['auth:sanctum', 'mobile.idempotent'])->name('api.')->group(fu
     // Organization / Team management
     Route::get('organization', [\App\Http\Controllers\Api\OrganizationController::class, 'show']);
     Route::post('organization/invite', [\App\Http\Controllers\Api\OrganizationController::class, 'invite']);
+    Route::put('organization/members/{member}/role', [\App\Http\Controllers\Api\OrganizationController::class, 'updateRole']);
     Route::post('organization/members/{member}/activate', [\App\Http\Controllers\Api\OrganizationController::class, 'activate']);
     Route::post('organization/members/{member}/deactivate', [\App\Http\Controllers\Api\OrganizationController::class, 'deactivate']);
     Route::post('organization/members/{member}/replace', [\App\Http\Controllers\Api\OrganizationController::class, 'replace']);
@@ -376,3 +385,24 @@ Route::middleware(['auth:sanctum', 'mobile.idempotent'])->name('api.')->group(fu
 
 
 });
+
+/*
+|--------------------------------------------------------------------------
+| API Route Modules
+|--------------------------------------------------------------------------
+|
+| Main mobile endpoints live above. These independent modules are loaded
+| once here and must not also be copied into api.php.
+|
+*/
+
+require __DIR__.'/growth_api.php';
+
+Route::middleware('auth:sanctum')->get(
+    'organization/access-context',
+    \App\Http\Controllers\Api\OrganizationAccessController::class
+);
+require __DIR__.'/team_chat_api.php';
+
+// Flutter parity routes.
+require __DIR__ . '/flutter_updates_api.php';

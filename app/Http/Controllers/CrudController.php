@@ -32,6 +32,9 @@ abstract class CrudController extends Controller
     /** Tailwind color name used for the icon badge/accents, e.g. "indigo", "emerald", "rose" */
     protected string $accent = 'indigo';
 
+    /** Whether archived records should be omitted from this module's web views. */
+    protected bool $excludeArchived = false;
+
     /**
      * Field definitions used to render both the table and the form.
      * Each entry: ['name' => '', 'label' => '', 'type' => 'text|textarea|number|date|time|select', 'options' => [], 'required' => bool]
@@ -54,6 +57,10 @@ abstract class CrudController extends Controller
     public function index(Request $request)
     {
         $query = $this->model::where('user_id', $request->user()->id);
+
+        if ($this->excludeArchived) {
+            $query->where('is_archived', false);
+        }
 
         return $this->renderIndex($request, $query);
     }
@@ -196,6 +203,7 @@ abstract class CrudController extends Controller
         $labelField = collect($this->fields)->first(fn ($f) => in_array($f['type'], ['text', 'textarea'], true))['name'] ?? null;
 
         $items = $this->model::where('user_id', $request->user()->id)
+            ->when($this->excludeArchived, fn ($query) => $query->where('is_archived', false))
             ->whereBetween($this->dateField, [$start->copy()->startOfDay(), $end->copy()->endOfDay()])
             ->get();
 

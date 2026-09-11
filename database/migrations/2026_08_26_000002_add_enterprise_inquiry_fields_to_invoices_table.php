@@ -26,7 +26,9 @@ return new class extends Migration
         // needs doctrine/dbal installed for some column modifications,
         // which isn't guaranteed present in every environment this runs
         // in. A plain ALTER TABLE has no such dependency.
-        \Illuminate\Support\Facades\DB::statement('ALTER TABLE invoices MODIFY user_id BIGINT UNSIGNED NULL');
+        if (\Illuminate\Support\Facades\DB::getDriverName() !== 'sqlite') {
+            \Illuminate\Support\Facades\DB::statement('ALTER TABLE invoices MODIFY user_id BIGINT UNSIGNED NULL');
+        }
     }
 
     public function down(): void

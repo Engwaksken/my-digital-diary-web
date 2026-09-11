@@ -1,26 +1,53 @@
 <?php
 
+use App\Http\Middleware\EnsureIdempotentMobileWrite;
 use App\Http\Middleware\EnsureUserHasAccess;
 use App\Http\Middleware\EnsureUserIsAdmin;
+use App\Http\Middleware\EnsureUserIsSupportStaff;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 
 return Application::configure(basePath: dirname(__DIR__))
-  ->withRouting(
+    ->withRouting(
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Middleware aliases
+        |--------------------------------------------------------------------------
+        */
         $middleware->alias([
             'subscribed' => EnsureUserHasAccess::class,
             'admin' => EnsureUserIsAdmin::class,
-            'support.staff' => \App\Http\Middleware\EnsureUserIsSupportStaff::class,
-            'mobile.idempotent' => \App\Http\Middleware\EnsureIdempotentMobileWrite::class,
+            'support.staff' => EnsureUserIsSupportStaff::class,
+            'mobile.idempotent' => EnsureIdempotentMobileWrite::class,
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | CSRF exclusions
+        |--------------------------------------------------------------------------
+        |
+        | ioTec sends payment callbacks directly from its servers, so these
+        | webhook endpoints must not require Laravel's browser CSRF token.
+        |
+        | IMPORTANT:
+        | Only webhook endpoints are excluded.
+        | Normal subscription payment forms remain CSRF protected.
+        |
+        */
+        $middleware->validateCsrfTokens(except: [
+            'webhooks/iotec',
+            'webhooks/iotec/subscriptions',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
-    })->create();
+    })
+    ->create();

@@ -18,4 +18,9 @@ class EducationPlanController extends ApiCrudController
         'cost' => 'nullable|numeric|min:0',
         'notes' => 'nullable|string',
     ];
+
+    protected function resolveDateColumn(string $table): ?string
+    {
+        return 'target_completion_date';
+    }
 }

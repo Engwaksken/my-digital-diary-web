@@ -1,81 +1,159 @@
+{{--
+    Standardized modal using the native <dialog> element.
+
+    New API props:
+        id              : unique id for the dialog (required)
+        title           : modal title (optional — shown in a header)
+        size            : sm | md | lg | xl (default: md)
+        closeOnBackdrop : close when backdrop is clicked (default: true)
+        closeOnEscape   : close on Escape key (default: true)
+
+    Slots:
+        default : modal body content
+        footer  : footer action buttons (optional)
+
+    Backward-compatible with the legacy Breeze-style API:
+        name      : event name for open-modal/close-modal dispatch
+        show      : initial open state
+        maxWidth  : sm|md|lg|xl|2xl (maps to size)
+        focusable : focus first focusable on open
+
+    Usage (new):
+        <x-modal id="edit-modal" title="Edit Record" size="lg">
+            <p>Body content</p>
+            <x-slot name="footer">
+                <x-button variant="secondary" onclick="document.getElementById('edit-modal').close()">Cancel</x-button>
+                <x-button type="submit">Save</x-button>
+            </x-slot>
+        </x-modal>
+
+    Usage (legacy):
+        <x-modal name="confirm-user-deletion" :show="$errors->userDeletion->isNotEmpty()" focusable>
+            ...
+        </x-modal>
+--}}
 @props([
-    'name',
+    'id' => null,
+    'title' => null,
+    'size' => 'md',
+    'closeOnBackdrop' => true,
+    'closeOnEscape' => true,
+    // Legacy props
+    'name' => null,
     'show' => false,
-    'maxWidth' => '2xl'
+    'maxWidth' => null,
+    'focusable' => false,
 ])
 
 @php
-$maxWidth = [
-    'sm' => 'sm:max-w-sm',
-    'md' => 'sm:max-w-md',
-    'lg' => 'sm:max-w-lg',
-    'xl' => 'sm:max-w-xl',
-    '2xl' => 'sm:max-w-2xl',
-][$maxWidth];
+    // Resolve the dialog id: prefer the new `id` prop, fall back to `name`.
+    $dialogId = $id ?? $name ?? 'modal-' . \Illuminate\Support\Str::random(6);
+
+    // Map legacy maxWidth to size.
+    if ($maxWidth) {
+        $sizeMap = [
+            'sm' => 'sm',
+            'md' => 'md',
+            'lg' => 'lg',
+            'xl' => 'xl',
+            '2xl' => 'xl',
+        ];
+        $size = $sizeMap[$maxWidth] ?? $size;
+    }
+
+    $sizeClasses = [
+        'sm' => 'pm-dialog-sm',
+        'md' => 'pm-dialog',
+        'lg' => 'pm-dialog-lg',
+        'xl' => 'pm-dialog-xl',
+    ][$size] ?? 'pm-dialog';
+
+    $hasFooter = ! empty(trim($footer ?? ''));
 @endphp
 
-<div
-    x-data="{
-        show: @js($show),
-        focusables() {
-            const selector = 'a, button, input:not([type=\'hidden\']), textarea, select, details, [tabindex]:not([tabindex=\'-1\'])';
-            return [...$el.querySelectorAll(selector)].filter(el => !el.hasAttribute('disabled'));
-        },
-        firstFocusable() { return this.focusables()[0] },
-        lastFocusable() { return this.focusables().slice(-1)[0] },
-        nextFocusable() { return this.focusables()[this.nextFocusableIndex()] || this.firstFocusable() },
-        prevFocusable() { return this.focusables()[this.prevFocusableIndex()] || this.lastFocusable() },
-        nextFocusableIndex() { return (this.focusables().indexOf(document.activeElement) + 1) % (this.focusables().length + 1) },
-        prevFocusableIndex() { return Math.max(0, this.focusables().indexOf(document.activeElement)) - 1 },
-    }"
-    x-init="$watch('show', value => {
-        document.documentElement.classList.toggle('pm-modal-open', value);
-        document.body.classList.toggle('pm-modal-open', value);
-        if (value) {
-            {{ $attributes->has('focusable') ? 'setTimeout(() => firstFocusable()?.focus(), 100)' : '' }}
-        }
-    })"
-    x-on:open-modal.window="$event.detail == '{{ $name }}' ? show = true : null"
-    x-on:close-modal.window="$event.detail == '{{ $name }}' ? show = false : null"
-    x-on:close.stop="show = false"
-    x-on:keydown.escape.window="show = false"
-    x-on:keydown.tab.prevent="$event.shiftKey || nextFocusable()?.focus()"
-    x-on:keydown.shift.tab.prevent="prevFocusable()?.focus()"
-    x-show="show"
-    class="pm-component-modal-shell fixed inset-0 z-50 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-6"
-    style="display: {{ $show ? 'block' : 'none' }};"
-    role="dialog"
-    aria-modal="true"
+<dialog
+    id="{{ $dialogId }}"
+    class="pm-modal-shell {{ $sizeClasses }}"
+    @if ($closeOnBackdrop) data-close-on-backdrop="true" @endif
+    @if ($closeOnEscape) data-close-on-escape="true" @endif
+    @if ($name) data-modal-name="{{ $name }}" @endif
+    @if ($focusable) data-focusable="true" @endif
+    @if ($show) open @endif
 >
-    <div
-        x-show="show"
-        class="fixed inset-0 transform transition-all"
-        x-on:click="show = false"
-        x-transition:enter="ease-out duration-300"
-        x-transition:enter-start="opacity-0"
-        x-transition:enter-end="opacity-100"
-        x-transition:leave="ease-in duration-200"
-        x-transition:leave-start="opacity-100"
-        x-transition:leave-end="opacity-0"
-        aria-hidden="true"
-    >
-        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-[2px]"></div>
-    </div>
+    <div class="pm-modal-content flex flex-col h-full max-h-full">
+        @if ($title)
+            <header class="pm-modal-header">
+                <div class="pm-modal-heading">
+                    <div class="pm-modal-title-wrap">
+                        <h2 class="pm-modal-title">{{ $title }}</h2>
+                    </div>
+                </div>
+                <button type="button" class="pm-modal-close" aria-label="Close modal" data-modal-close>
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            </header>
+        @endif
 
-    <div class="relative z-10 flex min-h-full items-center justify-center">
-        <div
-            x-show="show"
-            class="pm-component-modal-panel w-full {{ $maxWidth }} rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/5 transform transition-all"
-            x-transition:enter="ease-out duration-300"
-            x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-            x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
-            x-transition:leave="ease-in duration-200"
-            x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
-            x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-        >
-            <div class="pm-component-modal-body">
-                {{ $slot }}
-            </div>
+        <div class="pm-modal-body">
+            {{ $slot }}
         </div>
+
+        @if ($hasFooter)
+            <footer class="pm-modal-footer">
+                {{ $footer }}
+            </footer>
+        @endif
     </div>
-</div>
+</dialog>
+
+<script>
+    (function () {
+        var dialog = document.getElementById('{{ $dialogId }}');
+        if (!dialog) return;
+
+        // Open on load if the `show` prop was true.
+        if (dialog.hasAttribute('open')) {
+            dialog.showModal();
+        }
+
+        // Close button inside the modal.
+        var closeBtn = dialog.querySelector('[data-modal-close]');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function () { dialog.close(); });
+        }
+
+        // Backdrop click closes (only when clicking the dialog itself, not children).
+        if (dialog.dataset.closeOnBackdrop === 'true') {
+            dialog.addEventListener('click', function (e) {
+                if (e.target === dialog) { dialog.close(); }
+            });
+        }
+
+        // Escape key closes (native dialog already does this, but keep for safety).
+        // Native <dialog> handles Escape automatically.
+
+        // Legacy event listeners for open-modal / close-modal dispatch.
+        var modalName = dialog.dataset.modalName;
+        if (modalName) {
+            window.addEventListener('open-modal', function (e) {
+                if (e.detail === modalName) { dialog.showModal(); }
+            });
+            window.addEventListener('close-modal', function (e) {
+                if (e.detail === modalName) { dialog.close(); }
+            });
+        }
+
+        // Focus first focusable on open.
+        if (dialog.dataset.focusable === 'true') {
+            dialog.addEventListener('open', function () {
+                var focusables = dialog.querySelectorAll(
+                    'a, button, input:not([type=hidden]), textarea, select, [tabindex]:not([tabindex=-1])'
+                );
+                var first = Array.prototype.find.call(focusables, function (el) {
+                    return !el.hasAttribute('disabled');
+                });
+                if (first) setTimeout(function () { first.focus(); }, 50);
+            });
+        }
+    })();
+</script>

@@ -1,12 +1,33 @@
 <?php
+
 use App\Http\Controllers\GrowthStrategyController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware('auth:sanctum')->prefix('growth')->group(function () {
-    Route::get('/dashboard', [GrowthStrategyController::class, 'dashboard']);
-    Route::post('/challenge/join', [GrowthStrategyController::class, 'joinChallenge']);
-    Route::post('/referral', [GrowthStrategyController::class, 'referral']);
-    Route::get('/preferences', [GrowthStrategyController::class, 'preferences']);
-    Route::put('/preferences', [GrowthStrategyController::class, 'updatePreferences']);
-    Route::post('/track', [GrowthStrategyController::class, 'track']);
-});
+/*
+|--------------------------------------------------------------------------
+| Growth & Referral — Mobile API
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(['auth:sanctum', 'mobile.idempotent'])
+    ->prefix('growth')
+    ->name('api.growth.')
+    ->group(function (): void {
+        Route::get('/dashboard', [GrowthStrategyController::class, 'dashboard'])
+            ->name('dashboard');
+
+        Route::post('/challenge/join', [GrowthStrategyController::class, 'joinChallenge'])
+            ->name('challenge.join');
+
+        Route::post('/referral', [GrowthStrategyController::class, 'referral'])
+            ->name('referral');
+
+        Route::get('/preferences', [GrowthStrategyController::class, 'preferences'])
+            ->name('preferences');
+
+        Route::put('/preferences', [GrowthStrategyController::class, 'updatePreferences'])
+            ->name('preferences.update');
+
+        Route::post('/track', [GrowthStrategyController::class, 'track'])
+            ->name('track');
+    });

@@ -7,6 +7,7 @@ use App\Models\Reminder;
 use App\Models\PersonalGoal;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use App\Services\AnnualPlanWellbeingSyncService;
 use Illuminate\Support\Facades\DB;
 
 class PlanController extends Controller
@@ -85,6 +86,11 @@ class PlanController extends Controller
         });
         $this->syncReminder($request, $plan);
 
+        if ((int) $plan->progress_percent >= 100) {
+            app(AnnualPlanWellbeingSyncService::class)
+                ->syncCompletion($request->user(), $plan->fresh(), true);
+        }
+
         return back()->with('success', 'Plan added successfully.');
     }
 
@@ -93,7 +99,15 @@ class PlanController extends Controller
         $this->authorizeOwner($request, $annualPlan);
         $data = $this->normalize($this->validated($request));
         $annualPlan->update($data);
-        $this->syncReminder($request, $annualPlan->fresh());
+        $freshPlan = $annualPlan->fresh();
+        $this->syncReminder($request, $freshPlan);
+
+        app(AnnualPlanWellbeingSyncService::class)
+            ->syncCompletion(
+                $request->user(),
+                $freshPlan,
+                (int) $freshPlan->progress_percent >= 100
+            );
 
         return back()->with('success', 'Plan updated.');
     }
@@ -114,7 +128,13 @@ class PlanController extends Controller
             $reminder->save();
         }
 
-        return back()->with('success', $completed ? 'Plan marked complete.' : 'Plan reopened.');
+        $syncMessage = app(AnnualPlanWellbeingSyncService::class)
+            ->syncCompletion($request->user(), $annualPlan->fresh(), $completed);
+
+        return back()->with(
+            'success',
+            $syncMessage ?: ($completed ? 'Plan marked complete.' : 'Plan reopened.')
+        );
     }
 
     public function destroy(Request $request, Plan $annualPlan)

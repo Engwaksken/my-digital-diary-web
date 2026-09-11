@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\Reminder;
 use App\Services\ReminderItemLookupService;
+use App\Services\ReminderConsolidationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -29,8 +30,51 @@ class ReminderController extends ApiCrudController
     // own constructor — store()/update() below override
     // ApiCrudController's versions, and PHP requires an overriding
     // method's signature to stay compatible with its parent's.
-    public function __construct(protected ReminderItemLookupService $lookup)
+    public function __construct(
+        protected ReminderItemLookupService $lookup,
+        protected ReminderConsolidationService $consolidation
+    ) {
+    }
+
+    public function index(Request $request): JsonResponse
     {
+        return $this->overview($request);
+    }
+
+    public function overview(Request $request): JsonResponse
+    {
+        try {
+            $this->consolidation->syncUser($request->user());
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+
+        $query = Reminder::query()
+            ->where('user_id', $request->user()->id);
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('reminders', 'is_archived')) {
+            $query->where(function ($builder): void {
+                $builder->whereNull('is_archived')->orWhere('is_archived', false);
+            });
+        }
+
+        $reminders = (clone $query)
+            ->orderByDesc('is_active')
+            ->orderBy('next_run_at')
+            ->orderByDesc('id')
+            ->get();
+
+        $stats = [
+            'active' => (clone $query)->where('is_active', true)->count(),
+            'daily' => (clone $query)->where('frequency', 'daily')->count(),
+            'weekly' => (clone $query)->where('frequency', 'weekly')->count(),
+            'total' => (clone $query)->count(),
+        ];
+
+        return response()->json([
+            'data' => $reminders,
+            'stats' => $stats,
+        ]);
     }
 
     /**

@@ -13,7 +13,6 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use App\Http\Controllers\SupportController as UserSupportController;
-use App\Http\Controllers\Admin\SupportController as AdminSupportController;
 use App\Http\Controllers\Api\SupportController as ApiSupportController;
 use App\Http\Controllers\Api\CurrencyPreferenceController;
 use Illuminate\Support\ServiceProvider;
@@ -145,28 +144,13 @@ class AppServiceProvider extends ServiceProvider
         */
         Route::middleware(['web', 'auth', 'verified'])->group(function () {
             Route::put('/profile/currency', [\App\Http\Controllers\ProfileController::class, 'updateCurrency'])->name('profile.currency');
-            Route::get('/support', [UserSupportController::class, 'index'])->name('support.index');
-            Route::post('/support', [UserSupportController::class, 'send'])->name('support.send');
             Route::get('/support/widget/history', [UserSupportController::class, 'widgetHistory'])->name('support.widget.history');
             Route::post('/support/widget/send', [UserSupportController::class, 'widgetSend'])->name('support.widget.send');
-
-            // Existing pending invoice/payment self-service cancel action.
-            Route::post('/subscription/payment/{payment}/cancel', [\App\Http\Controllers\PendingSubscriptionPaymentController::class, 'cancel'])
-                ->name('subscription.payment.cancel');
         });
 
         Route::middleware(['web', 'auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
             Route::get('/login-activities', [\App\Http\Controllers\Admin\AdminLoginActivityController::class, 'index'])->name('login-activities.index');
             Route::post('/users/{user}/restore-data', [\App\Http\Controllers\Admin\AdminUserController::class, 'restoreData'])->name('users.restore-data');
-
-            Route::get('/support', [AdminSupportController::class, 'index'])->name('support.index');
-            Route::get('/support/{conversation}', [AdminSupportController::class, 'show'])->name('support.show');
-            Route::patch('/support/{conversation}/assign', [AdminSupportController::class, 'assign'])->name('support.assign');
-            Route::patch('/support/{conversation}/unassign', [AdminSupportController::class, 'unassign'])->name('support.unassign');
-            Route::patch('/support/{conversation}/close', [AdminSupportController::class, 'close'])->name('support.close');
-            Route::patch('/support/{conversation}/reopen', [AdminSupportController::class, 'reopen'])->name('support.reopen');
-            Route::patch('/support/agents/{agent}', [AdminSupportController::class, 'updateAgent'])->name('support.agents.update');
-            Route::post('/support/{conversation}/reply', [AdminSupportController::class, 'reply'])->name('support.reply');
         });
 
         // Personal data centre: activity, backup, recycle bin and usage progress.

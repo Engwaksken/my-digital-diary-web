@@ -76,14 +76,55 @@ class PeriodReviewMetricsService
 
     /**
      * Pending Daily Planner tasks for the user's current LOCAL day.
+     *
+     * Recurrence-aware: recurring series live on their original DailyPlan row
+     * and are resolved per-date at read time, so they appear here even when
+     * no concrete DailyPlan exists for today. This mirrors the web
+     * DashboardController, keeping Mobile Today's Focus identical to Web.
      */
     public function todayFocus(User $user, int $limit = 6): Collection
     {
-        $today = Carbon::now($this->timezone($user))->toDateString();
+        $today = Carbon::now($this->timezone($user));
+
+        try {
+            if (class_exists(\App\Services\DailyPlannerRecurrenceService::class)) {
+                $items = app(\App\Services\DailyPlannerRecurrenceService::class)
+                    ->itemsForDate($user->id, $today);
+
+                return $items
+                    ->filter(fn (DailyPlanItem $item) =>
+                        ! (bool) ($item->is_completed ?? false))
+                    ->sortBy(function (DailyPlanItem $item) {
+                        $priority = strtolower((string) ($item->priority ?? ''));
+                        $weight = in_array($priority, ['urgent', 'high'], true)
+                            ? 0
+                            : ($priority === 'medium' ? 1 : 2);
+
+                        $time = (string) ($item->start_time ?? '');
+                        return sprintf(
+                            '%d-%s-%010d',
+                            $weight,
+                            $time !== '' ? $time : '99:99:99',
+                            (int) $item->id
+                        );
+                    })
+                    ->take(max(1, $limit))
+                    ->values()
+                    ->map(function (DailyPlanItem $item) {
+                        $item->setAttribute('source', 'Daily Planner');
+                        return $item;
+                    });
+            }
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+
+        // Fallback: concrete items on today's DailyPlan row.
+        $todayDate = $today->toDateString();
 
         $plan = DailyPlan::query()
             ->where('user_id', $user->id)
-            ->whereDate('plan_date', $today)
+            ->whereDate('plan_date', $todayDate)
             ->first();
 
         if (! $plan) {

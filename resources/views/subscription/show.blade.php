@@ -3,7 +3,62 @@
 @section('title', 'Subscription')
 
 @section('content')
+
+@php
+    $subscriptionUser = auth()->user();
+    $teamPlan = $subscriptionUser?->subscriptionPlan;
+    $teamSeatCount = (int) ($teamPlan?->included_seats ?? 0);
+    $teamPlanName = strtolower((string) ($teamPlan?->name ?? ''));
+    $teamCategory = strtolower((string) ($teamPlan?->category ?? ''));
+
+    $canManageTeam =
+        $teamSeatCount > 1
+        || in_array($teamCategory, ['family','team','small_team','organization','organisation','enterprise'], true)
+        || str_contains($teamPlanName, 'family')
+        || str_contains($teamPlanName, 'team')
+        || str_contains($teamPlanName, 'organization')
+        || str_contains($teamPlanName, 'organisation')
+        || str_contains($teamPlanName, 'enterprise');
+@endphp
+
+@if($canManageTeam && Route::has('organization.show'))
+    <div class="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <div class="text-sm font-black text-slate-900">
+                    Manage your members
+                </div>
+                <div class="mt-1 text-xs text-slate-600">
+                    {{ $teamPlan?->name ?? 'Team plan' }}
+                    @if($teamSeatCount > 0)
+                        includes up to {{ $teamSeatCount }} member seats.
+                    @endif
+                </div>
+            </div>
+            <a
+                href="{{ route('organization.show') }}"
+                class="btn-primary rounded-xl px-4 py-2.5 text-sm font-bold text-white"
+            >
+                <i class="fa-solid fa-users-gear mr-1"></i>
+                Add & Assign Members
+            </a>
+        </div>
+    </div>
+@endif
+
     <div class="max-w-4xl mx-auto space-y-6">
+        @if (session('error'))
+            <x-alert type="error" :message="session('error')" :dismissible="false" :autoDismiss="false" />
+        @endif
+
+        @if (session('success'))
+            <x-alert type="success" :message="session('success')" :dismissible="false" :autoDismiss="false" />
+        @endif
+
+        @if ($errors->has('payment'))
+            <x-alert type="error" :message="$errors->first('payment')" :dismissible="false" :autoDismiss="false" />
+        @endif
+
         <div role="tablist" aria-label="Subscription sections" class="flex items-center gap-1 border-b border-slate-200 mb-2">
             <button type="button" role="tab" id="pm-sub-tab-subscription" aria-controls="pm-sub-panel-subscription" aria-selected="true" tabindex="0" data-tab="subscription"
                     onclick="pmSelectSubTab('subscription')" onkeydown="pmSubTabKeydown(event, 'subscription')"
@@ -42,9 +97,157 @@
                     @endif
                 </p>
 
-                <form method="POST" action="{{ route('subscription.cancel') }}">
+                @if ($user->subscription_expires_at && $user->subscriptionPlan && ! $user->subscriptionPlan->isLifetime())
+                    <div class="mt-5 mb-5 rounded-2xl border {{ $autoRenewEnabled ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50' }} overflow-hidden">
+                        <div class="p-4 sm:p-5">
+                            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                                <div class="flex gap-3">
+                                    <div class="w-10 h-10 rounded-xl {{ $autoRenewEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-500' }} border border-slate-200 flex items-center justify-center shrink-0">
+                                        <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i>
+                                    </div>
+                                    <div>
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <h2 class="font-bold text-slate-800">Auto Renewal</h2>
+                                            <span class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold {{ $autoRenewEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600' }}">
+                                                {{ $autoRenewEnabled ? 'ON' : 'OFF' }}
+                                            </span>
+                                        </div>
+                                        <p class="text-sm text-slate-600 mt-1">
+                                            When your subscription reaches its expiry date, My Digital Diary can automatically start the next renewal payment.
+                                        </p>
+                                        <p class="text-xs text-slate-500 mt-2">
+                                            For Mobile Money, a payment prompt is sent to your saved number. You approve it on your phone; your PIN is never stored here.
+                                            Your subscription is renewed only after the payment gateway confirms success.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            @if ($errors->has('auto_renew'))
+                                <div class="mt-3">
+                                    <x-alert type="error" :message="$errors->first('auto_renew')" :dismissible="false" :autoDismiss="false" />
+                                </div>
+                            @endif
+
+                            @if ($autoRenewGateway)
+                                <form method="POST" action="{{ route('subscription.auto-renew') }}" class="mt-4">
+                                    @csrf
+                                    @method('PUT')
+                                    <input type="hidden" name="enabled" value="{{ $autoRenewEnabled ? 0 : 1 }}">
+
+                                    @unless ($autoRenewEnabled)
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                                            <div>
+                                                <label for="auto-renew-network" class="block text-xs font-semibold text-slate-600 mb-1">
+                                                    Mobile Money network
+                                                </label>
+                                                <select id="auto-renew-network" name="network" class="pm-input" required>
+                                                    @if ($autoRenewGateway->supports_mtn)
+                                                        <option value="mtn" @selected($autoRenewNetwork === 'mtn')>MTN Mobile Money</option>
+                                                    @endif
+                                                    @if ($autoRenewGateway->supports_airtel)
+                                                        <option value="airtel" @selected($autoRenewNetwork === 'airtel')>Airtel Money</option>
+                                                    @endif
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label for="auto-renew-phone" class="block text-xs font-semibold text-slate-600 mb-1">
+                                                    Renewal phone number
+                                                </label>
+                                                <input
+                                                    id="auto-renew-phone"
+                                                    type="text"
+                                                    name="phone_number"
+                                                    value="{{ old('phone_number', $autoRenewPhone) }}"
+                                                    placeholder="e.g. 0700000000"
+                                                    class="pm-input"
+                                                    required
+                                                >
+                                            </div>
+                                        </div>
+                                    @else
+                                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 text-sm">
+                                            <div class="rounded-xl bg-white/80 border border-emerald-100 p-3">
+                                                <p class="text-xs text-slate-400 uppercase tracking-wide">Next renewal</p>
+                                                <p class="font-semibold text-slate-800 mt-1">{{ $user->subscription_expires_at->format('Y-m-d') }}</p>
+                                            </div>
+                                            <div class="rounded-xl bg-white/80 border border-emerald-100 p-3">
+                                                <p class="text-xs text-slate-400 uppercase tracking-wide">Network</p>
+                                                <p class="font-semibold text-slate-800 mt-1">{{ strtoupper($autoRenewNetwork) }}</p>
+                                            </div>
+                                            <div class="rounded-xl bg-white/80 border border-emerald-100 p-3">
+                                                <p class="text-xs text-slate-400 uppercase tracking-wide">Renewal phone</p>
+                                                <p class="font-semibold text-slate-800 mt-1">{{ $autoRenewPhone ?: '—' }}</p>
+                                            </div>
+                                        </div>
+                                    @endunless
+
+                                    <button
+                                        type="submit"
+                                        class="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors
+                                               {{ $autoRenewEnabled
+                                                    ? 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+                                                    : 'bg-emerald-600 text-white hover:bg-emerald-700' }}"
+                                    >
+                                        <i class="fa-solid {{ $autoRenewEnabled ? 'fa-toggle-off' : 'fa-toggle-on' }}" aria-hidden="true"></i>
+                                        {{ $autoRenewEnabled ? 'Turn Off Auto Renewal' : 'Enable Auto Renewal' }}
+                                    </button>
+                                </form>
+                            @else
+                                <div class="mt-4">
+                                    <x-alert type="warning" message="Auto renewal will become available when an automatic Mobile Money gateway is enabled by the administrator." :dismissible="false" :autoDismiss="false" />
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+                @endif
+
+                @if ($plans->isNotEmpty())
+                    <div class="mt-6 mb-6 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 sm:p-5">
+                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div class="flex items-start gap-3">
+                                <div class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-blue-600 shadow-sm">
+                                    <i class="fa-solid fa-arrow-up-right-dots" aria-hidden="true"></i>
+                                </div>
+
+                                <div>
+                                    <h2 class="font-bold text-slate-800">
+                                        Upgrade or renew anytime
+                                    </h2>
+                                    <p class="mt-1 text-sm text-slate-600">
+                                        Your current subscription remains active while you choose and pay for another plan.
+                                        A new plan is applied only after payment succeeds.
+                                    </p>
+                                    <p class="mt-1 text-xs text-slate-500">
+                                        When renewing before expiry, your remaining paid time is preserved and the new plan period
+                                        is added from your current expiry date.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onclick="document.getElementById('pm-active-upgrade-plans').classList.toggle('hidden')"
+                                class="btn-primary inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white"
+                            >
+                                <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i>
+                                Renew / Change Plan
+                            </button>
+                        </div>
+
+                        <div id="pm-active-upgrade-plans" class="hidden mt-5 rounded-xl border border-blue-100 bg-white p-4">
+                            @include('subscription.partials.plan-selection', [
+                                'planSelectionTitle' => 'Choose your renewal or upgrade plan',
+                                'planSelectionSubtitle' => 'Select any enabled plan. Checkout will show Mobile Money and Visa / MasterCard when ioTec supports them.',
+                            ])
+                        </div>
+                    </div>
+                @endif
+
+                <form method="POST" action="{{ route('subscription.cancel') }}"
+                      data-confirm="Cancel your subscription?" data-confirm-title="Cancel subscription?" data-confirm-text="Cancel subscription">
                     @csrf
-                    <button type="submit" class="text-sm text-rose-600 underline">Cancel subscription</button>
+                    <button type="submit" class="text-sm text-rose-600 hover:text-rose-700 font-semibold">Cancel subscription</button>
                 </form>
             @else
                 @if ($user->onTrial())
@@ -72,127 +275,19 @@
                     </div>
                 </div>
 
-                @if ($plans->isEmpty())
-                    <div class="border border-slate-200 rounded-xl p-5 mb-6 bg-gradient-to-br from-slate-50 to-white">
-                        <p class="text-3xl font-bold text-slate-800">{{ format_money($settings->monthly_price) }}<span class="text-base font-normal text-slate-500">/month</span></p>
-                        <p class="text-sm text-slate-500 mt-1">Full access to every module, the AI Planner, and reminders.</p>
-                    </div>
-                @else
-                    {{-- Plan selection --}}
-                    <div class="mb-6">
-                        <div class="flex items-center justify-between mb-3">
-                            <h2 class="font-semibold text-slate-800">1. Choose a plan</h2>
-                            @if (!empty($settings->supported_currencies))
-                                <div class="flex items-center gap-2">
-                                    <label for="pm-currency-select" class="text-xs text-slate-500">Show prices in</label>
-                                    <select id="pm-currency-select" onchange="pmConvertPlanPrices(this.value)" class="pm-input text-sm py-1.5">
-                                        <option value="{{ $settings->default_currency_code }}">{{ $settings->default_currency_code }} ({{ $settings->default_currency_symbol }})</option>
-                                        @foreach ($settings->supported_currencies as $currency)
-                                            <option value="{{ $currency['code'] }}" data-rate="{{ $currency['rate'] }}" data-symbol="{{ $currency['symbol'] }}">
-                                                {{ $currency['code'] }} ({{ $currency['symbol'] }})
-                                            </option>
-                                        @endforeach
-                                    </select>
-                                </div>
-                            @endif
-                        </div>
-                        <p class="text-xs text-slate-400 mb-3">
-                            @if (!empty($settings->supported_currencies))
-                                Prices convert for viewing only you'll still be charged the {{ $settings->default_currency_code }} amount shown by default.
-                            @endif
-                        </p>
-                        @php
-                            $plansByCategory = $plans->groupBy('category');
-                        @endphp
-
-                        {{-- Individual its own full-width row, same as before. --}}
-                        @if ($plansByCategory->get('individual', collect())->isNotEmpty())
-                            <h3 class="text-sm font-semibold text-slate-600 uppercase tracking-wide mt-5 mb-3">Individual</h3>
-                            @php
-                                $individualPlans = $plansByCategory->get('individual');
-                                $primaryPlans = $individualPlans->filter(fn($p) => in_array((int) $p->duration_months, [1, 12], true));
-                                if ($primaryPlans->isEmpty()) $primaryPlans = $individualPlans->take(2);
-                                $moreIndividualPlans = $individualPlans->reject(fn($p) => $primaryPlans->contains('id', $p->id));
-                            @endphp
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
-                                @foreach ($primaryPlans as $plan)
-                                    @include('subscription.partials.plan-card', ['plan' => $plan])
-                                @endforeach
-                            </div>
-                            @if($moreIndividualPlans->isNotEmpty())
-                                <details class="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                                    <summary class="cursor-pointer text-sm font-semibold text-slate-700">More billing options</summary>
-                                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
-                                        @foreach ($moreIndividualPlans as $plan)
-                                            @include('subscription.partials.plan-card', ['plan' => $plan])
-                                        @endforeach
-                                    </div>
-                                </details>
-                            @endif
-                        @endif
-
-                        {{-- Family & Small Team and Enterprise share one row each is
-                             typically just one card/prompt, so giving them a full-width
-                             row each (like Individual, which usually has several) left a
-                             lot of empty space. --}}
-                        @php
-                            $familyTeamPlans = $plansByCategory->get('family_team', collect());
-                            $hasEnterprise = $plansByCategory->get('organization', collect())->isNotEmpty();
-                        @endphp
-                        @if ($familyTeamPlans->isNotEmpty() || $hasEnterprise)
-                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5 items-start">
-                                @if ($familyTeamPlans->isNotEmpty())
-                                    <div>
-                                        <h3 class="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-3">Family &amp; Small Team</h3>
-                                        <div class="grid grid-cols-1 gap-3">
-                                            @foreach ($familyTeamPlans as $plan)
-                                                @include('subscription.partials.plan-card', ['plan' => $plan])
-                                            @endforeach
-                                        </div>
-                                    </div>
-                                @endif
-
-                                @if ($hasEnterprise)
-                                    <div>
-                                        <h3 class="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-3">Enterprise</h3>
-                                        {{-- Sales-assisted, not self-serve no pricing cards
-                                             shown here; "Contact Sales" collects a few details
-                                             and an admin follows up manually. The underlying
-                                             'organization'-category plans still exist and are
-                                             used once a deal closes (see Admin -> Subscription
-                                             Plans), just never displayed as purchasable cards. --}}
-                                        <div class="rounded-xl p-5 border border-violet-200 bg-violet-50 h-full">
-                                            <p class="text-sm text-violet-900 font-medium mb-1">Built for larger teams</p>
-                                            <p class="text-sm text-violet-700 mb-3">
-                                                Custom seats, pricing, and onboarding for bigger organizations talk to us and
-                                                we'll put together something that fits.
-                                            </p>
-                                            <a href="{{ route('enterprise.contact') }}"
-                                               class="inline-flex items-center gap-2 text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all"
-                                               style="background-color: #6D28D9;">
-                                                <i class="fa-solid fa-handshake" aria-hidden="true"></i>
-                                                Contact Sales
-                                            </a>
-                                        </div>
-                                    </div>
-                                @endif
-                            </div>
-                        @endif
-                    </div>
-
-                    <div id="pm-selected-plan-summary" class="text-sm text-slate-500 mb-4 hidden">
-                        Selected: <strong id="pm-selected-plan-label"></strong>
-                        <button type="button" onclick="document.getElementById('pm-checkout-modal').showModal()" class="ms-2 text-[var(--brand-1)] hover:underline">
-                            Reopen checkout
-                        </button>
-                    </div>
-                @endif
+                @include('subscription.partials.plan-selection', [
+                    'planSelectionTitle' => '1. Choose a plan',
+                    'planSelectionSubtitle' => null,
+                ])
             @endif
         </div>
 
         {{-- ================= CHECKOUT MODAL ================= --}}
-        <dialog id="pm-checkout-modal" class="rounded-2xl p-0 pm-dialog shadow-2xl backdrop:bg-slate-900/50">
-            <div class="p-6 max-h-[85vh] overflow-y-auto">
+        <dialog
+            id="pm-checkout-modal"
+            class="pm-checkout-dialog rounded-2xl p-0 shadow-2xl backdrop:bg-slate-900/50"
+        >
+            <div class="pm-checkout-scroll p-5 sm:p-6">
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-lg font-bold text-slate-800">Checkout</h2>
                     <button type="button" onclick="document.getElementById('pm-checkout-modal').close()" class="text-slate-400 hover:text-slate-600" aria-label="Close">
@@ -226,118 +321,538 @@
                         An admin can configure real payment gateways at Admin &rarr; Payment Gateways.
                     </p>
                 @else
-                    <fieldset class="mb-4">
-                        <legend class="text-sm font-medium text-slate-700 mb-2">Choose a payment method</legend>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            @foreach ($gateways as $gateway)
-                                <label class="relative cursor-pointer">
-                                    <input type="radio" name="checkout_method" value="{{ $gateway->id }}" class="sr-only peer"
-                                           onchange="pmSelectPaymentMethod({{ $gateway->id }}, {{ json_encode($gateway->display_name ?: $gateway->name) }})"
-                                           @checked($loop->first)>
-                                    <span class="flex items-center gap-2 border-2 border-slate-200 peer-checked:border-[var(--brand-1)] peer-checked:bg-[var(--brand-1-tint-10)] rounded-lg p-3 text-sm transition-colors">
-                                        <i class="fa-solid {{ $gateway->isCard() ? 'fa-credit-card text-indigo-500' : ($gateway->type === 'bank' ? 'fa-building-columns text-emerald-500' : 'fa-mobile-screen-button text-amber-500') }}" aria-hidden="true"></i>
-                                        <span>
-                                            <span class="block">{{ $gateway->display_name ?: $gateway->name }}</span>
-                                            <span class="block text-xs text-slate-400">
-                                                {{ match(true) {
-                                                    $gateway->isCard() => 'Card payment',
-                                                    $gateway->collectsAutomatically() => 'Mobile money instant',
-                                                    $gateway->type === 'bank' => 'Bank transfer',
-                                                    default => 'Mobile money (manual)',
-                                                } }}
+                    @php
+                        /*
+                         * Build checkout choices from enabled gateways.
+                         *
+                         * ioTec is one aggregator gateway, but it can expose
+                         * more than one customer-facing payment channel.
+                         * supported_payment_methods may be stored as JSON,
+                         * CSV or an array depending on the gateway record.
+                         */
+                        $normaliseGatewayMethods = static function ($gateway): array {
+                            $raw = $gateway->supported_payment_methods ?? [];
+
+                            if (is_array($raw)) {
+                                $methods = $raw;
+                            } elseif (is_string($raw)) {
+                                $decoded = json_decode($raw, true);
+                                $methods = is_array($decoded)
+                                    ? $decoded
+                                    : preg_split('/[\s,;|]+/', $raw, -1, PREG_SPLIT_NO_EMPTY);
+                            } else {
+                                $methods = [];
+                            }
+
+                            return collect($methods)
+                                ->map(fn ($method) => strtolower(trim((string) $method)))
+                                ->filter()
+                                ->unique()
+                                ->values()
+                                ->all();
+                        };
+
+                        $gatewayCode = static fn ($gateway): string =>
+                            strtolower(trim((string) ($gateway->gateway_code ?? '')));
+
+                        $isIoTecGateway = static fn ($gateway): bool =>
+                            $gatewayCode($gateway) === 'iotec';
+
+                        $supportsIoTecMobileMoney = static function ($gateway) use ($normaliseGatewayMethods): bool {
+                            $methods = $normaliseGatewayMethods($gateway);
+
+                            return in_array('mobile_money', $methods, true)
+                                || in_array('mtn', $methods, true)
+                                || in_array('airtel', $methods, true)
+                                || (bool) ($gateway->supports_mtn ?? false)
+                                || (bool) ($gateway->supports_airtel ?? false);
+                        };
+
+                        $supportsIoTecCard = static function ($gateway) use ($normaliseGatewayMethods): bool {
+                            $methods = $normaliseGatewayMethods($gateway);
+
+                            return count(array_intersect(
+                                $methods,
+                                ['card', 'visa', 'mastercard', 'visa_mastercard']
+                            )) > 0;
+                        };
+
+                        $checkoutChoices = collect();
+
+                        foreach ($gateways as $gateway) {
+                            if ($isIoTecGateway($gateway)) {
+                                if ($supportsIoTecMobileMoney($gateway)) {
+                                    $checkoutChoices->push([
+                                        'key' => 'iotec-mobile-' . $gateway->id,
+                                        'gateway' => $gateway,
+                                        'channel' => 'mobile_money',
+                                        'label' => 'Mobile Money',
+                                        'description' => 'MTN / Airtel instant payment prompt',
+                                        'icon' => 'fa-mobile-screen-button',
+                                        'icon_class' => 'text-amber-500',
+                                    ]);
+                                }
+
+                                if ($supportsIoTecCard($gateway)) {
+                                    $checkoutChoices->push([
+                                        'key' => 'iotec-card-' . $gateway->id,
+                                        'gateway' => $gateway,
+                                        'channel' => 'card',
+                                        'label' => 'Visa / MasterCard',
+                                        'description' => 'Secure card payment via ioTec',
+                                        'icon' => 'fa-credit-card',
+                                        'icon_class' => 'text-indigo-500',
+                                    ]);
+                                }
+
+                                continue;
+                            }
+
+                            $checkoutChoices->push([
+                                'key' => 'gateway-' . $gateway->id,
+                                'gateway' => $gateway,
+                                'channel' => null,
+                                'label' => $gateway->display_name ?: $gateway->name,
+                                'description' => match(true) {
+                                    $gateway->isCard() => 'Card payment',
+                                    $gateway->collectsAutomatically() => 'Mobile Money instant',
+                                    $gateway->type === 'bank' => 'Bank transfer',
+                                    default => 'Mobile Money (manual)',
+                                },
+                                'icon' => $gateway->isCard()
+                                    ? 'fa-credit-card'
+                                    : ($gateway->type === 'bank'
+                                        ? 'fa-building-columns'
+                                        : 'fa-mobile-screen-button'),
+                                'icon_class' => $gateway->isCard()
+                                    ? 'text-indigo-500'
+                                    : ($gateway->type === 'bank'
+                                        ? 'text-emerald-500'
+                                        : 'text-amber-500'),
+                            ]);
+                        }
+                    @endphp
+
+                    @if ($checkoutChoices->isEmpty())
+                        <x-alert type="warning" message="No enabled payment channel is available. Please contact support or ask an administrator to review Payment Gateway settings." :dismissible="false" :autoDismiss="false" />
+                    @else
+                        <fieldset class="mb-4">
+                            <legend class="text-sm font-medium text-slate-700 mb-2">
+                                Choose a payment method
+                            </legend>
+
+                            <div class="pm-checkout-method-grid">
+                                @foreach ($checkoutChoices as $choice)
+                                    <label class="pm-checkout-method">
+                                        <input
+                                            type="radio"
+                                            name="checkout_method"
+                                            value="{{ $choice['key'] }}"
+                                            class="pm-checkout-method-input"
+                                            onchange="pmSelectPaymentMethod(
+                                                {{ json_encode($choice['key']) }},
+                                                {{ json_encode($choice['label']) }}
+                                            )"
+                                            @checked($loop->first)
+                                        >
+
+                                        <span class="pm-checkout-method-card">
+                                            <span class="pm-checkout-method-icon">
+                                                <i
+                                                    class="fa-solid {{ $choice['icon'] }} {{ $choice['icon_class'] }}"
+                                                    aria-hidden="true"
+                                                ></i>
+                                            </span>
+
+                                            <span class="pm-checkout-method-copy">
+                                                <span class="pm-checkout-method-title">
+                                                    {{ $choice['label'] }}
+                                                </span>
+
+                                                <span class="pm-checkout-method-description">
+                                                    {{ $choice['description'] }}
+                                                </span>
+
+                                                @if ($choice['channel'] === 'card')
+                                                    <span class="pm-checkout-card-brands" aria-label="Visa and MasterCard">
+                                                        <i class="fa-brands fa-cc-visa" aria-hidden="true"></i>
+                                                        <i class="fa-brands fa-cc-mastercard" aria-hidden="true"></i>
+                                                    </span>
+                                                @endif
+                                            </span>
+
+                                            <span class="pm-checkout-method-check" aria-hidden="true">
+                                                <i class="fa-solid fa-check"></i>
                                             </span>
                                         </span>
-                                    </span>
-                                </label>
+                                    </label>
+                                @endforeach
+                            </div>
+                        </fieldset>
+
+                        <div class="space-y-4">
+                            @foreach ($checkoutChoices as $choice)
+                                @php
+                                    $gateway = $choice['gateway'];
+                                    $checkoutKey = $choice['key'];
+                                @endphp
+
+                                <div
+                                    class="pm-gateway-section rounded-xl border border-slate-200 p-4 sm:p-5"
+                                    data-checkout-key="{{ $checkoutKey }}"
+                                    @if (! $loop->first) hidden @endif
+                                >
+                                    {{-- ioTec Mobile Money --}}
+                                    @if ($choice['channel'] === 'mobile_money' && $isIoTecGateway($gateway))
+                                        <div class="pm-gateway-intro pm-gateway-intro-mobile">
+                                            <div class="pm-gateway-intro-icon">
+                                                <i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i>
+                                            </div>
+
+                                            <div class="pm-gateway-intro-copy">
+                                                <h3 class="pm-gateway-intro-title">
+                                                    ioTec Mobile Money
+                                                </h3>
+                                                <p class="pm-gateway-intro-text">
+                                                    Enter the number that should receive the payment approval prompt.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <form
+                                            method="POST"
+                                            action="{{ route('subscription.pay.iotec') }}"
+                                            class="pm-gateway-form pm-iotec-payment-form"
+                                            data-iotec-payment-form
+                                        >
+                                            @csrf
+                                            <input type="hidden" name="subscription_plan_id" class="pm-plan-id-input" value="">
+                                            <input type="hidden" name="payment_channel" value="mobile_money">
+
+                                            <div class="pm-gateway-field">
+                                                <label for="iotec-phone-{{ $gateway->id }}" class="pm-gateway-label">
+                                                    Mobile Money Number
+                                                </label>
+                                                <input
+                                                    type="tel"
+                                                    id="iotec-phone-{{ $gateway->id }}"
+                                                    name="phone"
+                                                    value="{{ old('phone', $accountPhone) }}"
+                                                    placeholder="e.g. 2567XXXXXXXX"
+                                                    class="pm-input pm-gateway-input"
+                                                    required
+                                                >
+                                            </div>
+
+                                            <button
+                                                type="submit"
+                                                class="pm-pay-btn btn-primary inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                                disabled
+                                            >
+                                                <i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i>
+                                                Pay with Mobile Money
+                                            </button>
+
+                                            <p class="pm-gateway-help">
+                                                <i class="fa-solid fa-shield-halved text-emerald-500" aria-hidden="true"></i>
+                                                <span>
+                                                    Approve the request on your phone. We never ask for or store your Mobile Money PIN.
+                                                </span>
+                                            </p>
+                                        </form>
+
+                                    {{-- ioTec Visa / MasterCard --}}
+                                    @elseif ($choice['channel'] === 'card' && $isIoTecGateway($gateway))
+                                        <div class="pm-gateway-intro pm-gateway-intro-card">
+                                            <div class="pm-gateway-intro-icon">
+                                                <i class="fa-solid fa-credit-card" aria-hidden="true"></i>
+                                            </div>
+
+                                            <div class="pm-gateway-intro-copy">
+                                                <h3 class="pm-gateway-intro-title">
+                                                    Visa / MasterCard
+                                                </h3>
+
+                                                <p class="pm-gateway-intro-text">
+                                                    Confirm the payer details below, then continue to ioTec's secure card page.
+                                                    Your actual card number, expiry date, CVV and bank OTP are entered securely on ioTec,
+                                                    not stored by My Digital Diary.
+                                                </p>
+
+                                                <div class="pm-gateway-card-brands" aria-label="Visa and MasterCard supported">
+                                                    <i class="fa-brands fa-cc-visa" aria-hidden="true"></i>
+                                                    <i class="fa-brands fa-cc-mastercard" aria-hidden="true"></i>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <form
+                                            method="POST"
+                                            action="{{ route('subscription.pay.iotec') }}"
+                                            class="pm-gateway-form pm-iotec-card-form pm-iotec-payment-form"
+                                            data-iotec-payment-form
+                                        >
+                                            @csrf
+
+                                            <input
+                                                type="hidden"
+                                                name="subscription_plan_id"
+                                                class="pm-plan-id-input"
+                                                value=""
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="payment_channel"
+                                                value="card"
+                                            >
+
+                                            <div class="pm-card-payer-grid">
+                                                <div class="pm-gateway-field">
+                                                    <label
+                                                        for="iotec-card-name-{{ $gateway->id }}"
+                                                        class="pm-gateway-label"
+                                                    >
+                                                        Cardholder / Payer Name
+                                                    </label>
+
+                                                    <input
+                                                        type="text"
+                                                        id="iotec-card-name-{{ $gateway->id }}"
+                                                        name="payer_name"
+                                                        value="{{ old('payer_name', $user->name ?? '') }}"
+                                                        autocomplete="cc-name"
+                                                        placeholder="Name on the card"
+                                                        class="pm-input pm-gateway-input"
+                                                        required
+                                                    >
+                                                </div>
+
+                                                <div class="pm-gateway-field">
+                                                    <label
+                                                        for="iotec-card-email-{{ $gateway->id }}"
+                                                        class="pm-gateway-label"
+                                                    >
+                                                        Billing Email
+                                                    </label>
+
+                                                    <input
+                                                        type="email"
+                                                        id="iotec-card-email-{{ $gateway->id }}"
+                                                        name="payer_email"
+                                                        value="{{ old('payer_email', $user->email ?? '') }}"
+                                                        autocomplete="email"
+                                                        placeholder="Email for payment confirmation"
+                                                        class="pm-input pm-gateway-input"
+                                                        required
+                                                    >
+                                                </div>
+
+                                                <div class="pm-gateway-field pm-card-payer-phone">
+                                                    <label
+                                                        for="iotec-card-phone-{{ $gateway->id }}"
+                                                        class="pm-gateway-label"
+                                                    >
+                                                        Billing Phone Number
+                                                    </label>
+
+                                                    <input
+                                                        type="tel"
+                                                        id="iotec-card-phone-{{ $gateway->id }}"
+                                                        name="payer_phone"
+                                                        value="{{ old('payer_phone', $accountPhone) }}"
+                                                        autocomplete="tel"
+                                                        placeholder="e.g. 0784 000 000"
+                                                        class="pm-input pm-gateway-input"
+                                                    >
+                                                </div>
+                                            </div>
+
+                                            <div class="pm-secure-card-note">
+                                                <div class="pm-secure-card-note-icon">
+                                                    <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                                                </div>
+
+                                                <div>
+                                                    <p class="pm-secure-card-note-title">
+                                                        Enter your bank card details on ioTec
+                                                    </p>
+
+                                                    <p class="pm-secure-card-note-text">
+                                                        After clicking Continue, ioTec will securely ask for your
+                                                        Visa/MasterCard number, expiry date, CVV and any bank OTP or
+                                                        3-D Secure verification required to complete the payment.
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                type="submit"
+                                                class="pm-pay-btn btn-primary inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                                disabled
+                                            >
+                                                <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                                                Continue to Secure Card Payment
+                                            </button>
+
+                                            <p class="pm-gateway-help">
+                                                <i class="fa-solid fa-shield-halved text-emerald-500" aria-hidden="true"></i>
+                                                <span>
+                                                    Your subscription is activated or upgraded only after ioTec confirms the payment was successful.
+                                                </span>
+                                            </p>
+                                        </form>
+
+                                    {{-- Legacy Stripe card gateway --}}
+                                    @elseif ($gateway->isCard())
+                                        <p class="text-sm text-slate-600 mb-3">
+                                            Pay securely by card via Stripe.
+                                        </p>
+
+                                        <form method="POST" action="{{ route('subscription.pay.card') }}">
+                                            @csrf
+                                            <input type="hidden" name="plan_id" class="pm-plan-id-input" value="">
+
+                                            <button
+                                                type="submit"
+                                                class="pm-pay-btn btn-primary inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                                disabled
+                                            >
+                                                <i class="fa-solid fa-credit-card" aria-hidden="true"></i>
+                                                Pay with Card
+                                            </button>
+                                        </form>
+
+                                    {{-- Other automatic Mobile Money --}}
+                                    @elseif ($gateway->collectsAutomatically())
+                                        <p class="text-sm text-slate-600 mb-3">
+                                            {{ $gateway->description ?: 'Pay instantly by Mobile Money. A payment prompt will be sent to your phone.' }}
+                                        </p>
+
+                                        <form
+                                            method="POST"
+                                            action="{{ route('subscription.pay.mobile-money') }}"
+                                            class="flex flex-wrap items-end gap-3"
+                                        >
+                                            @csrf
+                                            <input type="hidden" name="plan_id" class="pm-plan-id-input" value="">
+
+                                            <div class="min-w-[10rem]">
+                                                <label for="network-{{ $gateway->id }}" class="block text-sm font-medium text-slate-700 mb-1">
+                                                    Network
+                                                </label>
+                                                <select id="network-{{ $gateway->id }}" name="network" required class="pm-input">
+                                                    @if ($gateway->supports_mtn)
+                                                        <option value="mtn">MTN Mobile Money</option>
+                                                    @endif
+                                                    @if ($gateway->supports_airtel)
+                                                        <option value="airtel">Airtel Money</option>
+                                                    @endif
+                                                </select>
+                                            </div>
+
+                                            <div class="min-w-[12rem] flex-1">
+                                                <label for="phone-{{ $gateway->id }}" class="block text-sm font-medium text-slate-700 mb-1">
+                                                    Phone Number
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    id="phone-{{ $gateway->id }}"
+                                                    name="phone_number"
+                                                    required
+                                                    placeholder="e.g. 0700000000"
+                                                    value="{{ old('phone_number', $accountPhone) }}"
+                                                    class="pm-input"
+                                                >
+                                            </div>
+
+                                            <button
+                                                type="submit"
+                                                class="pm-pay-btn btn-primary inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                                disabled
+                                            >
+                                                <i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i>
+                                                Pay with Mobile Money
+                                            </button>
+                                        </form>
+
+                                    {{-- Bank/manual Mobile Money --}}
+                                    @else
+                                        @if ($gateway->instructions)
+                                            <p class="text-sm text-slate-600 mb-3 whitespace-pre-line">
+                                                {{ $gateway->instructions }}
+                                            </p>
+                                        @endif
+
+                                        <dl class="text-sm mb-4 space-y-1">
+                                            @if ($gateway->type === 'bank')
+                                                <div class="flex justify-between gap-4">
+                                                    <dt class="text-slate-500">Bank</dt>
+                                                    <dd class="text-right">{{ $gateway->configValue('bank_name') }}</dd>
+                                                </div>
+                                                <div class="flex justify-between gap-4">
+                                                    <dt class="text-slate-500">Account Name</dt>
+                                                    <dd class="text-right">{{ $gateway->configValue('account_name') }}</dd>
+                                                </div>
+                                                <div class="flex justify-between gap-4">
+                                                    <dt class="text-slate-500">Account Number</dt>
+                                                    <dd class="font-mono text-right">{{ $gateway->configValue('account_number') }}</dd>
+                                                </div>
+                                                @if ($gateway->configValue('routing_or_swift'))
+                                                    <div class="flex justify-between gap-4">
+                                                        <dt class="text-slate-500">Routing / SWIFT</dt>
+                                                        <dd class="font-mono text-right">{{ $gateway->configValue('routing_or_swift') }}</dd>
+                                                    </div>
+                                                @endif
+                                            @else
+                                                <div class="flex justify-between gap-4">
+                                                    <dt class="text-slate-500">Provider</dt>
+                                                    <dd class="text-right">{{ $gateway->configValue('provider_name') }}</dd>
+                                                </div>
+                                                <div class="flex justify-between gap-4">
+                                                    <dt class="text-slate-500">Number</dt>
+                                                    <dd class="font-mono text-right">{{ $gateway->configValue('merchant_number') }}</dd>
+                                                </div>
+                                            @endif
+                                        </dl>
+
+                                        <form
+                                            method="POST"
+                                            action="{{ route('subscription.pay.manual') }}"
+                                            class="flex flex-wrap items-end gap-3"
+                                        >
+                                            @csrf
+                                            <input type="hidden" name="payment_gateway_id" value="{{ $gateway->id }}">
+                                            <input type="hidden" name="plan_id" class="pm-plan-id-input" value="">
+
+                                            <div class="min-w-[12rem] flex-1">
+                                                <label for="reference-{{ $gateway->id }}" class="block text-sm font-medium text-slate-700 mb-1">
+                                                    Transaction Reference
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    id="reference-{{ $gateway->id }}"
+                                                    name="reference"
+                                                    required
+                                                    placeholder="e.g. transaction ID from your bank/mobile app"
+                                                    class="pm-input"
+                                                >
+                                            </div>
+
+                                            <button
+                                                type="submit"
+                                                class="pm-pay-btn btn-primary inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                                disabled
+                                            >
+                                                <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+                                                I've Paid — Submit for Verification
+                                            </button>
+                                        </form>
+                                    @endif
+                                </div>
                             @endforeach
                         </div>
-                    </fieldset>
-
-                    <div class="space-y-4">
-                        @foreach ($gateways as $gateway)
-                            <div class="pm-gateway-section border border-slate-200 rounded-xl p-4" data-gateway-id="{{ $gateway->id }}" @if (! $loop->first) hidden @endif>
-                                @if ($gateway->isCard())
-                                    <p class="text-sm text-slate-600 mb-3">Pay securely by card via Stripe.</p>
-                                    <form method="POST" action="{{ route('subscription.pay.card') }}">
-                                        @csrf
-                                        <input type="hidden" name="plan_id" class="pm-plan-id-input" value="">
-                                        <button type="submit" class="pm-pay-btn inline-flex items-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed w-full justify-center"
-                                                {{ $plans->isNotEmpty() ? 'disabled' : '' }}>
-                                            <i class="fa-solid fa-credit-card" aria-hidden="true"></i>
-                                            <span>Pay with Card</span>
-                                        </button>
-                                    </form>
-                                @elseif ($gateway->collectsAutomatically())
-                                    <p class="text-sm text-slate-600 mb-3">
-                                        {{ $gateway->description ?: 'Pay instantly by mobile money a payment prompt will be sent to your phone.' }}
-                                    </p>
-                                    <form method="POST" action="{{ route('subscription.pay.mobile-money') }}" class="flex flex-wrap items-end gap-3">
-                                        @csrf
-                                        <input type="hidden" name="plan_id" class="pm-plan-id-input" value="">
-                                        <div class="min-w-[10rem]">
-                                            <label for="network-{{ $gateway->id }}" class="block text-sm font-medium text-slate-700 mb-1">Network</label>
-                                            <select id="network-{{ $gateway->id }}" name="network" required aria-required="true" class="pm-input">
-                                                @if ($gateway->supports_mtn)<option value="mtn">MTN Mobile Money</option>@endif
-                                                @if ($gateway->supports_airtel)<option value="airtel">Airtel Money</option>@endif
-                                            </select>
-                                        </div>
-                                        <div class="flex-1 min-w-[12rem]">
-                                            <label for="phone-{{ $gateway->id }}" class="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
-                                            <input type="text" id="phone-{{ $gateway->id }}" name="phone_number" required aria-required="true"
-                                                   placeholder="e.g. 0700000000" value="{{ old('phone_number', $accountPhone) }}" class="pm-input">
-                                        </div>
-                                        <button type="submit" class="pm-pay-btn inline-flex items-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed w-full justify-center"
-                                                {{ $plans->isNotEmpty() ? 'disabled' : '' }}>
-                                            <i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i>
-                                            <span>Pay with Mobile Money</span>
-                                        </button>
-                                    </form>
-                                    <p class="text-xs text-slate-400 mt-2">
-                                        <i class="fa-solid fa-shield-halved text-emerald-500" aria-hidden="true"></i>
-                                        You'll approve this directly on your phone. We will never ask you to enter your Mobile Money PIN here.
-                                    </p>
-                                @else
-                                    {{-- Bank or mobile money: show details, collect a reference for manual verification. --}}
-                                    @if ($gateway->instructions)
-                                        <p class="text-sm text-slate-600 mb-3 whitespace-pre-line">{{ $gateway->instructions }}</p>
-                                    @endif
-
-                                    <dl class="text-sm mb-4 space-y-1">
-                                        @if ($gateway->type === 'bank')
-                                            <div class="flex justify-between"><dt class="text-slate-500">Bank</dt><dd>{{ $gateway->configValue('bank_name') }}</dd></div>
-                                            <div class="flex justify-between"><dt class="text-slate-500">Account Name</dt><dd>{{ $gateway->configValue('account_name') }}</dd></div>
-                                            <div class="flex justify-between"><dt class="text-slate-500">Account Number</dt><dd class="font-mono">{{ $gateway->configValue('account_number') }}</dd></div>
-                                            @if ($gateway->configValue('routing_or_swift'))
-                                                <div class="flex justify-between"><dt class="text-slate-500">Routing / SWIFT</dt><dd class="font-mono">{{ $gateway->configValue('routing_or_swift') }}</dd></div>
-                                            @endif
-                                        @else
-                                            <div class="flex justify-between"><dt class="text-slate-500">Provider</dt><dd>{{ $gateway->configValue('provider_name') }}</dd></div>
-                                            <div class="flex justify-between"><dt class="text-slate-500">Number</dt><dd class="font-mono">{{ $gateway->configValue('merchant_number') }}</dd></div>
-                                        @endif
-                                    </dl>
-
-                                    <form method="POST" action="{{ route('subscription.pay.manual') }}" class="flex flex-wrap items-end gap-3">
-                                        @csrf
-                                        <input type="hidden" name="payment_gateway_id" value="{{ $gateway->id }}">
-                                        <input type="hidden" name="plan_id" class="pm-plan-id-input" value="">
-                                        <div class="flex-1 min-w-[12rem]">
-                                            <label for="reference-{{ $gateway->id }}" class="block text-sm font-medium text-slate-700 mb-1">
-                                                Transaction Reference
-                                            </label>
-                                            <input type="text" id="reference-{{ $gateway->id }}" name="reference" required aria-required="true"
-                                                   placeholder="e.g. transaction ID from your bank/mobile app"
-                                                   class="pm-input">
-                                        </div>
-                                        <button type="submit" class="pm-pay-btn inline-flex items-center gap-2 btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed w-full justify-center"
-                                                {{ $plans->isNotEmpty() ? 'disabled' : '' }}>
-                                            <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
-                                            <span>I've Paid Submit for Verification</span>
-                                        </button>
-                                    </form>
-                                @endif
-                            </div>
-                        @endforeach
-                    </div>
+                    @endif
                 @endif
             </div>
         </dialog>
@@ -487,13 +1002,14 @@
                                                         class="btn-primary text-white px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap">
                                                     <i class="fa-solid fa-wallet mr-1" aria-hidden="true"></i> Pay
                                                 </button>
-                                                <form method="POST" action="{{ route('subscription.payment.cancel', $payment) }}"
-                                                      data-confirm="Cancel this pending subscription invoice/payment?" data-confirm-title="Cancel pending payment?" data-confirm-text="Cancel payment">
-                                                    @csrf
-                                                    <button type="submit" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100">
-                                                        <i class="fa-solid fa-xmark" aria-hidden="true"></i> Cancel
-                                                    </button>
-                                                </form>
+                                                <button
+                                                    type="button"
+                                                    onclick="document.getElementById('pm-cancel-payment-{{ $payment->id }}').showModal()"
+                                                    class="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100"
+                                                >
+                                                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                                                    Cancel
+                                                </button>
                                             </div>
                                         @else
                                             <span class="text-slate-400">—</span>
@@ -502,6 +1018,70 @@
                                 </tr>
 
                                 @if ($payment->status === 'pending')
+                                    <dialog
+                                        id="pm-cancel-payment-{{ $payment->id }}"
+                                        class="rounded-2xl p-0 w-[min(92vw,520px)] shadow-2xl backdrop:bg-slate-900/55"
+                                    >
+                                        <div class="overflow-hidden rounded-2xl bg-white">
+                                            <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+                                                <div class="flex items-start gap-3">
+                                                    <div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-600">
+                                                        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                                                    </div>
+                                                    <div>
+                                                        <h3 class="text-lg font-bold text-slate-900">
+                                                            Cancel pending payment?
+                                                        </h3>
+                                                        <p class="mt-1 text-sm text-slate-500">
+                                                            {{ $payment->plan->name ?? 'Subscription' }}
+                                                            · {{ format_money_in($payment->amount, $payment->currency) }}
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    onclick="this.closest('dialog').close()"
+                                                    class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                                    aria-label="Close"
+                                                >
+                                                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                                                </button>
+                                            </div>
+
+                                            <div class="px-5 py-5">
+                                                <p class="text-sm leading-6 text-slate-600">
+                                                    Cancel this pending subscription invoice/payment?
+                                                    This will stop this unpaid billing attempt. It will not affect any completed payment or receipt.
+                                                </p>
+                                            </div>
+
+                                            <div class="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end">
+                                                <button
+                                                    type="button"
+                                                    onclick="this.closest('dialog').close()"
+                                                    class="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                                >
+                                                    Keep Payment
+                                                </button>
+
+                                                <form
+                                                    method="POST"
+                                                    action="{{ route('subscription.payment.cancel', $payment) }}"
+                                                >
+                                                    @csrf
+                                                    <button
+                                                        type="submit"
+                                                        class="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 sm:w-auto"
+                                                    >
+                                                        <i class="fa-solid fa-ban" aria-hidden="true"></i>
+                                                        Cancel Payment
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </dialog>
+
                                     <dialog id="pm-pending-payment-{{ $payment->id }}" class="rounded-2xl p-0 w-[min(94vw,620px)] backdrop:bg-slate-900/50">
                                         <div class="bg-white rounded-2xl overflow-hidden">
                                             <div class="flex items-start justify-between gap-4 px-5 py-4 border-b border-slate-100">
@@ -615,7 +1195,495 @@
         </div>
     </div>
 
+
+    @include('subscription.partials.iotec-confirmation')
+
+    <style>
+        /*
+         * Subscription checkout is deliberately isolated from global form
+         * label/span styling. This prevents method names from collapsing into
+         * one-character-wide vertical text.
+         */
+        .pm-checkout-dialog {
+            width: min(94vw, 760px);
+            max-width: 760px;
+            max-height: calc(100dvh - 28px);
+            overflow: hidden;
+            border: 0;
+            background: #fff;
+        }
+
+        .pm-checkout-dialog::backdrop {
+            background: rgba(15, 23, 42, 0.58);
+        }
+
+        .pm-checkout-scroll {
+            max-height: calc(100dvh - 28px);
+            overflow-y: auto;
+            overflow-x: hidden;
+            overscroll-behavior: contain;
+        }
+
+        .pm-checkout-method-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            width: 100%;
+        }
+
+        .pm-checkout-method {
+            display: block !important;
+            position: relative;
+            width: 100% !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            cursor: pointer;
+        }
+
+        .pm-checkout-method-input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .pm-checkout-method-card {
+            position: relative;
+            display: grid !important;
+            grid-template-columns: 44px minmax(0, 1fr) 24px;
+            align-items: center;
+            gap: 12px;
+            width: 100% !important;
+            min-width: 0 !important;
+            min-height: 88px;
+            padding: 14px;
+            border: 2px solid #e2e8f0;
+            border-radius: 14px;
+            background: #fff;
+            transition:
+                border-color .16s ease,
+                background-color .16s ease,
+                box-shadow .16s ease,
+                transform .16s ease;
+            box-sizing: border-box;
+        }
+
+        .pm-checkout-method:hover .pm-checkout-method-card {
+            border-color: #cbd5e1;
+            box-shadow: 0 4px 14px rgba(15, 23, 42, .06);
+        }
+
+        .pm-checkout-method-input:checked + .pm-checkout-method-card {
+            border-color: var(--brand-1);
+            background: color-mix(
+                in srgb,
+                var(--brand-1) 8%,
+                white
+            );
+            box-shadow: 0 0 0 1px var(--brand-1);
+        }
+
+        .pm-checkout-method-input:focus-visible + .pm-checkout-method-card {
+            outline: 3px solid color-mix(
+                in srgb,
+                var(--brand-1) 24%,
+                transparent
+            );
+            outline-offset: 2px;
+        }
+
+        .pm-checkout-method-icon {
+            display: grid !important;
+            place-items: center;
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            border-radius: 12px;
+            background: #f8fafc;
+            font-size: 18px;
+        }
+
+        .pm-checkout-method-copy {
+            display: block !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+            writing-mode: horizontal-tb !important;
+            text-orientation: mixed !important;
+            line-height: 1.35;
+        }
+
+        .pm-checkout-method-title {
+            display: block !important;
+            width: 100% !important;
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+            font-size: 14px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        .pm-checkout-method-description {
+            display: block !important;
+            width: 100% !important;
+            margin-top: 3px;
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .pm-checkout-card-brands {
+            display: flex !important;
+            align-items: center;
+            gap: 8px;
+            width: auto !important;
+            margin-top: 6px;
+            font-size: 20px;
+            color: #475569;
+        }
+
+        .pm-checkout-method-check {
+            display: grid !important;
+            place-items: center;
+            width: 22px;
+            height: 22px;
+            min-width: 22px;
+            border: 1px solid #cbd5e1;
+            border-radius: 999px;
+            color: transparent;
+            background: #fff;
+            font-size: 10px;
+        }
+
+        .pm-checkout-method-input:checked
+            + .pm-checkout-method-card
+            .pm-checkout-method-check {
+            border-color: var(--brand-1);
+            background: var(--brand-1);
+            color: #fff;
+        }
+
+        .pm-gateway-section {
+            width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+
+        .pm-gateway-section form,
+        .pm-gateway-section input,
+        .pm-gateway-section select,
+        .pm-gateway-section textarea {
+            min-width: 0;
+            box-sizing: border-box;
+        }
+
+        .pm-gateway-section {
+            display: block !important;
+            overflow: hidden;
+            padding: 18px !important;
+        }
+
+        .pm-gateway-section[hidden] {
+            display: none !important;
+        }
+
+        .pm-gateway-section > * {
+            max-width: 100% !important;
+        }
+
+        .pm-gateway-intro {
+            display: grid !important;
+            grid-template-columns: 44px minmax(0, 1fr) !important;
+            align-items: start !important;
+            gap: 12px !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            margin: 0 0 16px !important;
+            padding: 14px !important;
+            border-radius: 12px !important;
+            box-sizing: border-box !important;
+        }
+
+        .pm-gateway-intro-mobile {
+            background: #fffbeb !important;
+        }
+
+        .pm-gateway-intro-card {
+            background: #f8fafc !important;
+        }
+
+        .pm-gateway-intro-icon {
+            display: grid !important;
+            place-items: center !important;
+            width: 44px !important;
+            height: 44px !important;
+            min-width: 44px !important;
+            max-width: 44px !important;
+            border-radius: 10px !important;
+            background: #ffffff !important;
+            font-size: 18px !important;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, .06);
+        }
+
+        .pm-gateway-intro-mobile .pm-gateway-intro-icon {
+            color: #d97706 !important;
+        }
+
+        .pm-gateway-intro-card .pm-gateway-intro-icon {
+            color: #4f46e5 !important;
+        }
+
+        .pm-gateway-intro-copy {
+            display: block !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+            writing-mode: horizontal-tb !important;
+            text-orientation: mixed !important;
+        }
+
+        .pm-gateway-intro-title {
+            display: block !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+            writing-mode: horizontal-tb !important;
+            font-size: 14px !important;
+            line-height: 1.35 !important;
+            font-weight: 700 !important;
+            color: #1e293b !important;
+        }
+
+        .pm-gateway-intro-text {
+            display: block !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            margin: 4px 0 0 !important;
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: anywhere !important;
+            writing-mode: horizontal-tb !important;
+            font-size: 13px !important;
+            line-height: 1.55 !important;
+            color: #64748b !important;
+        }
+
+        .pm-gateway-card-brands {
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            width: auto !important;
+            margin-top: 8px !important;
+            font-size: 22px !important;
+            color: #475569 !important;
+        }
+
+        .pm-gateway-form {
+            display: block !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+        }
+
+        .pm-gateway-form > * + * {
+            margin-top: 12px !important;
+        }
+
+        .pm-gateway-field {
+            display: block !important;
+            width: 100% !important;
+            min-width: 0 !important;
+        }
+
+        .pm-gateway-label {
+            display: block !important;
+            width: 100% !important;
+            margin: 0 0 6px !important;
+            white-space: normal !important;
+            word-break: normal !important;
+            writing-mode: horizontal-tb !important;
+            font-size: 13px !important;
+            line-height: 1.4 !important;
+            font-weight: 600 !important;
+            color: #475569 !important;
+        }
+
+        .pm-gateway-input {
+            display: block !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+        }
+
+        .pm-gateway-help {
+            display: flex !important;
+            align-items: flex-start !important;
+            gap: 6px !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+            font-size: 12px !important;
+            line-height: 1.5 !important;
+            color: #94a3b8 !important;
+        }
+
+        .pm-gateway-help span {
+            display: inline !important;
+            width: auto !important;
+            min-width: 0 !important;
+            white-space: normal !important;
+            word-break: normal !important;
+            writing-mode: horizontal-tb !important;
+        }
+
+        .pm-card-payer-grid {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 12px !important;
+            width: 100% !important;
+        }
+
+        .pm-card-payer-phone {
+            grid-column: 1 / -1;
+        }
+
+        .pm-secure-card-note {
+            display: grid !important;
+            grid-template-columns: 38px minmax(0, 1fr) !important;
+            gap: 10px !important;
+            align-items: start !important;
+            width: 100% !important;
+            padding: 12px 14px !important;
+            border: 1px solid #c7d2fe !important;
+            border-radius: 12px !important;
+            background: #eef2ff !important;
+            box-sizing: border-box !important;
+        }
+
+        .pm-secure-card-note-icon {
+            display: grid !important;
+            place-items: center !important;
+            width: 38px !important;
+            height: 38px !important;
+            min-width: 38px !important;
+            border-radius: 10px !important;
+            background: #ffffff !important;
+            color: #4f46e5 !important;
+        }
+
+        .pm-secure-card-note-title {
+            display: block !important;
+            margin: 0 !important;
+            font-size: 13px !important;
+            line-height: 1.4 !important;
+            font-weight: 700 !important;
+            color: #312e81 !important;
+        }
+
+        .pm-secure-card-note-text {
+            display: block !important;
+            margin: 3px 0 0 !important;
+            font-size: 12px !important;
+            line-height: 1.5 !important;
+            color: #4f46e5 !important;
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: anywhere !important;
+        }
+
+        @media (max-width: 640px) {
+            .pm-checkout-dialog {
+                width: calc(100vw - 16px);
+                max-width: calc(100vw - 16px);
+                max-height: calc(100dvh - 16px);
+                border-radius: 18px;
+            }
+
+            .pm-checkout-scroll {
+                max-height: calc(100dvh - 16px);
+                padding: 18px !important;
+            }
+
+            .pm-checkout-method-grid {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            .pm-checkout-method-card {
+                min-height: 78px;
+                grid-template-columns: 40px minmax(0, 1fr) 22px;
+                gap: 10px;
+                padding: 12px;
+            }
+
+            .pm-checkout-method-icon {
+                width: 40px;
+                height: 40px;
+                min-width: 40px;
+            }
+
+            .pm-gateway-section {
+                padding: 14px !important;
+            }
+
+            .pm-gateway-intro {
+                grid-template-columns: 40px minmax(0, 1fr) !important;
+                gap: 10px !important;
+                padding: 12px !important;
+            }
+
+            .pm-gateway-intro-icon {
+                width: 40px !important;
+                height: 40px !important;
+                min-width: 40px !important;
+                max-width: 40px !important;
+            }
+
+            .pm-card-payer-grid {
+                grid-template-columns: 1fr !important;
+            }
+
+            .pm-card-payer-phone {
+                grid-column: auto;
+            }
+
+            .pm-secure-card-note {
+                grid-template-columns: 34px minmax(0, 1fr) !important;
+                padding: 11px !important;
+            }
+
+            .pm-secure-card-note-icon {
+                width: 34px !important;
+                height: 34px !important;
+                min-width: 34px !important;
+            }
+        }
+    </style>
+
     <script>
+        /*
+         * ioTec Mobile Money submission is handled by
+         * subscription.partials.iotec-confirmation.
+         * Card checkout remains a normal browser submission so Laravel can
+         * redirect to ioTec's hosted Visa / MasterCard page.
+         */
+
         // Display-only conversion recalculates what's SHOWN using the
         // rate an admin set (units of that currency per 1 base-currency
         // unit), never touches what's actually charged. Reads the
@@ -682,8 +1750,17 @@
             // if the user never touches the radios themselves.
             var checkedMethod = document.querySelector('input[name="checkout_method"]:checked');
             if (checkedMethod) {
-                var checkedLabel = checkedMethod.closest('label').textContent.trim();
-                pmSelectPaymentMethod(checkedMethod.value, checkedLabel);
+                var checkedCard = checkedMethod.closest('.pm-checkout-method');
+                var checkedTitle = checkedCard
+                    ? checkedCard.querySelector('.pm-checkout-method-title')
+                    : null;
+
+                pmSelectPaymentMethod(
+                    checkedMethod.value,
+                    checkedTitle
+                        ? checkedTitle.textContent.trim()
+                        : checkedMethod.value
+                );
             }
 
             var modal = document.getElementById('pm-checkout-modal');
@@ -692,7 +1769,7 @@
 
         function pmSelectPaymentMethod(gatewayId, methodLabel) {
             document.querySelectorAll('.pm-gateway-section').forEach(function (section) {
-                section.hidden = section.dataset.gatewayId !== String(gatewayId);
+                section.hidden = section.dataset.checkoutKey !== String(gatewayId);
             });
             var methodLabelEl = document.getElementById('pm-checkout-method-label');
             if (methodLabelEl && methodLabel) { methodLabelEl.textContent = methodLabel; }

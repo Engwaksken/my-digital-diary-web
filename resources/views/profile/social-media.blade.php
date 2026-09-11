@@ -3,78 +3,187 @@
 @section('title', 'Social Media Accounts')
 
 @section('content')
-<style>
-@media (max-width: 640px) {
-    .social-settings-page { width:100%; max-width:100%; overflow-x:hidden; }
-    .social-settings-grid { grid-template-columns:minmax(0,1fr)!important; }
-    .social-account-row { display:grid!important; grid-template-columns:minmax(0,1fr) auto; align-items:center; width:100%; }
-    .social-account-main { min-width:0; }
-    .social-account-main > div { overflow-wrap:anywhere; word-break:break-word; }
-}
-</style>
-<div class="space-y-4 max-w-5xl social-settings-page">
-    <div class="apple-surface rounded-2xl p-5">
-        <h1 class="text-xl font-black">Social Media Accounts</h1>
-        <p class="mt-1 text-sm text-slate-500">
-            Manage the accounts and WhatsApp details used by your Social Media Planner.
-        </p>
+@php
+    $platformLabels = [
+        'instagram' => 'Instagram',
+        'facebook' => 'Facebook',
+        'x' => 'X',
+        'tiktok' => 'TikTok',
+        'linkedin' => 'LinkedIn',
+    ];
+@endphp
+
+<div class="space-y-4" id="social-media-accounts">
+    @include('social-media-planner.partials.navigation-tabs')
+
+    <div>
+        <div class="text-xs font-black uppercase tracking-[.12em] text-slate-400">Social Media Settings</div>
+        <h1 class="mt-1 text-xl font-black text-slate-900">Accounts</h1>
+        <p class="mt-1 text-sm text-slate-500">Manage saved accounts, add platforms and configure WhatsApp.</p>
     </div>
 
-    <div class="grid gap-4 lg:grid-cols-2 social-settings-grid">
-        <section class="apple-surface rounded-2xl p-5">
-            <h2 class="font-black">WhatsApp</h2>
-            <p class="mt-1 text-xs text-slate-500">
-                Set the number used for Status sharing and your WhatsApp Channel details.
-            </p>
+    @if(session('success'))
+        <x-alert type="success" :message="session('success')" :dismissible="false" :autoDismiss="false" />
+    @endif
 
-            <form method="POST" action="{{ route('profile.social-media.whatsapp') }}" class="mt-4 space-y-3">
-                @csrf
-                @method('PUT')
+    @if($errors->any())
+        <x-alert type="error" :dismissible="false" :autoDismiss="false">
+            <ul class="list-disc space-y-1 pl-5">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>
+        </x-alert>
+    @endif
 
-                <div>
-                    <label class="text-xs font-bold">WhatsApp number</label>
-                    <input name="whatsapp_number"
-                           value="{{ old('whatsapp_number', auth()->user()->whatsapp_number) }}"
-                           placeholder="+2567XXXXXXXX"
-                           class="pm-input mt-1 w-full">
-                </div>
+    @unless($accountsTableReady ?? true)
+        <x-alert type="warning" :dismissible="false" :autoDismiss="false">
+            Social media account storage is not ready yet. Run the latest database migrations, then reload this page.
+        </x-alert>
+    @endunless
 
-                <div>
-                    <label class="text-xs font-bold">WhatsApp Channel name</label>
-                    <input name="whatsapp_channel_name"
-                           value="{{ old('whatsapp_channel_name', auth()->user()->whatsapp_channel_name) }}"
-                           class="pm-input mt-1 w-full">
-                </div>
-
-                <div>
-                    <label class="text-xs font-bold">WhatsApp Channel link</label>
-                    <input name="whatsapp_channel_url"
-                           value="{{ old('whatsapp_channel_url', auth()->user()->whatsapp_channel_url) }}"
-                           placeholder="https://whatsapp.com/channel/..."
-                           class="pm-input mt-1 w-full">
-                </div>
-
-                <button class="btn-primary rounded-xl px-4 py-2.5 text-sm font-bold text-white">
-                    Save WhatsApp Settings
+    <section class="apple-surface rounded-2xl overflow-hidden">
+        <div class="px-4 pt-2 sm:px-5">
+            <div class="smp-subtabs" role="tablist" aria-label="Social media account settings">
+                <button type="button" class="smp-subtab is-active" data-smp-account-tab="saved" role="tab" aria-selected="true">
+                    <i class="fa-solid fa-link"></i> Saved Accounts
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px]">{{ $accounts->count() }}</span>
                 </button>
-            </form>
-        </section>
+                <button type="button" class="smp-subtab" data-smp-account-tab="add" role="tab" aria-selected="false">
+                    <i class="fa-solid fa-plus"></i> Add Account
+                </button>
+                <button type="button" class="smp-subtab" data-smp-account-tab="whatsapp" role="tab" aria-selected="false">
+                    <i class="fa-brands fa-whatsapp"></i> WhatsApp
+                </button>
+            </div>
+        </div>
 
-        <section class="apple-surface rounded-2xl p-5">
-            <h2 class="font-black">Add Social Account</h2>
-            <p class="mt-1 text-xs text-slate-500">
-                Save the public identity now. Official API authorisation can be connected separately.
-            </p>
+        <div class="p-4 sm:p-5">
+            <div class="smp-tab-panel" data-smp-account-panel="saved">
+                <div class="mb-4">
+                    <h2 class="text-base font-black text-slate-900">Saved Accounts</h2>
+                    <p class="mt-1 text-xs text-slate-500">Accounts available when planning and publishing posts.</p>
+                </div>
 
-            <form method="POST" action="{{ route('profile.social-media.accounts.store') }}" class="mt-4 space-y-3">
-                @csrf
+                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                    <table class="w-full min-w-[720px] text-sm">
+                        <thead class="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                            <tr>
+                                <th class="px-4 py-3">Platform</th><th class="px-4 py-3">Account</th><th class="px-4 py-3">Username</th>
+                                <th class="px-4 py-3">Status</th><th class="px-4 py-3">Publishing</th><th class="px-4 py-3 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 bg-white">
+                            @forelse($accounts as $account)
+                                @php
+                                    $platform = strtolower((string) ($account->platform ?? ''));
+                                    $active = (bool) ($account->is_active ?? true);
+                                    $auto = (bool) ($account->auto_publish_enabled ?? false);
+                                @endphp
+                                <tr>
+                                    <td class="px-4 py-3 font-bold text-slate-700">{{ $platformLabels[$platform] ?? ucfirst($platform ?: 'Account') }}</td>
+                                    <td class="px-4 py-3 font-black text-slate-900">{{ $account->account_name ?? 'Social account' }}</td>
+                                    <td class="px-4 py-3 text-slate-500">{{ $account->username ?: '—' }}</td>
+                                    <td class="px-4 py-3"><span class="rounded-full px-2 py-1 text-[11px] font-bold {{ $active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500' }}">{{ $active ? 'Active' : 'Inactive' }}</span></td>
+                                    <td class="px-4 py-3 text-xs font-bold {{ $auto ? 'text-sky-700' : 'text-slate-400' }}">{{ $auto ? 'Automatic' : 'Manual' }}</td>
+                                    <td class="px-4 py-3 text-right">
+                                        <div class="inline-flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                class="rounded-lg px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-50"
+                                                data-edit-social-account
+                                                data-id="{{ $account->id }}"
+                                                data-platform="{{ $platform }}"
+                                                data-account-name="{{ e((string) ($account->account_name ?? '')) }}"
+                                                data-username="{{ e((string) ($account->username ?? '')) }}"
+                                                data-active="{{ $active ? '1' : '0' }}"
+                                                data-auto-publish="{{ $auto ? '1' : '0' }}"
+                                            >
+                                                <i class="fa-solid fa-pen-to-square mr-1"></i>
+                                                Edit
+                                            </button>
 
+                                            <form method="POST" action="{{ route('profile.social-media.accounts.destroy', $account->id) }}" class="inline" data-confirm="Remove this social media account?" data-confirm-title="Remove social media account" data-confirm-text="Remove">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="rounded-lg px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50">
+                                                    Remove
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="6"><x-empty-state icon="fa-solid fa-link-slash" title="No social media accounts have been added yet." /></td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="smp-tab-panel" data-smp-account-panel="add" hidden>
+                <div class="mb-4"><h2 class="text-base font-black text-slate-900">Add Account</h2><p class="mt-1 text-xs text-slate-500">Save another platform or profile for use in the planner.</p></div>
+                <form method="POST" action="{{ route('profile.social-media.accounts.store') }}" class="grid gap-4 md:grid-cols-3">
+                    @csrf
+                    <div><label class="text-xs font-bold text-slate-700">Platform</label><select name="platform" required class="pm-input mt-1 w-full"><option value="">Select platform</option>@foreach($platformLabels as $value => $label)<option value="{{ $value }}" @selected(old('platform') === $value)>{{ $label }}</option>@endforeach</select></div>
+                    <div><label class="text-xs font-bold text-slate-700">Account name</label><input name="account_name" value="{{ old('account_name') }}" required maxlength="120" class="pm-input mt-1 w-full" placeholder="e.g. My Digital Diary"></div>
+                    <div><label class="text-xs font-bold text-slate-700">Username / handle</label><input name="username" value="{{ old('username') }}" maxlength="180" class="pm-input mt-1 w-full" placeholder="@username"></div>
+                    <div class="md:col-span-3 flex justify-end"><button type="submit" class="btn-primary rounded-xl px-5 py-2.5 text-sm font-bold text-white"><i class="fa-solid fa-plus mr-1"></i> Add Account</button></div>
+                </form>
+            </div>
+
+            <div class="smp-tab-panel" data-smp-account-panel="whatsapp" hidden>
+                <div class="mb-4"><h2 class="text-base font-black text-slate-900">WhatsApp Settings</h2><p class="mt-1 text-xs text-slate-500">Configure WhatsApp Status and Channel posting details.</p></div>
+                <form method="POST" action="{{ route('profile.social-media.whatsapp') }}" class="grid gap-4 md:grid-cols-3">
+                    @csrf @method('PUT')
+                    <div><label class="text-xs font-bold text-slate-700">WhatsApp number</label><input name="whatsapp_number" value="{{ old('whatsapp_number', auth()->user()->whatsapp_number ?? '') }}" class="pm-input mt-1 w-full" placeholder="+256..."></div>
+                    <div><label class="text-xs font-bold text-slate-700">Channel name</label><input name="whatsapp_channel_name" value="{{ old('whatsapp_channel_name', auth()->user()->whatsapp_channel_name ?? '') }}" class="pm-input mt-1 w-full"></div>
+                    <div><label class="text-xs font-bold text-slate-700">Channel URL</label><input type="url" name="whatsapp_channel_url" value="{{ old('whatsapp_channel_url', auth()->user()->whatsapp_channel_url ?? '') }}" class="pm-input mt-1 w-full" placeholder="https://whatsapp.com/channel/..."></div>
+                    <div class="md:col-span-3 flex justify-end"><button type="submit" class="btn-primary rounded-xl px-5 py-2.5 text-sm font-bold text-white">Save WhatsApp Settings</button></div>
+                </form>
+            </div>
+        </div>
+    </section>
+    <dialog id="social-account-edit-dialog" class="smp-edit-account-dialog">
+        <form
+            method="POST"
+            id="social-account-edit-form"
+            action=""
+            class="smp-edit-account-card"
+        >
+            @csrf
+            @method('PUT')
+
+            <div class="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
                 <div>
-                    <label class="text-xs font-bold">Platform</label>
-                    <select name="platform" class="pm-input mt-1 w-full" required>
+                    <div class="text-xs font-black uppercase tracking-[.12em] text-slate-400">
+                        Social Media Account
+                    </div>
+                    <h2 class="mt-1 text-lg font-black text-slate-900">
+                        Edit Account
+                    </h2>
+                </div>
+
+                <button
+                    type="button"
+                    id="social-account-edit-close"
+                    class="grid h-9 w-9 place-items-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
+                    aria-label="Close"
+                >
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="space-y-4 px-5 py-4">
+                <div>
+                    <label class="text-xs font-bold text-slate-700">
+                        Platform
+                    </label>
+                    <select
+                        name="platform"
+                        id="social-account-edit-platform"
+                        required
+                        class="pm-input mt-1 w-full"
+                    >
                         <option value="instagram">Instagram</option>
                         <option value="facebook">Facebook</option>
-                        <option value="x">X (Twitter)</option>
+                        <option value="x">X</option>
                         <option value="tiktok">TikTok</option>
                         <option value="linkedin">LinkedIn</option>
                         <option value="whatsapp_status">WhatsApp Status</option>
@@ -83,139 +192,182 @@
                 </div>
 
                 <div>
-                    <label class="text-xs font-bold">Account name</label>
-                    <input name="account_name" required class="pm-input mt-1 w-full">
+                    <label class="text-xs font-bold text-slate-700">
+                        Account name
+                    </label>
+                    <input
+                        type="text"
+                        name="account_name"
+                        id="social-account-edit-name"
+                        required
+                        maxlength="120"
+                        class="pm-input mt-1 w-full"
+                    >
                 </div>
 
                 <div>
-                    <label class="text-xs font-bold">Username / handle</label>
-                    <input name="username" placeholder="@username" class="pm-input mt-1 w-full">
+                    <label class="text-xs font-bold text-slate-700">
+                        Username / handle
+                    </label>
+                    <input
+                        type="text"
+                        name="username"
+                        id="social-account-edit-username"
+                        maxlength="180"
+                        class="pm-input mt-1 w-full"
+                    >
                 </div>
 
-                <button class="btn-primary rounded-xl px-4 py-2.5 text-sm font-bold text-white">
-                    Add Account
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <label class="flex items-center gap-3 rounded-xl border border-slate-200 p-3">
+                        <input
+                            type="checkbox"
+                            name="is_active"
+                            value="1"
+                            id="social-account-edit-active"
+                            class="rounded"
+                        >
+                        <span>
+                            <span class="block text-sm font-bold text-slate-800">
+                                Active
+                            </span>
+                            <span class="block text-xs text-slate-500">
+                                Available in the planner
+                            </span>
+                        </span>
+                    </label>
+
+                    <label class="flex items-center gap-3 rounded-xl border border-slate-200 p-3">
+                        <input
+                            type="checkbox"
+                            name="auto_publish_enabled"
+                            value="1"
+                            id="social-account-edit-auto"
+                            class="rounded"
+                        >
+                        <span>
+                            <span class="block text-sm font-bold text-slate-800">
+                                Automatic publishing
+                            </span>
+                            <span class="block text-xs text-slate-500">
+                                Use authorised provider API when available
+                            </span>
+                        </span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                <button
+                    type="button"
+                    id="social-account-edit-cancel"
+                    class="apple-btn rounded-xl px-4 py-2.5 text-sm font-bold"
+                >
+                    Cancel
                 </button>
-            </form>
-        </section>
-    </div>
 
-    <section class="apple-surface rounded-2xl overflow-hidden">
-        <div class="p-4 border-b border-slate-100">
-            <h2 class="font-black">Connected / Saved Accounts</h2>
-        </div>
+                <button
+                    type="submit"
+                    class="btn-primary rounded-xl px-5 py-2.5 text-sm font-bold text-white"
+                >
+                    <i class="fa-solid fa-floppy-disk mr-1"></i>
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </dialog>
 
-        <div class="divide-y divide-slate-100">
-            @forelse($accounts as $account)
-                <div class="p-4 space-y-3">
-                    <div class="flex flex-wrap items-start justify-between gap-3">
-                        <div class="social-account-main min-w-0">
-                            <div class="font-bold">{{ match($account->platform) {
-                                'x' => 'X (Twitter)',
-                                'whatsapp_status' => 'WhatsApp Status',
-                                'whatsapp_channel' => 'WhatsApp Channel',
-                                default => ucfirst($account->platform),
-                            } }} · {{ $account->account_name }}</div>
-                            <div class="text-xs text-slate-500">{{ $account->username ?: 'No username saved' }}</div>
-                            <div class="mt-2 flex flex-wrap gap-2 text-[11px] font-bold">
-                                <span class="rounded-full px-2 py-1 {{ $account->is_connected ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">
-                                    {{ $account->is_connected ? 'API connected' : 'API token missing' }}
-                                </span>
-                                <span class="rounded-full px-2 py-1 {{ $account->auto_publish_enabled ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-600' }}">
-                                    {{ $account->auto_publish_enabled ? 'Automatic posting ON' : 'Automatic posting OFF' }}
-                                </span>
-                            </div>
-                        </div>
+    <style>
+        .smp-edit-account-dialog {
+            width: min(94vw, 540px);
+            max-width: 540px;
+            padding: 0;
+            border: 0;
+            border-radius: 20px;
+            background: transparent;
+        }
 
-                        <form method="POST"
-                              action="{{ route('profile.social-media.accounts.destroy', $account->id) }}">
-                            @csrf
-                            @method('DELETE')
-                            <button class="text-xs font-bold text-rose-600">Remove</button>
-                        </form>
-                    </div>
+        .smp-edit-account-dialog::backdrop {
+            background: rgba(15, 23, 42, .58);
+            backdrop-filter: blur(3px);
+        }
 
-                    <form method="POST"
-                          action="{{ route('profile.social-media.accounts.automatic-publishing', $account->id) }}"
-                          class="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-3">
-                        @csrf
-                        @method('PUT')
+        .smp-edit-account-card {
+            overflow: hidden;
+            border-radius: 20px;
+            background: #fff;
+            box-shadow: 0 26px 80px rgba(15, 23, 42, .25);
+        }
+    </style>
 
-                        <div class="grid gap-3 sm:grid-cols-2">
-                            <div>
-                                <label class="text-xs font-bold">External Page / User / Author ID</label>
-                                <input name="external_account_id"
-                                       value="{{ old('external_account_id', $account->external_account_id) }}"
-                                       placeholder="Required by Facebook, Instagram or LinkedIn"
-                                       class="pm-input mt-1 w-full">
-                            </div>
-                            <div>
-                                <label class="text-xs font-bold">Official API access token</label>
-                                <input type="password"
-                                       name="access_token"
-                                       autocomplete="new-password"
-                                       placeholder="Leave blank to keep current token"
-                                       class="pm-input mt-1 w-full">
-                            </div>
-                        </div>
-
-                        @if(in_array($account->platform, ['whatsapp_status','whatsapp_channel'], true))
-                            <div class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 space-y-3">
-                                <div>
-                                    <div class="text-xs font-black text-emerald-800">WhatsApp automatic provider</div>
-                                    <p class="mt-1 text-[11px] leading-5 text-emerald-700">
-                                        Manual posting always remains available. Automatic Status/Channel publishing requires a provider/webhook that explicitly supports this target.
-                                    </p>
-                                </div>
-                                <div class="grid gap-3 sm:grid-cols-2">
-                                    <div>
-                                        <label class="text-xs font-bold">Provider name</label>
-                                        <input name="automation_provider"
-                                               value="{{ old('automation_provider', $account->automation_provider) }}"
-                                               placeholder="e.g. Custom provider"
-                                               class="pm-input mt-1 w-full">
-                                    </div>
-                                    <div>
-                                        <label class="text-xs font-bold">Provider webhook / API endpoint</label>
-                                        <input type="url"
-                                               name="automation_endpoint"
-                                               value="{{ old('automation_endpoint', $account->automation_endpoint) }}"
-                                               placeholder="https://provider.example.com/publish"
-                                               class="pm-input mt-1 w-full">
-                                    </div>
-                                </div>
-                                <div>
-                                    <label class="text-xs font-bold">Webhook signing secret (optional)</label>
-                                    <input type="password"
-                                           name="automation_secret"
-                                           autocomplete="new-password"
-                                           placeholder="Leave blank to keep the current secret"
-                                           class="pm-input mt-1 w-full">
-                                </div>
-                            </div>
-                        @endif
-
-                        <div class="flex flex-wrap items-center justify-between gap-3">
-                            <label class="flex items-center gap-2 text-xs font-bold">
-                                <input type="hidden" name="enabled" value="0">
-                                <input type="checkbox" name="enabled" value="1" {{ $account->auto_publish_enabled ? 'checked' : '' }}>
-                                Enable automatic posting
-                            </label>
-                            <button class="btn-primary rounded-xl px-3 py-2 text-xs font-bold text-white">
-                                Save Automatic Posting
-                            </button>
-                        </div>
-
-                        <p class="text-[11px] leading-5 text-slate-500">
-                            For Facebook, Instagram, X, TikTok and LinkedIn, automatic posting requires authorised platform API access. WhatsApp Status/Channel automatic posting requires a connected provider/webhook that supports that publishing target. Manual posting remains available for every platform.
-                        </p>
-                    </form>
-                </div>
-            @empty
-                <div class="p-8 text-center text-sm text-slate-400">
-                    No social media accounts saved yet.
-                </div>
-            @endforelse
-        </div>
-    </section>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const tabs = document.querySelectorAll('[data-smp-account-tab]');
+    const panels = document.querySelectorAll('[data-smp-account-panel]');
+    function activate(name) {
+        tabs.forEach(tab => {
+            const active = tab.dataset.smpAccountTab === name;
+            tab.classList.toggle('is-active', active);
+            tab.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        panels.forEach(panel => panel.hidden = panel.dataset.smpAccountPanel !== name);
+        try { sessionStorage.setItem('mdd-social-account-tab', name); } catch (_) {}
+    }
+    tabs.forEach(tab => tab.addEventListener('click', () => activate(tab.dataset.smpAccountTab)));
+    let initial = 'saved';
+    try { initial = sessionStorage.getItem('mdd-social-account-tab') || initial; } catch (_) {}
+    @if($errors->any()) initial = 'add'; @endif
+    activate(initial);
+
+    const editDialog = document.getElementById('social-account-edit-dialog');
+    const editForm = document.getElementById('social-account-edit-form');
+    const editPlatform = document.getElementById('social-account-edit-platform');
+    const editName = document.getElementById('social-account-edit-name');
+    const editUsername = document.getElementById('social-account-edit-username');
+    const editActive = document.getElementById('social-account-edit-active');
+    const editAuto = document.getElementById('social-account-edit-auto');
+
+    function closeEditDialog() {
+        if (!editDialog) return;
+        if (typeof editDialog.close === 'function' && editDialog.open) {
+            editDialog.close();
+        } else {
+            editDialog.removeAttribute('open');
+        }
+    }
+
+    document.querySelectorAll('[data-edit-social-account]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const id = button.dataset.id;
+
+            if (!id || !editDialog || !editForm) return;
+
+            editForm.action =
+                @json(route('profile.social-media.accounts.update', ['account' => '__ACCOUNT__']))
+                    .replace('__ACCOUNT__', encodeURIComponent(id));
+
+            editPlatform.value = button.dataset.platform || '';
+            editName.value = button.dataset.accountName || '';
+            editUsername.value = button.dataset.username || '';
+            editActive.checked = button.dataset.active === '1';
+            editAuto.checked = button.dataset.autoPublish === '1';
+
+            if (typeof editDialog.showModal === 'function') {
+                editDialog.showModal();
+            } else {
+                editDialog.setAttribute('open', 'open');
+            }
+        });
+    });
+
+    document.getElementById('social-account-edit-close')
+        ?.addEventListener('click', closeEditDialog);
+
+    document.getElementById('social-account-edit-cancel')
+        ?.addEventListener('click', closeEditDialog);
+
+});
+</script>
 @endsection

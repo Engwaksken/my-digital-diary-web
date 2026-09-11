@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Signature;
 use App\Models\SignedDocument;
 use App\Models\SignedDocumentPlacement;
+use App\Services\SignatureImageService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -62,20 +63,32 @@ class SignatureController extends Controller
         ]);
     }
 
-    public function storeSignature(Request $request): RedirectResponse
+    public function storeSignature(Request $request, SignatureImageService $signatureImages): RedirectResponse
     {
         $data = $request->validate([
-            'signature' => ['required', 'image', 'max:1024'],
+            'signature' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'drawn_signature' => ['nullable', 'string'],
             'label' => ['nullable', 'string', 'max:100'],
         ]);
+
+        if (! $request->hasFile('signature') && blank($data['drawn_signature'] ?? null)) {
+            return back()->withErrors([
+                'signature' => 'Draw with your finger/pen or upload an e-signature image.',
+            ])->withInput();
+        }
+
+        $path = $signatureImages->store(
+            $request->file('signature'),
+            $data['drawn_signature'] ?? null
+        );
 
         Signature::create([
             'user_id' => $request->user()->id,
             'label' => $data['label'] ?? null,
-            'file_path' => $request->file('signature')->store('signatures', 'public'),
+            'file_path' => $path,
         ]);
 
-        return back()->with('success', 'Signature added.');
+        return back()->with('success', 'Signature saved and ready to use.');
     }
 
     public function destroySignature(Request $request, Signature $signature): RedirectResponse

@@ -26,6 +26,21 @@ class PaymentGatewayWebhookController extends Controller
             return response('Unknown or inactive gateway', 404);
         }
 
+        /*
+         * Every gateway must have a webhook_secret configured in its
+         * encrypted config before this endpoint will process anything.
+         * This FAILS CLOSED: a gateway without a secret, or a request
+         * whose X-Webhook-Secret header does not match, is rejected with
+         * 401 before any payload is parsed or any payment state changes.
+         */
+        $configuredSecret = (string) $gateway->configValue('webhook_secret', '');
+
+        abort_unless($configuredSecret !== '', 401);
+
+        $received = (string) $request->header('X-Webhook-Secret', '');
+
+        abort_unless(hash_equals($configuredSecret, $received), 401);
+
         try {
             $driver = PaymentGatewayDriverFactory::make($gateway);
             $parsed = $driver->parseWebhookPayload($request->all());

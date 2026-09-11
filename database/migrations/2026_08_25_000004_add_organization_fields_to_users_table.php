@@ -20,12 +20,29 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->foreignId('organization_id')->nullable()->after('id')->constrained()->nullOnDelete();
-            $table->string('organization_role')->nullable()->after('organization_id')->comment('admin, staff — only meaningful when organization_id is set');
-            $table->string('personal_email')->nullable()->after('email');
-            $table->timestamp('personal_email_verified_at')->nullable()->after('personal_email');
-        });
+        if (! Schema::hasColumn('users', 'organization_id')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->foreignId('organization_id')->nullable()->after('id')->constrained()->nullOnDelete();
+            });
+        }
+
+        if (! Schema::hasColumn('users', 'organization_role')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->string('organization_role')->nullable()->after('organization_id')->comment('admin, staff — only meaningful when organization_id is set');
+            });
+        }
+
+        if (! Schema::hasColumn('users', 'personal_email')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->string('personal_email')->nullable()->after('email');
+            });
+        }
+
+        if (! Schema::hasColumn('users', 'personal_email_verified_at')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->timestamp('personal_email_verified_at')->nullable()->after('personal_email');
+            });
+        }
     }
 
     public function down(): void

@@ -202,18 +202,16 @@ class DashboardController extends Controller
      */
     public function todayInsight(Request $request): JsonResponse
     {
-        $user = $request->user();
-        $timezone = $user->timezone ?: config('app.timezone', 'Africa/Kampala');
-        $localNow = Carbon::now($timezone);
+        $user=$request->user(); $timezone=$user->timezone ?: config('app.timezone','Africa/Kampala'); $localNow=Carbon::now($timezone);
+        return response()->json(['data'=>$this->mobileInsight(app(DailyInsightService::class)->current($user)),'meta'=>['timezone'=>$timezone,'local_date'=>$localNow->toDateString(),'local_time'=>$localNow->format('H:i')]]);
+    }
 
-        return response()->json([
-            'data' => $this->mobileInsight(app(DailyInsightService::class)->current($user)),
-            'meta' => [
-                'timezone' => $timezone,
-                'local_date' => $localNow->toDateString(),
-                'local_time' => $localNow->format('H:i'),
-            ],
-        ]);
+    public function refreshTodayInsight(Request $request): JsonResponse
+    {
+        $key='today-insight-manual:'.$request->user()->id;
+        if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($key,3)) return response()->json(['message'=>'Please wait before refreshing the insight again.'],429);
+        \Illuminate\Support\Facades\RateLimiter::hit($key,3600);
+        return response()->json(['data'=>$this->mobileInsight(app(DailyInsightService::class)->refresh($request->user()))]);
     }
 
     public function financeSummaryData(Request $request): JsonResponse
@@ -303,7 +301,7 @@ class DashboardController extends Controller
             'sleep-logs.index' => 'sleep-logs', 'spiritual-practices.index' => 'spiritual-practices',
             'personal-goals.index' => 'personal-goals', 'wellbeing.index' => 'wellbeing',
         ];
-        $insight['destination'] = $destinations[$insight['route_name'] ?? ''] ?? 'daily-planner';
+        $insight['destination'] = $insight['destination'] ?? ($destinations[$insight['route_name'] ?? ''] ?? 'daily-planner');
         unset($insight['route_name'], $insight['key']);
         return $insight;
     }

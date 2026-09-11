@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\SocialMediaPost;
+use App\Models\SocialMediaProviderConfig;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -12,6 +13,11 @@ use Throwable;
 class SocialMediaPublisherService
 {
     private const META_VERSION = 'v25.0';
+
+    private function fullPostText(SocialMediaPost $post): string
+    {
+        return trim($post->shareText());
+    }
     private const LINKEDIN_VERSION = '202607';
 
     public function publish(SocialMediaPost $post): array
@@ -52,26 +58,11 @@ class SocialMediaPublisherService
             ->where('is_active', true)
             ->first();
 
-        /*
-         * WhatsApp's official Business Platform is a business-messaging API.
-         * My Digital Diary therefore does not pretend that a normal Cloud API
-         * token can publish Status/Channel content. Automatic Status/Channel
-         * publishing is enabled only when the user has connected an external
-         * automation provider/webhook that explicitly supports that target.
-         *
-         * Manual posting remains available regardless of provider setup.
-         */
-        if (in_array($platform, ['whatsapp_status', 'whatsapp_channel'], true)) {
-            return $this->publishWhatsAppAutomation($post, $platform, $account);
-        }
-
         if (! $account) {
             return $this->fallback(
                 'No active account is connected for this platform.'
             );
         }
-
-        $account = $account;
 
         if (! (bool) ($account->auto_publish_enabled ?? false)) {
             return $this->fallback(
@@ -79,137 +70,379 @@ class SocialMediaPublisherService
             );
         }
 
+        $provider = SocialMediaProviderConfig::enabledFor($platform);
+
+        if (! $provider) {
+            return $this->fallback(
+                'Automatic publishing is not enabled by the administrator for this platform.'
+            );
+        }
+
+        if (in_array($platform, ['whatsapp_status', 'whatsapp_channel'], true)) {
+            return $this->publishWhatsAppProvider(
+                $post,
+                $platform,
+                $account,
+                $provider
+            );
+        }
+
+        /*
+         * Official social APIs generally require the user's own OAuth access
+         * token. The administrator owns the application/provider credentials,
+         * but those do not replace the user's authorisation.
+         */
         $token = $this->decryptToken(
             $account->oauth_access_token ?? null
         );
 
-        if (! $token) {
+        if ($provider->connection_mode === 'user_oauth' && ! $token) {
             return $this->fallback(
-                'OAuth/API authorisation is missing or invalid.'
+                'This social account still needs user OAuth authorisation.'
             );
         }
 
         return match ($platform) {
-            'x' => $this->publishX($post, $token),
+            'x' => $this->publishX($post, (string) $token),
             'facebook' => $this->publishFacebook(
                 $post,
-                $token,
+                (string) $token,
                 (string) ($account->external_account_id ?? '')
             ),
             'instagram' => $this->publishInstagram(
                 $post,
-                $token,
+                (string) $token,
                 (string) ($account->external_account_id ?? '')
             ),
             'linkedin' => $this->publishLinkedIn(
                 $post,
-                $token,
+                (string) $token,
                 (string) ($account->external_account_id ?? '')
             ),
-            'tiktok' => $this->publishTikTok($post, $token),
+            'tiktok' => $this->publishTikTok($post, (string) $token),
             default => $this->fallback('Unsupported platform.'),
         };
     }
 
-    private function publishWhatsAppAutomation(
+    private function publishWhatsAppProvider(
         SocialMediaPost $post,
         string $platform,
-        ?object $account
+        object $account,
+        SocialMediaProviderConfig $provider
     ): array {
-        if (! $account) {
+        $session = trim((string) (
+            $account->provider_account_ref
+            ?? $account->external_account_id
+            ?? ''
+        ));
+
+        if ($session === '') {
             return $this->fallback(
-                'No WhatsApp automation account is connected. Use Post now for manual sharing, or connect an automation provider.'
+                'WhatsApp automatic posting needs your provider session/account reference.'
             );
         }
 
-        if (! (bool) ($account->auto_publish_enabled ?? false)) {
+        $driver = strtolower((string) $provider->driver);
+
+        return match ($driver) {
+            'whatsscale' => $this->publishWhatsScaleStatus(
+                $post,
+                $session,
+                $provider
+            ),
+            'waha' => $this->publishWahaStatusOrChannel(
+                $post,
+                $platform,
+                $session,
+                (string) ($account->external_account_id ?? ''),
+                $provider
+            ),
+            default => $this->publishGenericProvider(
+                $post,
+                $platform,
+                $session,
+                $account,
+                $provider
+            ),
+        };
+    }
+
+    private function publishWhatsScaleStatus(
+        SocialMediaPost $post,
+        string $session,
+        SocialMediaProviderConfig $provider
+    ): array {
+        $baseUrl = rtrim((string) $provider->base_url, '/');
+        $apiKey = $provider->decryptedApiKey();
+
+        if ($baseUrl === '' || ! $apiKey) {
             return $this->fallback(
-                'WhatsApp automatic posting is disabled. The post is still available for manual sharing.'
+                'WhatsScale is not fully configured by the administrator.'
             );
         }
 
-        $endpoint = trim((string) ($account->automation_endpoint ?? ''));
-        if ($endpoint === '') {
-            return $this->fallback(
-                'WhatsApp automatic posting needs a provider webhook/API endpoint. Manual sharing is still available.'
-            );
+        $mediaUrl = $this->mediaUrl($post);
+        $text = $this->fullPostText($post);
+
+        // Media is sent once with the full post text in the caption field.
+        // Do not send a separate text status before/after this request.
+        if ($post->media_type === 'video' && $mediaUrl) {
+            $endpoint = $baseUrl.'/api/status/video';
+            $payload = [
+                'session' => $session,
+                'file' => $mediaUrl,
+                'caption' => $text,
+            ];
+        } elseif ($post->media_type === 'image' && $mediaUrl) {
+            $endpoint = $baseUrl.'/api/status/image';
+            $payload = [
+                'session' => $session,
+                'file' => $mediaUrl,
+                'caption' => $text,
+            ];
+        } else {
+            $endpoint = $baseUrl.'/api/status/text';
+            $payload = [
+                'session' => $session,
+                'text' => $text,
+                'backgroundColor' => data_get(
+                    $provider->settings,
+                    'background_color',
+                    '#25D366'
+                ),
+            ];
         }
-
-        $provider = trim((string) ($account->automation_provider ?? ''));
-        $provider = $provider !== '' ? $provider : 'custom_webhook';
-
-        $secret = $this->decryptToken($account->automation_secret ?? null);
-        $token = $this->decryptToken($account->oauth_access_token ?? null);
-
-        $payload = [
-            'event' => 'social_media.publish',
-            'platform' => $platform,
-            'target' => $platform === 'whatsapp_channel' ? 'channel' : 'status',
-            'post' => [
-                'id' => $post->id,
-                'title' => $post->title,
-                'caption' => $post->caption,
-                'hashtags' => $post->hashtags,
-                'text' => $post->shareText(),
-                'media_type' => $post->media_type,
-                'media_url' => $this->mediaUrl($post),
-                'link_url' => method_exists($post, 'attachedLink') ? $post->attachedLink() : null,
-                'scheduled_at' => optional($post->scheduled_at)->toIso8601String(),
-            ],
-            'account' => [
-                'external_account_id' => $account->external_account_id ?? null,
-                'account_name' => $account->account_name ?? null,
-                'username' => $account->username ?? null,
-            ],
-        ];
 
         try {
-            $request = Http::asJson()
+            $response = Http::asJson()
                 ->acceptJson()
-                ->timeout(45)
-                ->withHeaders([
-                    'X-My-Digital-Diary-Event' => 'social_media.publish',
-                    'X-My-Digital-Diary-Platform' => $platform,
-                ]);
-
-            if ($secret) {
-                $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '';
-                $request = $request->withHeaders([
-                    'X-My-Digital-Diary-Signature' => hash_hmac('sha256', $body, $secret),
-                ]);
-            }
-
-            if ($token) {
-                $request = $request->withToken($token);
-            }
-
-            $response = $request->post($endpoint, $payload);
+                ->withHeaders(['X-Api-Key' => $apiKey])
+                ->timeout($post->media_type === 'video' ? 90 : 45)
+                ->post($endpoint, $payload);
 
             if (! $response->successful()) {
-                return [
-                    'published' => false,
-                    'mode' => 'automatic',
-                    'provider' => $provider,
-                    'error' => 'WhatsApp automation provider returned HTTP '.$response->status().'.',
-                    'response' => $response->json(),
-                ];
-            }
-
-            $published = $response->json('published');
-            if ($published === false) {
-                return [
-                    'published' => false,
-                    'mode' => 'automatic',
-                    'provider' => $provider,
-                    'error' => (string) ($response->json('error') ?: 'WhatsApp automation provider did not confirm publishing.'),
-                    'response' => $response->json(),
-                ];
+                return $this->httpFailure('whatsscale', $response);
             }
 
             return [
                 'published' => true,
                 'mode' => 'automatic',
-                'provider' => $provider,
+                'provider' => $provider->provider_name,
+                'external_post_id' => (string) (
+                    $response->json('key.id')
+                    ?: $response->json('jobId', '')
+                ),
+                'response' => $response->json(),
+            ];
+        } catch (Throwable $e) {
+            report($e);
+
+            return [
+                'published' => false,
+                'mode' => 'automatic',
+                'provider' => $provider->provider_name,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    private function publishWahaStatusOrChannel(
+        SocialMediaPost $post,
+        string $platform,
+        string $session,
+        string $channelId,
+        SocialMediaProviderConfig $provider
+    ): array {
+        $baseUrl = rtrim((string) $provider->base_url, '/');
+        $apiKey = $provider->decryptedApiKey();
+
+        if ($baseUrl === '') {
+            return $this->fallback(
+                'WAHA Base URL is not configured by the administrator.'
+            );
+        }
+
+        $request = Http::asJson()
+            ->acceptJson()
+            ->timeout($post->media_type === 'video' ? 90 : 45);
+
+        if ($apiKey) {
+            $request = $request->withHeaders([
+                $provider->auth_header ?: 'X-Api-Key' => $apiKey,
+            ]);
+        }
+
+        $mediaUrl = $this->mediaUrl($post);
+        $text = $this->fullPostText($post);
+
+        // For WhatsApp media, use one media request with caption. This
+        // prevents a separate text message followed by a separate image/video.
+        if ($platform === 'whatsapp_channel') {
+            if ($channelId === '') {
+                return $this->fallback(
+                    'WhatsApp Channel ID is required for automatic Channel posting.'
+                );
+            }
+
+            /*
+             * WAHA channels are newsletter chats. Use its send APIs with the
+             * channel ID as chatId where supported by the installed driver.
+             */
+            if ($post->media_type === 'image' && $mediaUrl) {
+                $endpoint = $baseUrl.'/api/sendImage';
+                $payload = [
+                    'session' => $session,
+                    'chatId' => $channelId,
+                    'file' => ['url' => $mediaUrl],
+                    'caption' => $text,
+                ];
+            } elseif ($post->media_type === 'video' && $mediaUrl) {
+                $endpoint = $baseUrl.'/api/sendVideo';
+                $payload = [
+                    'session' => $session,
+                    'chatId' => $channelId,
+                    'file' => ['url' => $mediaUrl],
+                    'caption' => $text,
+                ];
+            } else {
+                $endpoint = $baseUrl.'/api/sendText';
+                $payload = [
+                    'session' => $session,
+                    'chatId' => $channelId,
+                    'text' => $text,
+                ];
+            }
+        } else {
+            if ($post->media_type === 'image' && $mediaUrl) {
+                $endpoint = $baseUrl.'/api/'.rawurlencode($session).'/status/image';
+                $payload = [
+                    'file' => ['url' => $mediaUrl],
+                    'caption' => $text,
+                ];
+            } elseif ($post->media_type === 'video' && $mediaUrl) {
+                $endpoint = $baseUrl.'/api/'.rawurlencode($session).'/status/video';
+                $payload = [
+                    'file' => ['url' => $mediaUrl],
+                    'caption' => $text,
+                ];
+            } else {
+                $endpoint = $baseUrl.'/api/'.rawurlencode($session).'/status/text';
+                $payload = ['text' => $text];
+            }
+        }
+
+        try {
+            $response = $request->post($endpoint, $payload);
+
+            if (! $response->successful()) {
+                return $this->httpFailure('waha', $response);
+            }
+
+            return [
+                'published' => true,
+                'mode' => 'automatic',
+                'provider' => $provider->provider_name,
+                'external_post_id' => (string) (
+                    $response->json('id')
+                    ?: $response->json('key.id', '')
+                ),
+                'response' => $response->json(),
+            ];
+        } catch (Throwable $e) {
+            report($e);
+
+            return [
+                'published' => false,
+                'mode' => 'automatic',
+                'provider' => $provider->provider_name,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    private function publishGenericProvider(
+        SocialMediaPost $post,
+        string $platform,
+        string $session,
+        object $account,
+        SocialMediaProviderConfig $provider
+    ): array {
+        $baseUrl = rtrim((string) $provider->base_url, '/');
+        $path = trim((string) data_get(
+            $provider->settings,
+            'publish_endpoint',
+            ''
+        ));
+
+        if ($baseUrl === '' || $path === '') {
+            return $this->fallback(
+                'The administrator has not completed this provider configuration.'
+            );
+        }
+
+        $request = Http::asJson()->acceptJson()->timeout(60);
+        $key = $provider->decryptedApiKey();
+
+        if ($key && $provider->auth_type === 'bearer') {
+            $request = $request->withToken($key);
+        } elseif ($key && $provider->auth_type === 'header') {
+            $request = $request->withHeaders([
+                $provider->auth_header ?: 'X-Api-Key' => $key,
+            ]);
+        }
+
+        $mediaUrl = $this->mediaUrl($post);
+        $fullText = $this->fullPostText($post);
+        $hasMedia = in_array($post->media_type, ['image', 'video'], true)
+            && filled($mediaUrl);
+
+        /*
+         * For media posts, send the full copy as the media caption rather
+         * than as a separate text message. This allows WhatsApp-compatible
+         * providers and other generic connectors to render:
+         *
+         *   [image/video]
+         *   title
+         *   caption
+         *   CTA
+         *   link
+         *   hashtags
+         *
+         * as one combined media post.
+         */
+        $payload = [
+            'platform' => $platform,
+            'session' => $session,
+            'account_id' => $account->external_account_id ?? null,
+            'username' => $account->username ?? null,
+            'text' => $hasMedia ? null : $fullText,
+            'caption' => $hasMedia ? $fullText : null,
+            'media_type' => $post->media_type,
+            'media_url' => $mediaUrl,
+            'link_url' => method_exists($post, 'attachedLink')
+                ? $post->attachedLink()
+                : null,
+            'combine_media_and_caption' => $hasMedia,
+            'send_as_single_media_message' => $hasMedia,
+        ];
+
+        try {
+            $response = $request->post(
+                $baseUrl.'/'.ltrim($path, '/'),
+                $payload
+            );
+
+            if (! $response->successful()) {
+                return $this->httpFailure(
+                    $provider->provider_name,
+                    $response
+                );
+            }
+
+            return [
+                'published' => (bool) $response->json('published', true),
+                'mode' => 'automatic',
+                'provider' => $provider->provider_name,
                 'external_post_id' => (string) (
                     $response->json('external_post_id')
                     ?: $response->json('id', '')
@@ -222,17 +455,18 @@ class SocialMediaPublisherService
             return [
                 'published' => false,
                 'mode' => 'automatic',
-                'provider' => $provider,
+                'provider' => $provider->provider_name,
                 'error' => $e->getMessage(),
             ];
         }
     }
 
+
     private function publishX(
         SocialMediaPost $post,
         string $token
     ): array {
-        $text = trim($post->shareText());
+        $text = $this->fullPostText($post);
 
         if ($text === '') {
             return $this->fallback('The X post has no text.');
@@ -265,7 +499,7 @@ class SocialMediaPublisherService
             );
         }
 
-        $caption = trim($post->shareText());
+        $caption = $this->fullPostText($post);
         $mediaUrl = $this->mediaUrl($post);
 
         if (
@@ -293,6 +527,27 @@ class SocialMediaPublisherService
                             $response->json('post_id')
                             ?: $response->json('id', '')
                         ),
+                ]
+            );
+        }
+
+        if ($post->media_type === 'video' && $mediaUrl) {
+            return $this->request(
+                'facebook',
+                fn () => Http::asForm()
+                    ->timeout(90)
+                    ->post(
+                        "https://graph.facebook.com/"
+                        .self::META_VERSION
+                        ."/{$pageId}/videos",
+                        [
+                            'file_url' => $mediaUrl,
+                            'description' => $caption,
+                            'access_token' => $token,
+                        ]
+                    ),
+                fn ($response) => [
+                    'external_post_id' => (string) $response->json('id', ''),
                 ]
             );
         }
@@ -336,7 +591,7 @@ class SocialMediaPublisherService
             );
         }
 
-        $caption = trim($post->shareText());
+        $caption = $this->fullPostText($post);
 
         try {
             $fields = [
@@ -470,7 +725,7 @@ class SocialMediaPublisherService
 
         $body = [
             'author' => $authorUrn,
-            'commentary' => trim($post->shareText()),
+            'commentary' => $this->fullPostText($post),
             'visibility' => 'PUBLIC',
             'distribution' => [
                 'feedDistribution' => 'MAIN_FEED',
@@ -531,7 +786,7 @@ class SocialMediaPublisherService
                             'post_info' => [
                                 'title' => trim($post->title),
                                 'description' =>
-                                    trim($post->shareText()),
+                                    $this->fullPostText($post),
                                 'privacy_level' => 'PUBLIC_TO_EVERYONE',
                                 'disable_comment' => false,
                                 'auto_add_music' => true,
@@ -554,7 +809,7 @@ class SocialMediaPublisherService
                         'https://open.tiktokapis.com/v2/post/publish/video/init/',
                         [
                             'post_info' => [
-                                'title' => trim($post->shareText()),
+                                'title' => $this->fullPostText($post),
                                 'privacy_level' => 'PUBLIC_TO_EVERYONE',
                                 'disable_duet' => false,
                                 'disable_comment' => false,
@@ -702,6 +957,7 @@ class SocialMediaPublisherService
             'published' => false,
             'mode' => 'manual_share',
             'reason' => $reason,
+            'error' => $reason,
         ];
     }
 }

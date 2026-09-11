@@ -4,6 +4,24 @@
 
 @section('content')
 @php
+
+    $dashboardSystemLogoUrl = null;
+    if (isset($siteSettings)) {
+        foreach (['logoUrl', 'siteLogoUrl', 'faviconUrl'] as $logoMethod) {
+            if (method_exists($siteSettings, $logoMethod)) {
+                try {
+                    $candidate = $siteSettings->{$logoMethod}();
+                    if (is_string($candidate) && trim($candidate) !== '') {
+                        $dashboardSystemLogoUrl = $candidate;
+                        break;
+                    }
+                } catch (\Throwable $e) {
+                    // Continue to the next configured logo source.
+                }
+            }
+        }
+    }
+
     $firstName = trim(explode(' ', auth()->user()->name ?? 'User')[0] ?? 'User');
     $money = static fn ($value) => 'UGX '.number_format((float) $value, 0);
 
@@ -27,6 +45,7 @@
         'blue' => ['bg' => '#eff6ff', 'fg' => '#1d4ed8', 'border' => '#bfdbfe'],
         'violet' => ['bg' => '#f5f3ff', 'fg' => '#6d28d9', 'border' => '#ddd6fe'],
         'slate' => ['bg' => '#f8fafc', 'fg' => '#475569', 'border' => '#e2e8f0'],
+        'teal' => ['bg' => '#f0fdfa', 'fg' => '#0f766e', 'border' => '#99f6e4'],
     ];
     $insightTone = $toneMap[$dailyInsight['tone'] ?? 'emerald'] ?? $toneMap['emerald'];
 
@@ -95,7 +114,7 @@
 @endphp
 
 @if (auth()->user()->offboarded_at && ! auth()->user()->personal_email_verified_at)
-    <div class="rounded-xl bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 text-sm mb-4">
+    <x-alert type="warning" :dismissible="false" class="mb-4">
         <p class="font-semibold mb-1"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Personal email required</p>
         <p class="mb-2">Add and verify a personal email to continue using your account after leaving your organisation.</p>
         <form method="POST" action="{{ route('personal-email.send-code') }}" class="flex flex-wrap gap-2">
@@ -103,7 +122,7 @@
             <input type="email" name="personal_email" required placeholder="you@example.com" class="pm-input text-sm flex-1 min-w-[14rem]">
             <button class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium">Send code</button>
         </form>
-    </div>
+    </x-alert>
 @endif
 
 @if ($expiryNotification ?? false)
@@ -134,7 +153,7 @@
     .md-shortcuts{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}.md-shortcut{border-radius:13px;padding:9px 10px;border:1px solid var(--c-border);background:var(--c-bg);min-height:70px;display:flex;align-items:center;gap:8px;transition:.16s ease;min-width:0}.md-shortcut:hover{transform:translateY(-1px);box-shadow:0 7px 16px rgba(15,23,42,.05)}.md-shortcut-icon{width:32px;height:32px;border-radius:9px;background:#fff9;display:flex;align-items:center;justify-content:center;color:var(--c-fg);font-size:13px;flex:0 0 auto}.md-shortcut-copy{min-width:0}.md-shortcut-title{font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.md-shortcut-sub{font-size:9px;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .md-insight{padding:12px 14px;border-radius:15px;border:1px solid var(--insight-border);background:var(--insight-bg)}.md-insight-inner{display:flex;align-items:center;gap:11px}.md-insight-icon{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.88);display:flex;align-items:center;justify-content:center;color:var(--insight-fg);font-size:16px;flex:0 0 auto}.md-insight-kicker{font-size:9px;letter-spacing:.07em;font-weight:800;color:var(--insight-fg)}.md-insight-title{font-size:13px;font-weight:800;margin-top:2px}.md-insight-message{font-size:11px;line-height:1.4;color:#64748b;margin-top:2px}.md-insight-action{font-size:11px;font-weight:800;white-space:nowrap;color:var(--insight-fg)!important}
     .md-tab-wrap{padding:6px}.md-tabs{display:flex;align-items:center;gap:6px;background:#f4f7fb;border-radius:12px;padding:5px;overflow-x:auto;scrollbar-width:none}.md-tabs::-webkit-scrollbar{display:none}.md-tab-btn{border:0;background:transparent;color:#64748b;padding:8px 12px;border-radius:9px;font-size:11px;font-weight:800;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;cursor:pointer;transition:.16s ease}.md-tab-btn:hover{color:#334155;background:#fff}.md-tab-btn.active{background:var(--home-primary);color:#fff;box-shadow:0 4px 10px color-mix(in srgb,var(--home-primary) 22%,transparent)}.md-tab-panel{display:none;padding:11px 7px 5px}.md-tab-panel.active{display:block}.md-tab-meta{font-size:10px;color:#94a3b8;margin-left:auto}.md-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 4px 9px}.md-panel-title{font-size:12px;font-weight:800;color:#334155}.md-empty{padding:16px;border:1px dashed #cbd5e1;border-radius:12px;background:#f8fafc;text-align:center;color:#64748b;font-size:11px}
-    .md-focus-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.md-focus-item{display:flex;align-items:center;gap:8px;min-width:0;padding:10px;border:1px solid #e2e8f0;border-left:4px solid var(--accent,#0f766e);border-radius:12px;background:#fff;transition:.15s ease}.md-focus-item:hover{background:#f8fafc;transform:translateY(-1px)}.md-focus-num{width:28px;height:28px;border-radius:9px;background:#f1f5f9;color:#475569;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;flex:0 0 auto}.md-row-copy{min-width:0;flex:1}.md-row-title{font-size:11px;font-weight:800;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.md-row-sub{font-size:9px;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.md-chevron{color:#94a3b8;font-size:9px}
+    .md-focus-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.md-focus-item{display:flex;align-items:center;gap:8px;min-width:0;padding:10px;border:1px solid #e2e8f0;border-left:4px solid var(--accent,#0f766e);border-radius:12px;background:#fff;transition:.15s ease}.md-focus-item:hover{background:#f8fafc;transform:translateY(-1px)}.md-focus-num{width:28px;height:28px;border-radius:9px;background:#f1f5f9;color:#475569;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;flex:0 0 auto}.md-row-copy{min-width:0;flex:1}.md-row-title{font-size:11px;font-weight:800;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.md-row-sub{font-size:9px;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.md-chevron{color:#94a3b8;font-size:9px}
     .md-tools-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.md-tool-card{border:1px solid #e2e8f0;border-left:4px solid var(--tool-accent);border-radius:12px;background:#fff;padding:9px 10px;display:flex;align-items:center;gap:8px;min-width:0;transition:.15s ease}.md-tool-card:hover{transform:translateY(-1px);box-shadow:0 5px 13px rgba(15,23,42,.05)}.md-tool-icon{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;font-size:13px}
     .md-finance-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}.md-finance-card{--fc-bg:#f8fafc;--fc-fg:#475569;--fc-border:#cbd5e1;position:relative;overflow:hidden;border:1px solid var(--fc-border);border-left:4px solid var(--fc-fg);border-radius:12px;padding:9px 10px;min-width:0;transition:.16s ease;box-shadow:0 4px 12px rgba(15,23,42,.035);background:var(--fc-bg);color:#172033!important}.md-finance-card:hover{transform:translateY(-1px);box-shadow:0 7px 15px rgba(15,23,42,.065)}.md-finance-card.income{--fc-bg:#ecfdf5;--fc-fg:#047857;--fc-border:#a7f3d0}.md-finance-card.expenses{--fc-bg:#fff1f2;--fc-fg:#be123c;--fc-border:#fecdd3}.md-finance-card.budgets{--fc-bg:#eff6ff;--fc-fg:#1d4ed8;--fc-border:#bfdbfe}.md-finance-card.savings{--fc-bg:#f5f3ff;--fc-fg:#6d28d9;--fc-border:#ddd6fe}.md-finance-card.debts{--fc-bg:#fff7ed;--fc-fg:#c2410c;--fc-border:#fed7aa}.md-finance-card.goals{--fc-bg:#ecfeff;--fc-fg:#0e7490;--fc-border:#a5f3fc}.md-finance-top{display:flex;align-items:center;gap:6px;margin-bottom:6px}.md-finance-icon{width:28px;height:28px;border-radius:8px;background:#fff;color:var(--fc-fg);display:flex;align-items:center;justify-content:center;flex:0 0 auto;font-size:11px}.md-finance-name{font-size:11px;font-weight:800;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.md-finance-value{font-size:13px;font-weight:900;color:#172033;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.md-finance-small{font-size:9px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
@@ -175,6 +194,425 @@
     @media(max-width:1200px){.md-shortcuts{grid-template-columns:repeat(3,minmax(0,1fr))}.md-finance-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.md-tools-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.md-focus-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media(max-width:760px){.md-welcome-row{align-items:flex-start}.md-progress-grid{grid-template-columns:1fr}.md-progress-metrics.four{grid-template-columns:repeat(2,minmax(0,1fr))}.md-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr))}.md-tools-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.md-finance-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.md-focus-grid{grid-template-columns:1fr}.md-rhythm-grid{grid-template-columns:1fr}.md-growth-grid{grid-template-columns:1fr}.md-card-btn span{display:none}.md-insight-inner{align-items:flex-start}.md-insight-action{display:none}.md-tab-wrap{padding:4px}.md-tab-panel{padding:10px 4px 4px}}
     @media(max-width:460px){.md-welcome{padding:12px}.md-welcome h1{font-size:18px}.md-shortcut{min-height:62px;padding:8px}.md-progress-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.md-finance-grid{grid-template-columns:1fr 1fr}}
+
+    /* ------------------------------------------------------------------
+       Dashboard usability redesign
+       ------------------------------------------------------------------ */
+    .md-home{
+        width:min(1180px,100%);
+        margin:0 auto;
+        padding:6px 4px 28px;
+    }
+    .md-home .md-dashboard-section{margin-bottom:22px}
+    .md-home .md-shell{
+        border-radius:20px;
+        border:1px solid #e5e7eb;
+        box-shadow:0 8px 28px rgba(15,23,42,.055);
+    }
+
+    .md-welcome{
+        padding:20px 22px;
+        background:
+            radial-gradient(circle at 95% 10%,color-mix(in srgb,var(--home-primary) 10%,transparent),transparent 35%),
+            #fff;
+    }
+    .md-welcome h1{font-size:25px;letter-spacing:-.02em}
+    .md-welcome-copy{font-size:13px;max-width:560px;line-height:1.6}
+    .md-header-actions{gap:10px}
+    .md-icon-btn,.md-card-btn{height:42px}
+
+    .md-overview-nav{
+        position:sticky;
+        top:8px;
+        z-index:40;
+        display:grid;
+        grid-template-columns:repeat(4,minmax(0,1fr));
+        gap:8px;
+        margin:0 0 22px;
+        padding:7px;
+        border:1px solid #e2e8f0;
+        border-radius:16px;
+        background:rgba(255,255,255,.94);
+        box-shadow:0 10px 28px rgba(15,23,42,.07);
+        backdrop-filter:blur(14px);
+    }
+    .md-overview-link{
+        border:0;
+        min-height:42px;
+        border-radius:11px;
+        background:transparent;
+        color:#64748b!important;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        gap:7px;
+        font-size:12px;
+        font-weight:800;
+        cursor:pointer;
+    }
+    .md-overview-link:hover,
+    .md-overview-link.active{
+        background:#f0fdfa;
+        color:var(--home-primary)!important;
+    }
+
+    /* Today is the primary surface. Give it air and prominence. */
+    .md-rhythm{
+        padding:20px!important;
+        border:1px solid color-mix(in srgb,var(--home-primary) 22%,#e2e8f0)!important;
+    }
+    .md-rhythm-title{font-size:19px!important;line-height:1.25}
+    .md-rhythm-eyebrow{font-size:10px!important;letter-spacing:.14em}
+    .md-rhythm-grid{
+        gap:12px!important;
+        margin-top:16px!important;
+    }
+    .md-rhythm-card{
+        min-height:126px;
+        padding:16px!important;
+        border-radius:16px!important;
+    }
+
+    /* Focus panel gets more space than utility content. */
+    .md-tab-wrap{
+        padding:0!important;
+        overflow:hidden;
+    }
+    .md-tabs{
+        padding:9px 10px!important;
+        background:#f8fafc;
+        border-bottom:1px solid #e2e8f0;
+    }
+    .md-tab-btn{
+        min-height:42px!important;
+        border-radius:10px!important;
+    }
+    .md-tab-panel{
+        padding:18px!important;
+        min-height:150px;
+    }
+
+    /* Secondary dashboard areas become calm, expandable groups. */
+    .md-secondary-wrap{
+        margin-bottom:20px;
+        border:1px solid #e2e8f0;
+        border-radius:18px;
+        background:#fff;
+        box-shadow:0 6px 18px rgba(15,23,42,.035);
+        overflow:hidden;
+    }
+    .md-secondary-summary{
+        list-style:none;
+        cursor:pointer;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:16px;
+        padding:16px 18px;
+        user-select:none;
+    }
+    .md-secondary-summary::-webkit-details-marker{display:none}
+    .md-secondary-summary-title{
+        display:flex;
+        align-items:center;
+        gap:10px;
+        font-size:14px;
+        font-weight:900;
+        color:#172033;
+    }
+    .md-secondary-summary-title i{
+        width:34px;
+        height:34px;
+        border-radius:10px;
+        display:grid;
+        place-items:center;
+        color:var(--home-primary);
+        background:#f0fdfa;
+    }
+    .md-secondary-summary-copy{
+        font-size:11px;
+        color:#64748b;
+        margin-top:2px;
+    }
+    .md-secondary-summary-chevron{
+        color:#94a3b8;
+        transition:transform .2s ease;
+    }
+    details[open]>.md-secondary-summary .md-secondary-summary-chevron{
+        transform:rotate(180deg);
+    }
+    .md-secondary-content{padding:0 16px 16px}
+    .md-secondary-content>.md-dashboard-section{
+        margin:0!important;
+        border:0!important;
+        box-shadow:none!important;
+    }
+
+    /* Progress is useful, but not louder than today's plan. */
+    .md-progress-grid{gap:12px}
+    .md-progress-card{
+        padding:16px;
+        border-radius:16px;
+        box-shadow:none;
+        background:#fbfdff;
+    }
+    .md-progress-main{font-size:22px}
+    .md-progress-metrics{gap:12px}
+
+    /* Tool launcher: fewer visual blocks and stronger labels. */
+    .md-shortcuts{
+        grid-template-columns:repeat(4,minmax(0,1fr))!important;
+        gap:10px!important;
+    }
+    .md-shortcut{
+        min-height:92px!important;
+        border-radius:15px!important;
+        padding:14px!important;
+        box-shadow:none!important;
+        transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;
+    }
+    .md-shortcut:hover{
+        transform:translateY(-2px);
+        box-shadow:0 10px 22px rgba(15,23,42,.07)!important;
+    }
+    .md-shortcut:nth-child(n+5){
+        display:none;
+    }
+    .md-tools-expanded .md-shortcut:nth-child(n+5){
+        display:flex;
+    }
+    .md-more-tools{
+        margin-top:11px;
+        display:flex;
+        justify-content:flex-end;
+    }
+    .md-more-tools button{
+        border:1px solid #dbe3ee;
+        background:#fff;
+        color:#475569;
+        border-radius:10px;
+        padding:8px 12px;
+        font-size:11px;
+        font-weight:800;
+    }
+
+    /* Growth/challenge should feel optional, not like another required task. */
+    .md-growth-section,
+    #growth-strategy-card{
+        background:#fbfdff!important;
+    }
+    .md-growth-section .md-growth-grid,
+    #growth-strategy-card .grid{
+        gap:12px!important;
+    }
+
+    .md-insight{
+        border-radius:17px!important;
+        box-shadow:none!important;
+    }
+
+    /* Finance remains intentionally secondary and compact. */
+    .md-finance-grid{
+        gap:10px!important;
+    }
+
+    @media(max-width:900px){
+        .md-home{padding-inline:2px}
+        .md-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+        .md-progress-grid{grid-template-columns:1fr}
+        .md-rhythm-grid{grid-template-columns:1fr!important}
+        .md-overview-nav{top:4px}
+    }
+
+    @media(max-width:640px){
+        .md-welcome{padding:16px}
+        .md-welcome-row{align-items:flex-start}
+        .md-welcome h1{font-size:21px}
+        .md-welcome-copy{font-size:12px}
+        .md-card-btn span{display:none}
+        .md-overview-nav{gap:4px;padding:5px}
+        .md-overview-link{font-size:10px;gap:5px}
+        .md-overview-link i{font-size:12px}
+        .md-rhythm{padding:15px!important}
+        .md-tab-panel{padding:14px!important}
+        .md-secondary-summary{padding:14px}
+        .md-shortcut:nth-child(n+5){display:none}
+    }
+
+
+    .md-secondary-wrap[data-dashboard-secondary="growth"]{
+        border-color:#fcd34d;
+        background:linear-gradient(180deg,#fffef7 0%,#fff 100%);
+    }
+    .md-secondary-wrap[data-dashboard-secondary="growth"] .md-secondary-summary-title i{
+        color:#d97706;
+        background:#fffbeb;
+    }
+
+    /* ------------------------------------------------------------------
+       Secondary dashboard cards:
+       3 per row when closed, full width when opened.
+       ------------------------------------------------------------------ */
+    .md-secondary-row{
+        display:grid;
+        grid-template-columns:repeat(3,minmax(0,1fr));
+        gap:14px;
+        align-items:start;
+        margin-bottom:24px;
+    }
+
+    .md-secondary-row .md-secondary-wrap{
+        margin:0;
+        min-width:0;
+        border:1px solid #e2e8f0;
+        border-radius:18px;
+        background:#fff;
+        box-shadow:0 6px 20px rgba(15,23,42,.045);
+        overflow:hidden;
+        transition:
+            box-shadow .2s ease,
+            border-color .2s ease,
+            transform .2s ease;
+    }
+
+    .md-secondary-row .md-secondary-wrap:not([open]):hover{
+        transform:translateY(-2px);
+        box-shadow:0 12px 28px rgba(15,23,42,.07);
+    }
+
+    .md-secondary-row .md-secondary-wrap[open]{
+        grid-column:1 / -1;
+        width:100%;
+        background:#fff;
+        box-shadow:0 14px 34px rgba(15,23,42,.08);
+    }
+
+    .md-secondary-row .md-secondary-summary{
+        min-height:104px;
+        padding:16px 17px;
+        align-items:flex-start;
+        cursor:pointer;
+    }
+
+    .md-secondary-row .md-secondary-wrap[open] > .md-secondary-summary{
+        min-height:auto;
+        padding:15px 18px;
+        border-bottom:1px solid #edf2f7;
+        background:#fbfdff;
+    }
+
+    .md-secondary-row .md-secondary-summary-title{
+        align-items:flex-start;
+        font-size:14px;
+    }
+
+    .md-secondary-row .md-secondary-summary-title i{
+        flex:0 0 auto;
+    }
+
+    .md-secondary-row .md-secondary-summary-copy{
+        max-width:280px;
+        line-height:1.45;
+    }
+
+    .md-secondary-row .md-secondary-wrap[open] .md-secondary-summary-copy{
+        max-width:none;
+    }
+
+    .md-secondary-row .md-secondary-content{
+        padding:0;
+    }
+
+    .md-secondary-row .md-secondary-wrap:not([open]) .md-secondary-content{
+        display:none;
+    }
+
+    .md-secondary-row .md-secondary-wrap[open] .md-secondary-content{
+        display:block;
+        padding:18px;
+        animation:mdSecondaryOpen .18s ease;
+    }
+
+    .md-secondary-row .md-secondary-wrap[open] .md-secondary-content > *{
+        width:100%!important;
+        max-width:none!important;
+    }
+
+    .md-secondary-row .md-secondary-wrap[open] .md-dashboard-section{
+        width:100%;
+        max-width:none;
+        margin:0!important;
+        border:0!important;
+        border-radius:0!important;
+        box-shadow:none!important;
+        background:transparent!important;
+    }
+
+    .md-secondary-row .md-secondary-wrap[open] .md-shortcuts{
+        grid-template-columns:repeat(4,minmax(0,1fr))!important;
+    }
+
+    .md-secondary-row .md-secondary-wrap[open] .md-progress-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    }
+
+    .md-secondary-row .md-secondary-wrap[open] .grid{
+        width:100%;
+    }
+
+    .md-secondary-row .md-secondary-wrap[data-dashboard-secondary="growth"]{
+        border-color:#f7c948;
+        background:linear-gradient(180deg,#fffef8 0%,#fff 100%);
+    }
+
+    .md-secondary-row .md-secondary-wrap[data-dashboard-secondary="growth"][open]{
+        border-color:#f3b61f;
+    }
+
+    @keyframes mdSecondaryOpen{
+        from{opacity:.25;transform:translateY(-4px)}
+        to{opacity:1;transform:translateY(0)}
+    }
+
+    @media(max-width:980px){
+        .md-secondary-row{
+            grid-template-columns:repeat(2,minmax(0,1fr));
+        }
+
+        .md-secondary-row .md-secondary-wrap[open]{
+            grid-column:1 / -1;
+        }
+
+        .md-secondary-row .md-secondary-wrap[open] .md-shortcuts{
+            grid-template-columns:repeat(2,minmax(0,1fr))!important;
+        }
+    }
+
+    @media(max-width:680px){
+        .md-secondary-row{
+            grid-template-columns:1fr;
+            gap:10px;
+        }
+
+        .md-secondary-row .md-secondary-summary{
+            min-height:auto;
+            padding:14px;
+        }
+
+        .md-secondary-row .md-secondary-wrap[open]{
+            grid-column:1;
+        }
+
+        .md-secondary-row .md-secondary-wrap[open] .md-secondary-content{
+            padding:12px;
+        }
+
+        .md-secondary-row .md-secondary-wrap[open] .md-shortcuts,
+        .md-secondary-row .md-secondary-wrap[open] .md-progress-grid{
+            grid-template-columns:1fr!important;
+        }
+    }
+
 </style>
 
 <div class="md-home">
@@ -259,6 +697,32 @@
         </div>
     </section>
 
+    @include('dashboard.partials.live-steps-card', ['stepData' => $stepData ?? []])
+
+    <nav class="md-overview-nav" aria-label="Dashboard quick navigation">
+        <a href="#daily-rhythm-section" class="md-overview-link active">
+            <i class="fa-solid fa-sun"></i>
+            <span>Today</span>
+        </a>
+        <a href="#dashboard-tabbed-sections" class="md-overview-link">
+            <i class="fa-solid fa-list-check"></i>
+            <span>Focus</span>
+        </a>
+        <button type="button" class="md-overview-link" data-dashboard-panel-toggle="progress">
+            <i class="fa-solid fa-chart-line"></i>
+            <span>Progress</span>
+        </button>
+        <button type="button" class="md-overview-link" data-dashboard-panel-toggle="tools">
+            <i class="fa-solid fa-grid-2"></i>
+            <span>Tools</span>
+        </button>
+        <button type="button" class="md-overview-link" data-dashboard-panel-toggle="growth">
+            <i class="fa-solid fa-fire"></i>
+            <span>Challenge</span>
+        </button>
+    </nav>
+
+
     @if(!empty($engagement))
     <section class="md-dashboard-section md-shell md-rhythm" id="daily-rhythm-section">
         <div class="md-rhythm-head">
@@ -276,7 +740,7 @@
         </div>
 
         <div class="md-rhythm-grid">
-            <article class="md-rhythm-card start">
+            <article class="md-rhythm-card start" role="button" tabindex="0" data-routine-stats="start" style="cursor:pointer">
                 <div class="md-rhythm-card-head">
                     <div class="md-rhythm-icon"><i class="fa-solid fa-sun"></i></div>
                     <div class="min-w-0">
@@ -289,10 +753,9 @@
                 </div>
                 <button type="button"
                         class="md-rhythm-action start"
-                        data-engagement-checkin="start-day"
-                        @disabled($startDayCompleted)>
-                    <i class="fa-solid {{ $startDayCompleted ? 'fa-check' : 'fa-play' }}"></i>
-                    {{ $startDayCompleted ? 'Started' : 'Start My Day' }}
+                        data-routine-stats="start">
+                    <i class="fa-solid fa-chart-column"></i>
+                    View Today Stats
                 </button>
             </article>
 
@@ -314,7 +777,7 @@
                 </div>
             </article>
 
-            <article class="md-rhythm-card close">
+            <article class="md-rhythm-card close" role="button" tabindex="0" data-routine-stats="end" style="cursor:pointer">
                 <div class="md-rhythm-card-head">
                     <div class="md-rhythm-icon"><i class="fa-solid fa-moon"></i></div>
                     <div class="min-w-0">
@@ -325,10 +788,9 @@
                 </div>
                 <button type="button"
                         class="md-rhythm-action close"
-                        data-engagement-checkin="close-day"
-                        @disabled($closeDayCompleted)>
-                    <i class="fa-solid {{ $closeDayCompleted ? 'fa-check' : 'fa-moon' }}"></i>
-                    {{ $closeDayCompleted ? 'Completed' : 'Close My Day' }}
+                        data-routine-stats="end">
+                    <i class="fa-solid fa-chart-column"></i>
+                    View Today Stats
                 </button>
             </article>
         </div>
@@ -474,7 +936,18 @@
                 </article>
 
                 <article class="md-growth-card referral">
-                    <div class="md-growth-card-kicker">Grow together</div>
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-11 h-11 shrink-0 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center overflow-hidden">
+                            @if($dashboardSystemLogoUrl)
+                                <img src="{{ $dashboardSystemLogoUrl }}"
+                                     alt="My Digital Diary"
+                                     class="w-8 h-8 object-contain">
+                            @else
+                                <span class="text-[10px] font-black text-sky-700">MDD</span>
+                            @endif
+                        </div>
+                        <div class="md-growth-card-kicker">Grow together</div>
+                    </div>
                     <div class="md-growth-card-title">
                         Invite someone who wants more intentional days.
                     </div>
@@ -539,27 +1012,89 @@
 
     <section class="md-dashboard-section">
         <div class="md-section-head"><div class="md-section-title"><i class="fa-solid fa-bolt"></i> Start Here</div></div>
+        @php
+            $dashboardShortcuts = [
+                [
+                    'title' => 'Daily Planner',
+                    'subtitle' => 'Plan today',
+                    'icon' => 'fa-calendar-day',
+                    'bg' => '#ecfdf5',
+                    'fg' => '#047857',
+                    'border' => '#a7f3d0',
+                    'url' => route('daily-planner.index'),
+                ],
+                [
+                    'title' => 'Reminders',
+                    'subtitle' => ($upcomingReminderCount ?? 0).' upcoming',
+                    'icon' => 'fa-bell',
+                    'bg' => '#fffbeb',
+                    'fg' => '#b45309',
+                    'border' => '#fde68a',
+                    'url' => route('reminders.index'),
+                ],
+                [
+                    'title' => 'Meetings',
+                    'subtitle' => 'Calendar & notes',
+                    'icon' => 'fa-video',
+                    'bg' => '#f5f3ff',
+                    'fg' => '#6d28d9',
+                    'border' => '#ddd6fe',
+                    'url' => route('meetings.index'),
+                ],
+                [
+                    'title' => 'Annual Plans',
+                    'subtitle' => 'Goals & progress',
+                    'icon' => 'fa-list-check',
+                    'bg' => '#eff6ff',
+                    'fg' => '#1d4ed8',
+                    'border' => '#bfdbfe',
+                    'url' => route('annual-plans.index'),
+                ],
+                [
+                    'title' => 'Projects',
+                    'subtitle' => ($activeProjects ?? 0).' active',
+                    'icon' => 'fa-diagram-project',
+                    'bg' => '#f0f9ff',
+                    'fg' => '#0369a1',
+                    'border' => '#bae6fd',
+                    'url' => route('projects.index'),
+                ],
+                [
+                    'title' => 'Health',
+                    'subtitle' => 'Checkups & wellbeing',
+                    'icon' => 'fa-heart-pulse',
+                    'bg' => '#fff1f2',
+                    'fg' => '#be123c',
+                    'border' => '#fecdd3',
+                    'url' => route('health-checkups.index'),
+                ],
+            ];
+
+            if (Route::has('social-media-planner.index')) {
+                $dashboardShortcuts[] = [
+                    'title' => 'Social Planner',
+                    'subtitle' => 'Plan & schedule posts',
+                    'icon' => 'fa-bullhorn',
+                    'bg' => '#f0f9ff',
+                    'fg' => '#0369a1',
+                    'border' => '#bae6fd',
+                    'url' => route('social-media-planner.index'),
+                ];
+            }
+        @endphp
+
         <div class="md-shortcuts">
-            @foreach([
-                ['Daily Planner','Plan today','fa-calendar-day','#ecfdf5','#047857','#a7f3d0',route('daily-planner.index')],
-                ['Reminders',($upcomingReminderCount ?? 0).' upcoming','fa-bell','#fffbeb','#b45309','#fde68a',route('reminders.index')],
-                ['Meetings','Calendar & notes','fa-video','#f5f3ff','#6d28d9','#ddd6fe',route('meetings.index')],
-                ['Annual Plans','Goals & progress','fa-list-check','#eff6ff','#1d4ed8','#bfdbfe',route('annual-plans.index')],
-                ['Projects',($activeProjects ?? 0).' active','fa-diagram-project','#f0f9ff','#0369a1','#bae6fd',route('projects.index')],
-                ['Health','Checkups & wellbeing','fa-heart-pulse','#fff1f2','#be123c','#fecdd3',route('health-checkups.index')],
-                ...(Route::has('social-media-planner.index') ? [[
-                    'Social Planner',
-                    'Plan & schedule posts',
-                    'fa-bullhorn',
-                    '#f0f9ff',
-                    '#0369a1',
-                    '#bae6fd',
-                    route('social-media-planner.index')
-                ]] : []),
-            ] as $item)
-                <a href="{{ $item[6] }}" class="md-shortcut" style="--c-bg:{{ $item[3] }};--c-fg:{{ $item[4] }};--c-border:{{ $item[5] }}">
-                    <div class="md-shortcut-icon"><i class="fa-solid {{ $item[2] }}"></i></div>
-                    <div class="md-shortcut-copy"><div class="md-shortcut-title">{{ $item[0] }}</div><div class="md-shortcut-sub">{{ $item[1] }}</div></div>
+            @foreach($dashboardShortcuts as $item)
+                <a href="{{ $item['url'] }}"
+                   class="md-shortcut"
+                   style="--c-bg:{{ $item['bg'] }};--c-fg:{{ $item['fg'] }};--c-border:{{ $item['border'] }}">
+                    <div class="md-shortcut-icon">
+                        <i class="fa-solid {{ $item['icon'] }}"></i>
+                    </div>
+                    <div class="md-shortcut-copy">
+                        <div class="md-shortcut-title">{{ $item['title'] }}</div>
+                        <div class="md-shortcut-sub">{{ $item['subtitle'] }}</div>
+                    </div>
                 </a>
             @endforeach
         </div>
@@ -569,9 +1104,9 @@
         <div class="md-insight-inner">
             <div class="md-insight-icon"><i class="fa-solid {{ $dailyInsight['icon'] ?? 'fa-wand-magic-sparkles' }}"></i></div>
             <div class="flex-1 min-w-0">
-                <div class="flex flex-wrap items-center gap-x-2 gap-y-1"><span class="md-insight-kicker">TODAY'S INSIGHT</span><span class="text-[10px] md-muted">{{ $dailyInsight['category'] ?? 'Today' }}</span><span class="text-[10px] text-slate-400">• refreshes every 2 hours</span></div>
-                <div class="md-insight-title">{{ $dailyInsight['title'] ?? 'Make today count.' }}</div>
-                <div class="md-insight-message">{{ $dailyInsight['message'] ?? 'Choose one useful next step and give it your attention.' }}</div>
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-1"><span class="md-insight-kicker">TODAY'S INSIGHT</span><span class="text-[10px] md-muted">{{ $dailyInsight['category'] ?? 'Today' }}</span><span class="text-[10px] text-slate-400">• AI generated · refreshes every 2 hours</span>@if(\Illuminate\Support\Facades\Route::has('dashboard.today-insight.refresh'))<form method="POST" action="{{ route('dashboard.today-insight.refresh') }}" class="inline">@csrf<button type="submit" class="text-[10px] text-[var(--brand-1)] font-semibold hover:underline"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button></form>@endif</div>
+                <div class="md-insight-title">{{ $dailyInsight['title'] ?? 'Your personalised insight is loading.' }}</div>
+                <div class="md-insight-message">{{ $dailyInsight['message'] ?? 'My Digital Diary will use the active AI provider to generate an insight from your current data.' }}</div>
             </div>
             <a href="{{ $dailyInsight['route'] ?? route('daily-planner.index') }}" class="md-insight-action">{{ $dailyInsight['action'] ?? 'Open planner' }} <i class="fa-solid fa-arrow-right ml-1"></i></a>
         </div>
@@ -621,7 +1156,7 @@
                     @endforeach
                 </div>
             @else
-                <div class="md-empty"><i class="fa-regular fa-circle-check mr-1"></i> Nothing scheduled for today. Enjoy the breathing room or open your planner to set a priority.</div>
+                <x-empty-state icon="fa-regular fa-circle-check" title="Nothing scheduled for today" message="Enjoy the breathing room or open your planner to set a priority." />
             @endif
         </div>
 
@@ -639,7 +1174,7 @@
                     @endforeach
                 </div>
             @else
-                <div class="md-empty"><i class="fa-solid fa-check mr-1"></i> You have no urgent next actions right now.</div>
+                <x-empty-state icon="fa-solid fa-check" title="No urgent next actions" message="You have no urgent next actions right now." />
             @endif
         </div>
 
@@ -898,6 +1433,8 @@
         }
     }
 
+    window.mdOpenDailyCheckin = openCheckin;
+
     document.querySelectorAll('[data-engagement-checkin]').forEach(button => {
         button.addEventListener('click', () => openCheckin(button.dataset.engagementCheckin));
     });
@@ -1064,4 +1601,318 @@
     openTab(initial, false);
 })();
 </script>
+
+    
+
+@php
+    // Pre-compute simple scalar arrays before JSON serialization. Keeping
+    // method calls and nested expressions out of @json prevents Blade parser
+    // issues and makes the dashboard safe even when routine data is empty.
+    $startDaySummary = is_array($startDaySummary ?? null) ? $startDaySummary : [];
+    $endDaySummary = is_array($endDaySummary ?? null) ? $endDaySummary : [];
+
+    $startDayPopupStats = [
+        'priorities' => collect($startDaySummary['priorities'] ?? [])->count(),
+        'meetings' => collect($startDaySummary['meetings'] ?? [])->count(),
+        'tasks_due' => collect($startDaySummary['tasks_due'] ?? [])->count(),
+        'reminders' => collect($startDaySummary['reminders'] ?? [])->count(),
+        'relationships' => collect($startDaySummary['relationships'] ?? [])->count(),
+        'debts_due' => collect(data_get($startDaySummary, 'financial_commitments.debts_due', []))->count(),
+        'savings_goals' => collect(data_get($startDaySummary, 'financial_commitments.savings_goals', []))->count(),
+        'completed' => (bool) ($startDayCompleted ?? false),
+    ];
+
+    $endDayPopupStats = [
+        'completed_tasks' => collect($endDaySummary['completed_tasks'] ?? [])->count(),
+        'incomplete_tasks' => collect($endDaySummary['incomplete_tasks'] ?? [])->count(),
+        'meetings_completed' => collect($endDaySummary['meetings_completed'] ?? [])->count(),
+        'income_today' => (float) ($endDaySummary['income_today'] ?? 0),
+        'expenses_today' => (float) ($endDaySummary['expenses_today'] ?? 0),
+        'completed' => (bool) ($closeDayCompleted ?? false),
+    ];
+@endphp
+
+<dialog id="md-routine-stats-modal" class="rounded-2xl p-0 w-[min(94vw,620px)] backdrop:bg-slate-900/50">
+    <div class="p-5">
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <div id="md-routine-stats-kicker" class="text-xs font-bold uppercase tracking-wide text-slate-500">Daily rhythm</div>
+                <h3 id="md-routine-stats-title" class="text-xl font-black text-slate-900 mt-1">Today Statistics</h3>
+                <p id="md-routine-stats-copy" class="text-sm text-slate-500 mt-1"></p>
+            </div>
+            <button type="button" id="md-routine-stats-close" class="w-9 h-9 rounded-lg border bg-white">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <div id="md-routine-stats-grid" class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5"></div>
+
+        <div class="flex flex-wrap justify-end gap-2 mt-5">
+            <button type="button" id="md-routine-stats-checkin" class="px-4 py-2.5 rounded-lg bg-slate-900 text-white font-bold">
+                Continue
+            </button>
+        </div>
+    </div>
+</dialog>
+
+<script id="md-routine-stats-runtime">
+(() => {
+    const modal = document.getElementById('md-routine-stats-modal');
+    const title = document.getElementById('md-routine-stats-title');
+    const copy = document.getElementById('md-routine-stats-copy');
+    const grid = document.getElementById('md-routine-stats-grid');
+    const close = document.getElementById('md-routine-stats-close');
+    const checkin = document.getElementById('md-routine-stats-checkin');
+
+    if (!modal || !title || !copy || !grid || !checkin) return;
+
+    const start = @json($startDayPopupStats);
+    const end = @json($endDayPopupStats);
+
+    const money = value => `UGX ${Number(value || 0).toLocaleString()}`;
+    let current = 'start';
+
+    function card(label, value) {
+        return `<div class="rounded-xl border bg-slate-50 p-3">
+            <div class="text-[11px] text-slate-500">${label}</div>
+            <div class="font-black text-lg text-slate-900 mt-1">${value}</div>
+        </div>`;
+    }
+
+    function openStats(type) {
+        current = type;
+        const isStart = type === 'start';
+        const data = isStart ? start : end;
+
+        title.textContent = isStart ? 'Start My Day Statistics' : 'Close My Day Statistics';
+        copy.textContent = isStart
+            ? 'See what is waiting for you today, including recurring Daily Planner tasks.'
+            : 'See how today finished before recording your reflection.';
+
+        grid.innerHTML = isStart
+            ? [
+                card('Priorities', data.priorities),
+                card('Meetings', data.meetings),
+                card('Project tasks', data.tasks_due),
+                card('Reminders', data.reminders),
+                card('Follow-ups', data.relationships),
+                card('Debts due', data.debts_due),
+                card('Savings goals', data.savings_goals),
+              ].join('')
+            : [
+                card('Completed', data.completed_tasks),
+                card('Carry forward', data.incomplete_tasks),
+                card('Meetings done', data.meetings_completed),
+                card('Income today', money(data.income_today)),
+                card('Expenses today', money(data.expenses_today)),
+              ].join('');
+
+        checkin.innerHTML = data.completed
+            ? '<i class="fa-solid fa-check mr-1"></i> Already completed'
+            : (isStart
+                ? '<i class="fa-solid fa-sun mr-1"></i> Start My Day'
+                : '<i class="fa-solid fa-moon mr-1"></i> Close My Day');
+        checkin.disabled = !!data.completed;
+
+        modal.showModal();
+    }
+
+    document.querySelectorAll('[data-routine-stats]').forEach(element => {
+        element.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            openStats(element.dataset.routineStats);
+        });
+        element.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openStats(element.dataset.routineStats);
+            }
+        });
+    });
+
+    close?.addEventListener('click', () => modal.close());
+
+    checkin.addEventListener('click', () => {
+        if (checkin.disabled) return;
+        modal.close();
+        window.mdOpenDailyCheckin?.(current === 'start' ? 'start-day' : 'close-day');
+    });
+})();
+</script>
+
+
+<script id="md-dashboard-usability-runtime">
+(() => {
+    const root = document.querySelector('.md-home');
+    if (!root) return;
+
+    function findTopSection(label) {
+        return Array.from(root.querySelectorAll(':scope > section')).find(section => {
+            const title = section.querySelector('.md-section-title');
+            return title && title.textContent.trim().toLowerCase().includes(label);
+        });
+    }
+
+    function wrapSecondary(section, options) {
+        if (!section || section.closest('.md-secondary-wrap')) return null;
+
+        const details = document.createElement('details');
+        details.className = 'md-secondary-wrap';
+        details.dataset.dashboardSecondary = options.key;
+        details.open = !!options.open;
+
+        const summary = document.createElement('summary');
+        summary.className = 'md-secondary-summary';
+        summary.innerHTML = `
+            <div>
+                <div class="md-secondary-summary-title">
+                    <i class="fa-solid ${options.icon}"></i>
+                    <span>${options.title}</span>
+                </div>
+                <div class="md-secondary-summary-copy">${options.copy}</div>
+            </div>
+            <i class="fa-solid fa-chevron-down md-secondary-summary-chevron"></i>
+        `;
+
+        const content = document.createElement('div');
+        content.className = 'md-secondary-content';
+
+        section.parentNode.insertBefore(details, section);
+        content.appendChild(section);
+        details.appendChild(summary);
+        details.appendChild(content);
+
+        return details;
+    }
+
+    const progress = findTopSection('your progress');
+    const tools = findTopSection('start here');
+    const growth = document.getElementById('growth-strategy-section')
+        || document.getElementById('growth-strategy-card');
+
+    wrapSecondary(progress, {
+        key: 'progress',
+        icon: 'fa-chart-line',
+        title: 'Progress & wellbeing',
+        copy: 'Your financial health, task completion and review metrics.',
+        open: false,
+    });
+
+    const toolWrap = wrapSecondary(tools, {
+        key: 'tools',
+        icon: 'fa-grid-2',
+        title: 'Tools & shortcuts',
+        copy: 'Open the features you need without crowding your daily view.',
+        open: false,
+    });
+
+    const growthDetails = wrapSecondary(growth, {
+        key: 'growth',
+        icon: 'fa-seedling',
+        title: 'Growth & challenge',
+        copy: 'Join the 30-Day Challenge and review your activation and referral progress.',
+        open: false,
+    });
+
+    const progressDetails = document.querySelector(
+        '.md-secondary-wrap[data-dashboard-secondary="progress"]'
+    );
+    const toolsDetails = document.querySelector(
+        '.md-secondary-wrap[data-dashboard-secondary="tools"]'
+    );
+
+    if (growthDetails || progressDetails || toolsDetails) {
+        const row = document.createElement('div');
+        row.className = 'md-secondary-row';
+
+        const first = growthDetails || progressDetails || toolsDetails;
+        first.parentNode.insertBefore(row, first);
+
+        [growthDetails, progressDetails, toolsDetails].forEach(details => {
+            if (details) row.appendChild(details);
+        });
+
+        row.querySelectorAll('.md-secondary-wrap').forEach(details => {
+            details.addEventListener('toggle', () => {
+                if (!details.open) return;
+
+                row.querySelectorAll('.md-secondary-wrap').forEach(other => {
+                    if (other !== details) other.open = false;
+                });
+
+                requestAnimationFrame(() => {
+                    details.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start',
+                    });
+                });
+            });
+        });
+    }
+
+    if (tools) {
+        tools.classList.remove('md-dashboard-section');
+        const shortcuts = tools.querySelector('.md-shortcuts');
+        if (shortcuts && shortcuts.children.length > 4) {
+            const actions = document.createElement('div');
+            actions.className = 'md-more-tools';
+            actions.innerHTML = `
+                <button type="button" data-more-tools>
+                    <i class="fa-solid fa-ellipsis mr-1"></i>
+                    Show all tools
+                </button>
+            `;
+            tools.appendChild(actions);
+
+            actions.querySelector('[data-more-tools]')?.addEventListener('click', event => {
+                const expanded = shortcuts.classList.toggle('md-tools-expanded');
+                event.currentTarget.innerHTML = expanded
+                    ? '<i class="fa-solid fa-chevron-up mr-1"></i> Show fewer tools'
+                    : '<i class="fa-solid fa-ellipsis mr-1"></i> Show all tools';
+            });
+        }
+    }
+
+    document.querySelectorAll('[data-dashboard-panel-toggle]').forEach(button => {
+        button.addEventListener('click', () => {
+            const key = button.dataset.dashboardPanelToggle;
+            const details = document.querySelector(
+                `.md-secondary-wrap[data-dashboard-secondary="${key}"]`
+            );
+
+            if (!details) return;
+
+            document
+                .querySelectorAll('.md-secondary-row .md-secondary-wrap')
+                .forEach(other => {
+                    if (other !== details) other.open = false;
+                });
+
+            details.open = true;
+            details.scrollIntoView({
+                behavior:'smooth',
+                block:'start',
+            });
+        });
+    });
+
+    document.querySelectorAll('.md-overview-link[href^="#"]').forEach(link => {
+        link.addEventListener('click', event => {
+            const target = document.querySelector(link.getAttribute('href'));
+            if (!target) return;
+            event.preventDefault();
+            target.scrollIntoView({behavior:'smooth',block:'start'});
+        });
+    });
+
+    // Keep the first-screen experience focused on Today and Focus.
+    const rhythm = document.getElementById('daily-rhythm-section');
+    const tabs = document.getElementById('dashboard-tabbed-sections');
+    if (rhythm && tabs && rhythm.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING) {
+        // Existing order is already good; no move required.
+    }
+})();
+</script>
+
 @endsection

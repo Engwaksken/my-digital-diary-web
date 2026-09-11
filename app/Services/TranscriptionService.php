@@ -1,310 +1,1065 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services;
 
 use App\Models\SiteSetting;
 use App\Models\User;
-use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
-/**
- * High-quality meeting transcription with explicit language hints.
- *
- * Preferred order:
- *  1. gpt-transcribe (best current general-purpose transcription)
- *  2. gpt-4o-transcribe
- *  3. whisper-1 fallback for older accounts / timestamped segments
- *
- * Language choices exposed by My Digital Diary:
- *  - en-GB => British/UK English (API hint: en)
- *  - lg    => Luganda
- *  - sw    => Kiswahili
- *  - auto  => no forced language hint
- */
 class TranscriptionService
 {
-    /** @return array{transcript:string,segments:array,model:string,language:string} */
-    public function transcribe(User $user, string $audioPath, string $language = 'auto'): array
-    {
-        $apiKey = $this->resolveOpenAiKey($user);
+    /**
+     * OpenAI transcription endpoint.
+     */
+    private const ENDPOINT =
+        'https://api.openai.com/v1/audio/transcriptions';
 
-        if (! $apiKey) {
+    /**
+     * Formats supported by OpenAI transcription.
+     */
+    private const SUPPORTED_EXTENSIONS = [
+        'flac',
+        'm4a',
+        'mp3',
+        'mp4',
+        'mpeg',
+        'mpga',
+        'oga',
+        'ogg',
+        'wav',
+        'webm',
+    ];
+
+    /**
+     * Models attempted in priority order.
+     */
+    private const MODELS = [
+        'gpt-4o-transcribe',
+        'gpt-4o-mini-transcribe',
+        'whisper-1',
+    ];
+
+    /**
+     * Transcribe a stored meeting recording.
+     *
+     * @return array{
+     *     transcript:string,
+     *     segments:array<int,array<string,mixed>>
+     * }
+     */
+    public function transcribe(
+        User $user,
+        string $audioPath,
+        string $language = 'auto'
+    ): array {
+        $apiKey =
+            $this->resolveOpenAiApiKey(
+                $user
+            );
+
+        if ($apiKey === '') {
             throw new RuntimeException(
-                'Transcription needs an OpenAI API key — add one under "API Keys" with provider OpenAI, ' .
-                'or ask your admin to configure OpenAI as the default AI provider.'
+                'OpenAI transcription is not available. Please ask the administrator to configure OpenAI under AI Settings.'
             );
         }
 
-        $language = $this->normaliseLanguageChoice($language);
-        $fullPath = Storage::disk('public')->path($audioPath);
+        $disk =
+            Storage::disk(
+                'public'
+            );
 
-        if (! is_file($fullPath)) {
-            throw new RuntimeException('The recorded audio file could not be found on disk.');
-        }
-        if (filesize($fullPath) < 1024) {
-            throw new RuntimeException('The recording is empty or too short to transcribe. Record at least a few seconds and try again.');
+        if (
+            ! $disk->exists(
+                $audioPath
+            )
+        ) {
+            throw new RuntimeException(
+                'The meeting recording file could not be found.'
+            );
         }
 
-        [$uploadPath, $temporary] = $this->prepareForOpenAi($fullPath);
+        $sourcePath =
+            $disk->path(
+                $audioPath
+            );
+
+        if (
+            ! is_file(
+                $sourcePath
+            )
+        ) {
+            throw new RuntimeException(
+                'The stored meeting recording is unavailable.'
+            );
+        }
+
+        $sourceSize =
+            filesize(
+                $sourcePath
+            );
+
+        if (
+            $sourceSize === false
+            || $sourceSize < 1024
+        ) {
+            throw new RuntimeException(
+                'The recording is empty or too short to transcribe.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Prepare audio
+        |--------------------------------------------------------------------------
+        |
+        | Browser MediaRecorder output can occasionally produce WebM/Opus files
+        | that browsers can play but transcription providers reject.
+        |
+        | When FFmpeg is available, normalise every recording to MP3 first.
+        |
+        */
+
+        $prepared =
+            $this->prepareAudioFile(
+                $sourcePath,
+                $audioPath
+            );
+
+        $preparedPath =
+            $prepared['path'];
+
+        $preparedName =
+            $prepared['name'];
+
+        $temporary =
+            $prepared['temporary'];
 
         try {
-            $errors = [];
-
-            // Current recommended general-purpose model. It supports expected
-            // languages + context, which materially helps accents and local terms.
-            $response = $this->requestGptTranscribe($apiKey, $uploadPath, $language);
-            if ($response->successful()) {
-                return $this->normaliseTextResponse($response->json(), 'gpt-transcribe', $language);
-            }
-            $errors[] = 'gpt-transcribe: ' . $this->responseError($response);
-
-            // Compatible high-accuracy fallback for accounts where gpt-transcribe
-            // is unavailable. Uses the singular ISO-639-1 language hint.
-            $response = $this->requestGpt4oTranscribe($apiKey, $uploadPath, $language);
-            if ($response->successful()) {
-                return $this->normaliseTextResponse($response->json(), 'gpt-4o-transcribe', $language);
-            }
-            $errors[] = 'gpt-4o-transcribe: ' . $this->responseError($response);
-
-            // Last fallback preserves Whisper timestamp segments.
-            $response = $this->requestWhisper($apiKey, $uploadPath, $language);
-            if ($response->successful()) {
-                return $this->normaliseWhisperResponse($response->json(), $language);
-            }
-            $errors[] = 'whisper-1: ' . $this->responseError($response);
-
-            throw new RuntimeException('OpenAI transcription failed. ' . implode(' | ', $errors));
+            return $this->sendToOpenAi(
+                $apiKey,
+                $preparedPath,
+                $preparedName,
+                $language
+            );
         } finally {
-            if ($temporary && is_file($uploadPath)) {
-                @unlink($uploadPath);
+            if (
+                $temporary
+                && is_file(
+                    $preparedPath
+                )
+            ) {
+                @unlink(
+                    $preparedPath
+                );
             }
         }
-    }
-
-    private function requestGptTranscribe(string $apiKey, string $uploadPath, string $language): Response
-    {
-        $fields = [
-            'model' => 'gpt-transcribe',
-            'response_format' => 'json',
-            'prompt' => $this->promptFor($language),
-        ];
-
-        if (($code = $this->apiLanguageCode($language)) !== null) {
-            $fields['languages[]'] = $code;
-        }
-
-        foreach ($this->keywordsFor($language) as $index => $keyword) {
-            $fields["keywords[{$index}]"] = $keyword;
-        }
-
-        return Http::withToken($apiKey)
-            ->timeout(240)
-            ->attach('file', file_get_contents($uploadPath), basename($uploadPath))
-            ->post('https://api.openai.com/v1/audio/transcriptions', $fields);
-    }
-
-    private function requestGpt4oTranscribe(string $apiKey, string $uploadPath, string $language): Response
-    {
-        $fields = [
-            'model' => 'gpt-4o-transcribe',
-            'response_format' => 'json',
-            'prompt' => $this->promptFor($language),
-        ];
-
-        if (($code = $this->apiLanguageCode($language)) !== null) {
-            $fields['language'] = $code;
-        }
-
-        return Http::withToken($apiKey)
-            ->timeout(240)
-            ->attach('file', file_get_contents($uploadPath), basename($uploadPath))
-            ->post('https://api.openai.com/v1/audio/transcriptions', $fields);
-    }
-
-    private function requestWhisper(string $apiKey, string $uploadPath, string $language): Response
-    {
-        $fields = [
-            'model' => 'whisper-1',
-            'response_format' => 'verbose_json',
-            'timestamp_granularities[]' => 'segment',
-            'temperature' => 0,
-            'prompt' => $this->promptFor($language),
-        ];
-
-        if (($code = $this->apiLanguageCode($language)) !== null) {
-            $fields['language'] = $code;
-        }
-
-        return Http::withToken($apiKey)
-            ->timeout(240)
-            ->attach('file', file_get_contents($uploadPath), basename($uploadPath))
-            ->post('https://api.openai.com/v1/audio/transcriptions', $fields);
-    }
-
-    /** @return array{transcript:string,segments:array,model:string,language:string} */
-    private function normaliseTextResponse(array $data, string $model, string $language): array
-    {
-        $text = trim((string) ($data['text'] ?? ''));
-        if ($text === '') {
-            throw new RuntimeException('The transcription provider returned an empty transcript. Check microphone volume and background noise, then retry.');
-        }
-
-        // gpt-transcribe / gpt-4o-transcribe return high-quality text rather
-        // than Whisper-style timestamp segments. Keep the existing UI contract
-        // by exposing the complete transcript as one safe segment.
-        return [
-            'transcript' => $text,
-            'segments' => [[
-                'start_seconds' => 0.0,
-                'end_seconds' => 0.0,
-                'speaker' => null,
-                'text' => $text,
-            ]],
-            'model' => $model,
-            'language' => $language,
-        ];
-    }
-
-    /** @return array{transcript:string,segments:array,model:string,language:string} */
-    private function normaliseWhisperResponse(array $data, string $language): array
-    {
-        $text = trim((string) ($data['text'] ?? ''));
-        $segments = collect($data['segments'] ?? [])->map(fn ($segment) => [
-            'start_seconds' => round((float) ($segment['start'] ?? 0), 1),
-            'end_seconds' => round((float) ($segment['end'] ?? 0), 1),
-            'speaker' => null,
-            'text' => trim((string) ($segment['text'] ?? '')),
-        ])->filter(fn ($segment) => $segment['text'] !== '')->values()->all();
-
-        if ($text === '') {
-            throw new RuntimeException('The transcription provider returned an empty transcript. Check microphone volume and background noise, then retry.');
-        }
-
-        return [
-            'transcript' => $text,
-            'segments' => $segments,
-            'model' => 'whisper-1',
-            'language' => $language,
-        ];
-    }
-
-    private function normaliseLanguageChoice(string $language): string
-    {
-        $language = trim($language);
-        return in_array($language, ['auto', 'en-GB', 'lg', 'sw'], true) ? $language : 'auto';
-    }
-
-    private function apiLanguageCode(string $language): ?string
-    {
-        return match ($language) {
-            'en-GB' => 'en',
-            'lg' => 'lg',
-            'sw' => 'sw',
-            default => null,
-        };
-    }
-
-    private function promptFor(string $language): string
-    {
-        return match ($language) {
-            'en-GB' => 'A professional meeting in British English. Preserve names, numbers, dates, amounts, acronyms, project names and action items accurately. Use UK English spelling and punctuation. Do not invent words that were not spoken.',
-            'lg' => 'Olukiiko mu Luganda. Wandiika ebigambo ebyogeddwa nga bwe biri, amannya, ennamba, ennaku z\'omwezi, ssente n\'amannya ga pulogulaamu nga bituufu. Tokola bigambo bitayogeddwa.',
-            'sw' => 'Mkutano wa Kiswahili. Andika maneno yaliyosemwa kwa usahihi, pamoja na majina, nambari, tarehe, kiasi cha fedha, vifupisho na majina ya miradi. Usiongeze maneno ambayo hayakusemwa.',
-            default => 'A professional meeting. Preserve names, numbers, dates, amounts, acronyms, project names and action items accurately. Keep the language actually spoken and do not invent words.',
-        };
-    }
-
-    /** @return string[] */
-    private function keywordsFor(string $language): array
-    {
-        return match ($language) {
-            'en-GB' => ['My Digital Diary', 'Uganda', 'UGX', 'action item', 'follow-up'],
-            'lg' => ['My Digital Diary', 'Uganda', 'UGX'],
-            'sw' => ['My Digital Diary', 'Uganda', 'UGX'],
-            default => ['My Digital Diary', 'Uganda', 'UGX'],
-        };
-    }
-
-    private function responseError(Response $response): string
-    {
-        return (string) ($response->json('error.message') ?? $response->body());
     }
 
     /**
-     * OpenAI accepts a defined set of recording containers. Keep valid files
-     * unchanged, repair generic/.bin filenames by MIME detection, and use
-     * ffmpeg when the source is another recorder format.
+     * Resolve the OpenAI API key.
      *
-     * @return array{0:string,1:bool}
+     * Priority:
+     * 1. User-specific OpenAI credential.
+     * 2. Shared administrator OpenAI key from SiteSetting.
      */
-    private function prepareForOpenAi(string $fullPath): array
-    {
-        $supported = ['flac','m4a','mp3','mp4','mpeg','mpga','oga','ogg','wav','webm'];
-        $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+    private function resolveOpenAiApiKey(
+        User $user
+    ): string {
+        /*
+        |--------------------------------------------------------------------------
+        | User-specific API credential
+        |--------------------------------------------------------------------------
+        */
 
-        if (in_array($extension, $supported, true)) {
-            return [$fullPath, false];
+        try {
+            if (
+                method_exists(
+                    $user,
+                    'activeApiCredential'
+                )
+            ) {
+                $credential =
+                    $user->activeApiCredential();
+
+                if ($credential) {
+                    $provider =
+                        strtolower(
+                            trim(
+                                (string) (
+                                    $credential->provider
+                                    ?? ''
+                                )
+                            )
+                        );
+
+                    if (
+                        in_array(
+                            $provider,
+                            [
+                                'openai',
+                                'chatgpt',
+                            ],
+                            true
+                        )
+                    ) {
+                        /*
+                         * Common encrypted/accessor field names supported
+                         * without exposing the key.
+                         */
+                        foreach (
+                            [
+                                'api_key',
+                                'key',
+                            ] as $field
+                        ) {
+                            try {
+                                $value =
+                                    trim(
+                                        (string) (
+                                            $credential->{$field}
+                                            ?? ''
+                                        )
+                                    );
+
+                                if ($value !== '') {
+                                    return $value;
+                                }
+                            } catch (Throwable $e) {
+                                report($e);
+                            }
+                        }
+
+                        foreach (
+                            [
+                                'getApiKey',
+                                'apiKey',
+                                'getDecryptedKey',
+                                'decryptedKey',
+                            ] as $method
+                        ) {
+                            if (
+                                method_exists(
+                                    $credential,
+                                    $method
+                                )
+                            ) {
+                                try {
+                                    $value =
+                                        trim(
+                                            (string)
+                                            $credential->{$method}()
+                                        );
+
+                                    if (
+                                        $value !== ''
+                                    ) {
+                                        return $value;
+                                    }
+                                } catch (Throwable $e) {
+                                    report($e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            report($e);
         }
 
-        $mime = strtolower((string) (new \finfo(FILEINFO_MIME_TYPE))->file($fullPath));
-        $mimeExtensions = [
-            'audio/mpeg' => 'mp3', 'audio/mp3' => 'mp3', 'audio/mp4' => 'm4a',
-            'video/mp4' => 'mp4', 'audio/x-m4a' => 'm4a', 'audio/wav' => 'wav',
-            'audio/x-wav' => 'wav', 'audio/webm' => 'webm', 'video/webm' => 'webm',
-            'audio/ogg' => 'ogg', 'application/ogg' => 'ogg', 'audio/flac' => 'flac',
-            'audio/x-flac' => 'flac',
+        /*
+        |--------------------------------------------------------------------------
+        | Shared system AI key
+        |--------------------------------------------------------------------------
+        |
+        | SiteSetting casts default_ai_api_key as encrypted, so Laravel
+        | automatically decrypts it when accessed.
+        |
+        */
+
+        try {
+            $settings =
+                SiteSetting::current();
+
+            if (
+                ! $settings
+                || ! $settings->hasDefaultAiKey()
+            ) {
+                return '';
+            }
+
+            $provider =
+                strtolower(
+                    trim(
+                        (string)
+                        $settings
+                            ->default_ai_provider
+                    )
+                );
+
+            if (
+                ! in_array(
+                    $provider,
+                    [
+                        'openai',
+                        'chatgpt',
+                    ],
+                    true
+                )
+            ) {
+                return '';
+            }
+
+            return trim(
+                (string)
+                $settings
+                    ->default_ai_api_key
+            );
+        } catch (Throwable $e) {
+            report($e);
+
+            return '';
+        }
+    }
+
+    /**
+     * Prepare a recording for OpenAI.
+     *
+     * @return array{
+     *     path:string,
+     *     name:string,
+     *     temporary:bool
+     * }
+     */
+    private function prepareAudioFile(
+        string $sourcePath,
+        string $storedPath
+    ): array {
+        $extension =
+            strtolower(
+                pathinfo(
+                    $storedPath,
+                    PATHINFO_EXTENSION
+                )
+            );
+
+        /*
+         * Prefer FFmpeg because it normalises browser recordings
+         * into a reliable speech-friendly MP3.
+         */
+        if (
+            $this->ffmpegAvailable()
+        ) {
+            return $this->convertToMp3(
+                $sourcePath
+            );
+        }
+
+        /*
+         * If FFmpeg is unavailable, only submit an original file
+         * when its extension is supported.
+         */
+        if (
+            ! in_array(
+                $extension,
+                self::SUPPORTED_EXTENSIONS,
+                true
+            )
+        ) {
+            throw new RuntimeException(
+                'The recording format is not supported for transcription. Install FFmpeg on the server or upload MP3, WAV, M4A, OGG, FLAC or WebM audio.'
+            );
+        }
+
+        $this->validateBasicContainer(
+            $sourcePath,
+            $extension
+        );
+
+        return [
+            'path' =>
+                $sourcePath,
+
+            'name' =>
+                'meeting-recording.'
+                . $extension,
+
+            'temporary' =>
+                false,
         ];
+    }
 
-        if (isset($mimeExtensions[$mime])) {
-            $target = tempnam(sys_get_temp_dir(), 'meeting_audio_');
-            if ($target === false) {
-                throw new RuntimeException('Could not prepare the recording for transcription.');
+    /**
+     * Convert recording to MP3.
+     *
+     * @return array{
+     *     path:string,
+     *     name:string,
+     *     temporary:bool
+     * }
+     */
+    private function convertToMp3(
+        string $sourcePath
+    ): array {
+        $temporaryDirectory =
+            storage_path(
+                'app/transcription-temp'
+            );
+
+        if (
+            ! is_dir(
+                $temporaryDirectory
+            )
+        ) {
+            if (
+                ! mkdir(
+                    $temporaryDirectory,
+                    0755,
+                    true
+                )
+                && ! is_dir(
+                    $temporaryDirectory
+                )
+            ) {
+                throw new RuntimeException(
+                    'Unable to create the temporary transcription directory.'
+                );
             }
-            $renamed = $target . '.' . $mimeExtensions[$mime];
-            @unlink($target);
-            if (! copy($fullPath, $renamed)) {
-                throw new RuntimeException('Could not prepare the recording for transcription.');
-            }
-            return [$renamed, true];
         }
 
-        $ffmpeg = trim((string) @shell_exec('command -v ffmpeg 2>/dev/null'));
-        if ($ffmpeg !== '') {
-            $target = tempnam(sys_get_temp_dir(), 'meeting_audio_');
-            if ($target === false) {
-                throw new RuntimeException('Could not prepare the recording for transcription.');
+        $destinationPath =
+            $temporaryDirectory
+            . DIRECTORY_SEPARATOR
+            . Str::uuid()
+            . '.mp3';
+
+        /*
+         * -vn           Remove video track.
+         * -ac 1         Mono audio.
+         * -ar 16000     Speech-friendly sample rate.
+         * -b:a 64k      Keeps transcription files relatively small.
+         */
+        $command =
+            'ffmpeg'
+            . ' -hide_banner'
+            . ' -loglevel error'
+            . ' -y'
+            . ' -i '
+            . escapeshellarg(
+                $sourcePath
+            )
+            . ' -vn'
+            . ' -ac 1'
+            . ' -ar 16000'
+            . ' -codec:a libmp3lame'
+            . ' -b:a 64k '
+            . escapeshellarg(
+                $destinationPath
+            )
+            . ' 2>&1';
+
+        $output = [];
+        $exitCode = 1;
+
+        @exec(
+            $command,
+            $output,
+            $exitCode
+        );
+
+        if (
+            $exitCode !== 0
+            || ! is_file(
+                $destinationPath
+            )
+            || filesize(
+                $destinationPath
+            ) < 1024
+        ) {
+            @unlink(
+                $destinationPath
+            );
+
+            Log::warning(
+                'Meeting recording FFmpeg conversion failed.',
+                [
+                    'source' =>
+                        $sourcePath,
+
+                    'exit_code' =>
+                        $exitCode,
+
+                    'output' =>
+                        trim(
+                            implode(
+                                "\n",
+                                $output
+                            )
+                        ),
+                ]
+            );
+
+            throw new RuntimeException(
+                'The meeting recording could not be prepared for transcription. The saved audio may be incomplete or corrupted.'
+            );
+        }
+
+        $this->validateWithFfprobe(
+            $destinationPath
+        );
+
+        return [
+            'path' =>
+                $destinationPath,
+
+            'name' =>
+                'meeting-recording.mp3',
+
+            'temporary' =>
+                true,
+        ];
+    }
+
+    /**
+     * Send prepared audio to OpenAI.
+     *
+     * @return array{
+     *     transcript:string,
+     *     segments:array<int,array<string,mixed>>
+     * }
+     */
+    private function sendToOpenAi(
+        string $apiKey,
+        string $filePath,
+        string $filename,
+        string $language
+    ): array {
+        $errors = [];
+
+        foreach (
+            self::MODELS as $model
+        ) {
+            try {
+                $result =
+                    $this->attemptModel(
+                        $apiKey,
+                        $model,
+                        $filePath,
+                        $filename,
+                        $language
+                    );
+
+                if (
+                    trim(
+                        $result[
+                            'transcript'
+                        ] ?? ''
+                    ) !== ''
+                ) {
+                    return $result;
+                }
+
+                $errors[] =
+                    $model
+                    . ': Empty transcript returned.';
+            } catch (Throwable $e) {
+                report($e);
+
+                $errors[] =
+                    $model
+                    . ': '
+                    . $e->getMessage();
             }
-            $wav = $target . '.wav';
-            @unlink($target);
-            $command = escapeshellarg($ffmpeg) . ' -y -i ' . escapeshellarg($fullPath)
-                . ' -vn -ac 1 -ar 16000 -c:a pcm_s16le ' . escapeshellarg($wav) . ' 2>&1';
-            @exec($command, $output, $exitCode);
-            if ($exitCode === 0 && is_file($wav) && filesize($wav) >= 1024) {
-                return [$wav, true];
-            }
-            @unlink($wav);
         }
 
         throw new RuntimeException(
-            'This recording format was uploaded successfully but must be converted before transcription. ' .
-            'Use MP3, M4A, WAV, WebM, MP4, MPEG, OGG or FLAC, or enable ffmpeg on the server for automatic conversion.'
+            'OpenAI transcription failed. '
+            . implode(
+                ' | ',
+                $errors
+            )
         );
     }
 
-    private function resolveOpenAiKey(User $user): ?string
+    /**
+     * Attempt transcription with one model.
+     *
+     * @return array{
+     *     transcript:string,
+     *     segments:array<int,array<string,mixed>>
+     * }
+     */
+    private function attemptModel(
+        string $apiKey,
+        string $model,
+        string $filePath,
+        string $filename,
+        string $language
+    ): array {
+        $fileHandle =
+            fopen(
+                $filePath,
+                'rb'
+            );
+
+        if (
+            $fileHandle === false
+        ) {
+            throw new RuntimeException(
+                'Unable to open the prepared recording.'
+            );
+        }
+
+        try {
+            $request =
+                Http::withToken(
+                    $apiKey
+                )
+                    ->acceptJson()
+                    ->timeout(
+                        180
+                    )
+                    ->connectTimeout(
+                        20
+                    )
+                    ->retry(
+                        2,
+                        1000,
+                        throw: false
+                    )
+                    ->attach(
+                        'file',
+                        $fileHandle,
+                        $filename
+                    );
+
+            $parameters = [
+                'model' =>
+                    $model,
+            ];
+
+            $mappedLanguage =
+                $this->mapLanguage(
+                    $language
+                );
+
+            if (
+                $mappedLanguage
+                !== null
+            ) {
+                $parameters[
+                    'language'
+                ] =
+                    $mappedLanguage;
+            }
+
+            /*
+             * whisper-1 can provide timestamped segments.
+             */
+            if (
+                $model
+                === 'whisper-1'
+            ) {
+                $parameters[
+                    'response_format'
+                ] =
+                    'verbose_json';
+
+                $parameters[
+                    'timestamp_granularities[]'
+                ] =
+                    'segment';
+            } else {
+                $parameters[
+                    'response_format'
+                ] =
+                    'json';
+            }
+
+            $response =
+                $request->post(
+                    self::ENDPOINT,
+                    $parameters
+                );
+        } finally {
+            if (
+                is_resource(
+                    $fileHandle
+                )
+            ) {
+                fclose(
+                    $fileHandle
+                );
+            }
+        }
+
+        if (
+            ! $response->successful()
+        ) {
+            $message =
+                data_get(
+                    $response->json(),
+                    'error.message'
+                );
+
+            if (
+                ! is_string(
+                    $message
+                )
+                || trim(
+                    $message
+                ) === ''
+            ) {
+                $message =
+                    'HTTP '
+                    . $response->status();
+            }
+
+            throw new RuntimeException(
+                $message
+            );
+        }
+
+        $payload =
+            $response->json();
+
+        if (
+            ! is_array(
+                $payload
+            )
+        ) {
+            throw new RuntimeException(
+                'OpenAI returned an invalid transcription response.'
+            );
+        }
+
+        $transcript =
+            trim(
+                (string) (
+                    $payload['text']
+                    ?? ''
+                )
+            );
+
+        if (
+            $transcript === ''
+        ) {
+            throw new RuntimeException(
+                'OpenAI returned an empty transcript.'
+            );
+        }
+
+        return [
+            'transcript' =>
+                $transcript,
+
+            'segments' =>
+                $this->normaliseSegments(
+                    $payload[
+                        'segments'
+                    ] ?? [],
+                    $transcript
+                ),
+        ];
+    }
+
+    /**
+     * Normalise transcription segments.
+     *
+     * @param mixed $segments
+     *
+     * @return array<int,array{
+     *     start_seconds:int,
+     *     end_seconds:int,
+     *     speaker:?string,
+     *     text:string
+     * }>
+     */
+    private function normaliseSegments(
+        mixed $segments,
+        string $transcript
+    ): array {
+        if (
+            ! is_array(
+                $segments
+            )
+            || empty(
+                $segments
+            )
+        ) {
+            return [
+                [
+                    'start_seconds' =>
+                        0,
+
+                    'end_seconds' =>
+                        0,
+
+                    'speaker' =>
+                        null,
+
+                    'text' =>
+                        $transcript,
+                ],
+            ];
+        }
+
+        return collect(
+            $segments
+        )
+            ->map(
+                function ($segment) {
+                    if (
+                        ! is_array(
+                            $segment
+                        )
+                    ) {
+                        return null;
+                    }
+
+                    $text =
+                        trim(
+                            (string) (
+                                $segment['text']
+                                ?? ''
+                            )
+                        );
+
+                    if (
+                        $text === ''
+                    ) {
+                        return null;
+                    }
+
+                    return [
+                        'start_seconds' =>
+                            (int) round(
+                                (float) (
+                                    $segment['start']
+                                    ?? $segment[
+                                        'start_seconds'
+                                    ]
+                                    ?? 0
+                                )
+                            ),
+
+                        'end_seconds' =>
+                            (int) round(
+                                (float) (
+                                    $segment['end']
+                                    ?? $segment[
+                                        'end_seconds'
+                                    ]
+                                    ?? 0
+                                )
+                            ),
+
+                        'speaker' =>
+                            filled(
+                                $segment[
+                                    'speaker'
+                                ] ?? null
+                            )
+                                ? (string)
+                                    $segment[
+                                        'speaker'
+                                    ]
+                                : null,
+
+                        'text' =>
+                            $text,
+                    ];
+                }
+            )
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Map My Digital Diary language options to OpenAI.
+     */
+    private function mapLanguage(
+        string $language
+    ): ?string {
+        return match (
+            strtolower(
+                trim(
+                    $language
+                )
+            )
+        ) {
+            'en-gb',
+            'en' =>
+                'en',
+
+            'sw' =>
+                'sw',
+
+            /*
+             * Leave Luganda on auto detection rather than forcing
+             * a provider language value that may not be accepted.
+             */
+            'lg',
+            'auto',
+            '' =>
+                null,
+
+            default =>
+                null,
+        };
+    }
+
+    /**
+     * Validate original recording when FFmpeg is unavailable.
+     */
+    private function validateBasicContainer(
+        string $path,
+        string $extension
+    ): void {
+        if (
+            ! is_file(
+                $path
+            )
+        ) {
+            throw new RuntimeException(
+                'The recording file could not be found.'
+            );
+        }
+
+        $size =
+            filesize(
+                $path
+            );
+
+        if (
+            $size === false
+            || $size < 1024
+        ) {
+            throw new RuntimeException(
+                'The recording file is empty or incomplete.'
+            );
+        }
+
+        if (
+            ! in_array(
+                $extension,
+                self::SUPPORTED_EXTENSIONS,
+                true
+            )
+        ) {
+            throw new RuntimeException(
+                'Unsupported transcription audio format.'
+            );
+        }
+    }
+
+    /**
+     * Validate converted output with ffprobe where available.
+     */
+    private function validateWithFfprobe(
+        string $path
+    ): void {
+        if (
+            ! $this->commandAvailable(
+                'ffprobe'
+            )
+        ) {
+            return;
+        }
+
+        $command =
+            'ffprobe'
+            . ' -v error'
+            . ' -select_streams a:0'
+            . ' -show_entries stream=codec_name'
+            . ' -of default=noprint_wrappers=1:nokey=1 '
+            . escapeshellarg(
+                $path
+            )
+            . ' 2>&1';
+
+        $output = [];
+        $exitCode = 1;
+
+        @exec(
+            $command,
+            $output,
+            $exitCode
+        );
+
+        if (
+            $exitCode !== 0
+            || empty(
+                array_filter(
+                    $output
+                )
+            )
+        ) {
+            throw new RuntimeException(
+                'The prepared recording does not contain a valid audio stream.'
+            );
+        }
+    }
+
+    /**
+     * Determine whether FFmpeg exists.
+     */
+    private function ffmpegAvailable(): bool
     {
-        $credential = $user->activeApiCredential();
-        if ($credential && $credential->provider === 'openai') {
-            return $credential->api_key;
+        return $this->commandAvailable(
+            'ffmpeg'
+        );
+    }
+
+    /**
+     * Determine whether a command exists.
+     */
+    private function commandAvailable(
+        string $command
+    ): bool {
+        $output = [];
+        $exitCode = 1;
+
+        if (
+            DIRECTORY_SEPARATOR
+            === '\\'
+        ) {
+            $checkCommand =
+                'where '
+                . escapeshellarg(
+                    $command
+                )
+                . ' 2>NUL';
+        } else {
+            $checkCommand =
+                'command -v '
+                . escapeshellarg(
+                    $command
+                )
+                . ' 2>/dev/null';
         }
 
-        $settings = SiteSetting::current();
-        if ($settings->hasDefaultAiKey() && $settings->default_ai_provider === 'openai') {
-            return $settings->default_ai_api_key;
-        }
+        @exec(
+            $checkCommand,
+            $output,
+            $exitCode
+        );
 
-        return null;
+        return (
+            $exitCode === 0
+            && ! empty(
+                array_filter(
+                    $output
+                )
+            )
+        );
     }
 }

@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
+use App\Mail\MeetingNotesMail;
 
 class MeetingController extends CrudController
 {
@@ -20,18 +23,103 @@ class MeetingController extends CrudController
 
     protected array $fields = [
         ['name' => 'title', 'label' => 'Title', 'type' => 'text', 'required' => true],
-        ['name' => 'start_at', 'label' => 'Start', 'type' => 'datetime-local', 'required' => true],
-        ['name' => 'end_at', 'label' => 'End', 'type' => 'datetime-local'],
+
+        ['name' => 'start_date', 'label' => 'Start Date', 'type' => 'date', 'required' => true],
+        ['name' => 'start_hour', 'label' => 'Start Hour', 'type' => 'select', 'required' => true, 'options' => [
+                '1' => '1',
+                '2' => '2',
+                '3' => '3',
+                '4' => '4',
+                '5' => '5',
+                '6' => '6',
+                '7' => '7',
+                '8' => '8',
+                '9' => '9',
+                '10' => '10',
+                '11' => '11',
+                '12' => '12',
+            ]],
+        ['name' => 'start_minute', 'label' => 'Start Minute', 'type' => 'select', 'required' => true, 'options' => [
+                '00' => '00',
+                '05' => '05',
+                '10' => '10',
+                '15' => '15',
+                '20' => '20',
+                '25' => '25',
+                '30' => '30',
+                '35' => '35',
+                '40' => '40',
+                '45' => '45',
+                '50' => '50',
+                '55' => '55',
+            ]],
+        ['name' => 'start_meridiem', 'label' => 'Start AM / PM', 'type' => 'select', 'required' => true, 'options' => [
+            'AM' => 'AM',
+            'PM' => 'PM',
+        ]],
+
+        ['name' => 'end_date', 'label' => 'End Date', 'type' => 'date'],
+        ['name' => 'end_hour', 'label' => 'End Hour', 'type' => 'select', 'options' => [
+                '1' => '1',
+                '2' => '2',
+                '3' => '3',
+                '4' => '4',
+                '5' => '5',
+                '6' => '6',
+                '7' => '7',
+                '8' => '8',
+                '9' => '9',
+                '10' => '10',
+                '11' => '11',
+                '12' => '12',
+            ]],
+        ['name' => 'end_minute', 'label' => 'End Minute', 'type' => 'select', 'options' => [
+                '00' => '00',
+                '05' => '05',
+                '10' => '10',
+                '15' => '15',
+                '20' => '20',
+                '25' => '25',
+                '30' => '30',
+                '35' => '35',
+                '40' => '40',
+                '45' => '45',
+                '50' => '50',
+                '55' => '55',
+            ]],
+        ['name' => 'end_meridiem', 'label' => 'End AM / PM', 'type' => 'select', 'options' => [
+            'AM' => 'AM',
+            'PM' => 'PM',
+        ]],
+
         ['name' => 'location', 'label' => 'Location / Video Link', 'type' => 'text', 'placeholder' => 'e.g. Conference Room B, or a Zoom/Meet link'],
-        ['name' => 'attendees', 'label' => 'Attendees', 'type' => 'text', 'hint' => 'Comma-separated emails — anyone whose email matches will see this meeting on their own Meetings page too.'],
+        ['name' => 'attendees', 'label' => 'Attendees', 'type' => 'text', 'hint' => 'Comma-separated emails — invited users can see the meeting on their own Meetings page.'],
+
         ['name' => 'status', 'label' => 'Status', 'type' => 'select', 'required' => true, 'options' => [
-            'scheduled' => 'Scheduled', 'completed' => 'Completed', 'cancelled' => 'Cancelled',
+            'scheduled' => 'Scheduled',
+            'completed' => 'Completed',
+            'cancelled' => 'Cancelled',
         ]],
+
         ['name' => 'notes', 'label' => 'Notes / Agenda', 'type' => 'textarea'],
+
+        /*
+         * Rendered as a normal select so the generic CRUD form cannot shrink
+         * or hide the control. meetings-extra.blade.php upgrades it visually
+         * to a large reminder toggle.
+         */
+        ['name' => 'set_reminder', 'label' => 'Reminder', 'type' => 'select', 'options' => [
+            '0' => 'No reminder',
+            '1' => 'Set reminder',
+        ], 'hint' => 'Create a reminder linked to this meeting.'],
+
         ['name' => 'recurrence_frequency', 'label' => 'Repeat', 'type' => 'select', 'options' => [
-            '' => 'Does not repeat', 'daily' => 'Daily', 'weekly' => 'Weekly', 'monthly' => 'Monthly',
+            '' => 'Does not repeat',
+            'daily' => 'Daily',
+            'weekly' => 'Weekly',
+            'monthly' => 'Monthly',
         ]],
-        ['name' => 'recurrence_days_of_week', 'label' => 'Repeat on (weekly only)', 'type' => 'text', 'placeholder' => 'e.g. 1,3,5', 'hint' => 'Comma-separated day numbers: 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun. Leave blank to repeat on the same weekday as the Start date above.'],
+        ['name' => 'recurrence_days_of_week', 'label' => 'Repeat on (weekly only)', 'type' => 'text', 'placeholder' => 'e.g. 1,3,5', 'hint' => '1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat, 7=Sun.'],
         ['name' => 'recurrence_ends_at', 'label' => 'Repeat until (optional)', 'type' => 'date'],
     ];
 
@@ -47,6 +135,214 @@ class MeetingController extends CrudController
         'recurrence_days_of_week' => 'nullable|string|max:50',
         'recurrence_ends_at' => 'nullable|date|after:start_at',
     ];
+
+    /**
+     * Browser <select>/<input> controls submit clock values as strings.
+     * Values such as "00" and "05" are valid minutes but Laravel's
+     * `integer` rule can reject zero-padded strings. Convert numeric clock
+     * fields to real integers before validation.
+     */
+    private function normalizeMeetingClockFields(Request $request): void
+    {
+        $clockFields = [
+            'start_hour',
+            'start_minute',
+            'end_hour',
+            'end_minute',
+        ];
+
+        $normalized = [];
+
+        foreach ($clockFields as $field) {
+            if (! $request->exists($field)) {
+                continue;
+            }
+
+            $value = $request->input($field);
+
+            if ($value === null || $value === '') {
+                $normalized[$field] = $value;
+                continue;
+            }
+
+            if (is_numeric($value)) {
+                $normalized[$field] = (int) $value;
+            }
+        }
+
+        if ($normalized !== []) {
+            $request->merge($normalized);
+        }
+
+        if (! $request->has('slots') || ! is_array($request->input('slots'))) {
+            return;
+        }
+
+        $slots = $request->input('slots');
+
+        foreach ($slots as $index => $slot) {
+            if (! is_array($slot)) {
+                continue;
+            }
+
+            foreach ($clockFields as $field) {
+                if (! array_key_exists($field, $slot)) {
+                    continue;
+                }
+
+                $value = $slot[$field];
+
+                if ($value === null || $value === '') {
+                    continue;
+                }
+
+                if (is_numeric($value)) {
+                    $slots[$index][$field] = (int) $value;
+                }
+            }
+        }
+
+        $request->merge(['slots' => $slots]);
+    }
+
+    private function meetingFormRules(): array
+    {
+        return [
+            'title' => ['required','string','max:255'],
+
+            'start_date' => ['required','date_format:Y-m-d'],
+            'start_hour' => ['required','integer','between:1,12'],
+            'start_minute' => ['required','integer','between:0,59'],
+            'start_meridiem' => ['required','in:AM,PM'],
+
+            'end_date' => ['nullable','date_format:Y-m-d'],
+            'end_hour' => ['nullable','integer','between:1,12'],
+            'end_minute' => ['nullable','integer','between:0,59'],
+            'end_meridiem' => ['nullable','in:AM,PM'],
+
+            'location' => ['nullable','string','max:255'],
+            'attendees' => ['nullable','string'],
+            'status' => ['required','in:scheduled,completed,cancelled'],
+            'notes' => ['nullable','string'],
+            'set_reminder' => ['nullable','boolean'],
+            'recurrence_frequency' => ['nullable','in:daily,weekly,monthly'],
+            'recurrence_days_of_week' => ['nullable','string','max:50'],
+            'recurrence_ends_at' => ['nullable','date'],
+        ];
+    }
+
+    private function twelveHourTo24(
+        int $hour,
+        int $minute,
+        string $meridiem
+    ): string {
+        $hour24 = $hour;
+
+        if ($meridiem === 'AM') {
+            $hour24 = $hour === 12 ? 0 : $hour;
+        } else {
+            $hour24 = $hour === 12 ? 12 : $hour + 12;
+        }
+
+        return sprintf('%02d:%02d', $hour24, $minute);
+    }
+
+    private function combineMeetingDateTime(Request $request, ?string $date, ?string $time, bool $required = false): ?string
+    {
+        $date = trim((string) $date);
+        $time = trim((string) $time);
+        if ($date === '' && $time === '' && ! $required) return null;
+        if ($date === '' || $time === '') {
+            throw ValidationException::withMessages([
+                $required ? 'start_date' : 'end_date' => $required
+                    ? 'Choose both Start Date and Start Time.'
+                    : 'Choose both End Date and End Time, or leave both blank.',
+            ]);
+        }
+        $timezone = $request->user()?->timezone ?: config('app.timezone', 'Africa/Kampala');
+        try {
+            return Carbon::createFromFormat('Y-m-d H:i', $date.' '.$time, $timezone)->format('Y-m-d H:i:s');
+        } catch (\Throwable) {
+            throw ValidationException::withMessages(['start_date' => 'The selected meeting date or time is invalid.']);
+        }
+    }
+
+    private function normaliseMeetingForm(Request $request): array
+    {
+        $this->normalizeMeetingClockFields($request);
+
+        $form = $request->validate($this->meetingFormRules());
+
+        $startTime = $this->twelveHourTo24(
+            (int) $form['start_hour'],
+            (int) $form['start_minute'],
+            $form['start_meridiem']
+        );
+
+        $startAt = $this->combineMeetingDateTime(
+            $request,
+            $form['start_date'],
+            $startTime,
+            true
+        );
+
+        $hasAnyEnd =
+            ! empty($form['end_date'])
+            || ! empty($form['end_hour'])
+            || isset($form['end_minute']) && $form['end_minute'] !== ''
+            || ! empty($form['end_meridiem']);
+
+        $endAt = null;
+
+        if ($hasAnyEnd) {
+            if (
+                empty($form['end_date'])
+                || empty($form['end_hour'])
+                || ! isset($form['end_minute'])
+                || $form['end_minute'] === ''
+                || empty($form['end_meridiem'])
+            ) {
+                throw ValidationException::withMessages([
+                    'end_date' =>
+                        'Complete all End date/time fields or leave End blank.',
+                ]);
+            }
+
+            $endTime = $this->twelveHourTo24(
+                (int) $form['end_hour'],
+                (int) $form['end_minute'],
+                $form['end_meridiem']
+            );
+
+            $endAt = $this->combineMeetingDateTime(
+                $request,
+                $form['end_date'],
+                $endTime
+            );
+
+            if (
+                Carbon::parse($endAt)
+                    ->lessThanOrEqualTo(Carbon::parse($startAt))
+            ) {
+                throw ValidationException::withMessages([
+                    'end_hour' => 'End must be after Start.',
+                ]);
+            }
+        }
+
+        return [
+            'title' => $form['title'],
+            'start_at' => $startAt,
+            'end_at' => $endAt,
+            'location' => $form['location'] ?? null,
+            'attendees' => $form['attendees'] ?? null,
+            'status' => $form['status'],
+            'notes' => $form['notes'] ?? null,
+            'recurrence_frequency' => $form['recurrence_frequency'] ?? null,
+            'recurrence_days_of_week' => $form['recurrence_days_of_week'] ?? null,
+            'recurrence_ends_at' => $form['recurrence_ends_at'] ?? null,
+        ];
+    }
 
     /**
      * Parses the comma-separated "1,3,5" text field into the actual
@@ -76,7 +372,7 @@ class MeetingController extends CrudController
      */
     public function store(Request $request): RedirectResponse
     {
-        $data = $request->validate($this->rules);
+        $data = $this->normaliseMeetingForm($request);
         $data['user_id'] = $request->user()->id;
         if (empty($data['recurrence_frequency'])) {
             $data['recurrence_days_of_week'] = null;
@@ -113,7 +409,7 @@ class MeetingController extends CrudController
     {
         $meeting = Meeting::where('user_id', $request->user()->id)->findOrFail($id);
 
-        $data = $request->validate($this->rules);
+        $data = $this->normaliseMeetingForm($request);
         if (empty($data['recurrence_frequency'])) {
             $data['recurrence_days_of_week'] = null;
             $data['recurrence_ends_at'] = null;
@@ -181,7 +477,7 @@ class MeetingController extends CrudController
             'connections' => $connections,
             'enabledPlatforms' => $enabledPlatforms,
             'statusFilter' => $statusFilter,
-        ], fn ($q) => $q->orderByDesc('start_at')->orderByDesc('id'), 10);
+        ], fn ($q) => $q->orderBy('start_at'), 10);
     }
 
     protected function stats(Request $request): array
@@ -229,40 +525,162 @@ class MeetingController extends CrudController
      */
     public function storeMultiple(Request $request): RedirectResponse
     {
+        $this->normalizeMeetingClockFields($request);
+
         $data = $request->validate([
             'title' => ['required', 'string', 'max:255'],
             'location' => ['nullable', 'string', 'max:255'],
             'attendees' => ['nullable', 'string'],
             'status' => ['required', 'in:scheduled,completed,cancelled'],
             'notes' => ['nullable', 'string'],
+            'set_reminder' => ['nullable', 'boolean'],
             'slots' => ['required', 'array', 'min:1'],
-            'slots.*.start_at' => ['required', 'date'],
-            'slots.*.end_at' => ['nullable', 'date'],
+
+            'slots.*.start_date' => [
+                'required',
+                'date_format:Y-m-d',
+            ],
+            'slots.*.start_hour' => [
+                'required',
+                'integer',
+                'between:1,12',
+            ],
+            'slots.*.start_minute' => [
+                'required',
+                'integer',
+                'between:0,59',
+            ],
+            'slots.*.start_meridiem' => [
+                'required',
+                'in:AM,PM',
+            ],
+
+            'slots.*.end_date' => [
+                'nullable',
+                'date_format:Y-m-d',
+            ],
+            'slots.*.end_hour' => [
+                'nullable',
+                'integer',
+                'between:1,12',
+            ],
+            'slots.*.end_minute' => [
+                'nullable',
+                'integer',
+                'between:0,59',
+            ],
+            'slots.*.end_meridiem' => [
+                'nullable',
+                'in:AM,PM',
+            ],
         ]);
+
+        $timezone = $request->user()?->timezone
+            ?: config('app.timezone', 'Africa/Kampala');
 
         $created = 0;
 
-        foreach ($data['slots'] as $slot) {
-            if (empty($slot['start_at'])) {
-                continue;
+        foreach ($data['slots'] as $index => $slot) {
+            $startHour = (int) $slot['start_hour'];
+
+            if ($slot['start_meridiem'] === 'AM') {
+                $startHour = $startHour === 12 ? 0 : $startHour;
+            } else {
+                $startHour = $startHour === 12
+                    ? 12
+                    : $startHour + 12;
+            }
+
+            $startAt = Carbon::create(
+                (int) substr($slot['start_date'], 0, 4),
+                (int) substr($slot['start_date'], 5, 2),
+                (int) substr($slot['start_date'], 8, 2),
+                $startHour,
+                (int) $slot['start_minute'],
+                0,
+                $timezone
+            );
+
+            $endAt = null;
+
+            $hasAnyEnd =
+                ! empty($slot['end_date'])
+                || ! empty($slot['end_hour'])
+                || isset($slot['end_minute'])
+                    && $slot['end_minute'] !== ''
+                || ! empty($slot['end_meridiem']);
+
+            if ($hasAnyEnd) {
+                if (
+                    empty($slot['end_date'])
+                    || empty($slot['end_hour'])
+                    || ! isset($slot['end_minute'])
+                    || $slot['end_minute'] === ''
+                    || empty($slot['end_meridiem'])
+                ) {
+                    throw ValidationException::withMessages([
+                        "slots.{$index}.end_date" =>
+                            'Complete all End date/time fields or leave End blank.',
+                    ]);
+                }
+
+                $endHour = (int) $slot['end_hour'];
+
+                if ($slot['end_meridiem'] === 'AM') {
+                    $endHour = $endHour === 12 ? 0 : $endHour;
+                } else {
+                    $endHour = $endHour === 12
+                        ? 12
+                        : $endHour + 12;
+                }
+
+                $endAt = Carbon::create(
+                    (int) substr($slot['end_date'], 0, 4),
+                    (int) substr($slot['end_date'], 5, 2),
+                    (int) substr($slot['end_date'], 8, 2),
+                    $endHour,
+                    (int) $slot['end_minute'],
+                    0,
+                    $timezone
+                );
+
+                if ($endAt->lessThanOrEqualTo($startAt)) {
+                    throw ValidationException::withMessages([
+                        "slots.{$index}.end_hour" =>
+                            'End must be after Start.',
+                    ]);
+                }
             }
 
             $meeting = Meeting::create([
                 'user_id' => $request->user()->id,
                 'title' => $data['title'],
-                'start_at' => $slot['start_at'],
-                'end_at' => $slot['end_at'] ?? null,
+                'start_at' => $startAt->format('Y-m-d H:i:s'),
+                'end_at' => $endAt?->format('Y-m-d H:i:s'),
                 'location' => $data['location'] ?? null,
                 'attendees' => $data['attendees'] ?? null,
                 'status' => $data['status'],
                 'notes' => $data['notes'] ?? null,
             ]);
 
-            $this->sendInvitations($meeting, $request->user()->name);
+            if ($request->boolean('set_reminder')) {
+                $this->createLinkedReminder($request, $meeting);
+            }
+
+            $this->sendInvitations(
+                $meeting,
+                (string) $request->user()->name
+            );
+
             $created++;
         }
 
-        return redirect()->route('meetings.index')->with('success', "{$created} meeting(s) scheduled.");
+        return redirect()
+            ->route('meetings.index')
+            ->with(
+                'success',
+                "{$created} meeting(s) scheduled."
+            );
     }
 
     /**
@@ -320,6 +738,24 @@ class MeetingController extends CrudController
         $item->update(['notes' => $data['notes']]);
 
         return back()->with('success', 'Notes saved.');
+    }
+
+    public function emailNotes(Request $request, int $meeting): RedirectResponse
+    {
+        $item = Meeting::where('user_id', $request->user()->id)->findOrFail($meeting);
+        $data = $request->validate(['emails' => ['required','string']]);
+        $addresses = collect(explode(',', $data['emails']))
+            ->map(fn ($email) => trim($email))
+            ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL));
+        if ($addresses->isEmpty()) {
+            return back()->withErrors(['emails' => 'Enter at least one valid email address.']);
+        }
+        $shareText = trim((string) $item->notes);
+        if ($shareText === '') $shareText = 'No meeting notes have been added yet.';
+        foreach ($addresses as $address) {
+            Mail::to($address)->send(new MeetingNotesMail($item, $shareText, (string) $request->user()->name));
+        }
+        return back()->with('success', 'Meeting notes emailed to '.$addresses->count().' recipient(s).');
     }
 
     public function downloadNotesPdf(Request $request, int $meeting)

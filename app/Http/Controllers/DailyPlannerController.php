@@ -6,290 +6,477 @@ use App\Models\DailyPlan;
 use App\Models\DailyPlanItem;
 use App\Models\PersonalGoal;
 use App\Models\Reminder;
+use App\Services\DailyPlannerRecurrenceService;
+use App\Services\DailyPlannerTaskReminderService;
+use App\Services\DailyPlannerWellbeingSyncService;
 use Carbon\Carbon;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\Rule;
+use Illuminate\View\View;
 
 class DailyPlannerController extends Controller
 {
-    public function index(Request $request)
+    public function __construct(
+        private readonly DailyPlannerRecurrenceService $recurrence,
+        private readonly DailyPlannerTaskReminderService $taskReminders
+    ) {
+    }
+
+    public function index(Request $request): View
     {
         $date = $request->filled('date')
             ? Carbon::parse($request->date)->startOfDay()
             : today();
 
-        $plan = DailyPlan::where('user_id', $request->user()->id)
-            ->whereDate('plan_date', $date->toDateString())
-            ->first();
-
-        if (!$plan) {
-            $plan = new DailyPlan([
-                'user_id'   => $request->user()->id,
-                'plan_date' => $date->toDateString(),
-                'title'     => 'My Daily Plan',
-                'notes'     => null,
-            ]);
-            $plan->setRelation('items', collect());
-        } else {
-            // Timed tasks first, in chronological order. Untimed tasks appear last.
-            $items = $plan->items()
-                ->orderByRaw('CASE WHEN start_time IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('start_time')
-                ->orderBy('end_time')
-                ->orderBy('sort_order')
-                ->orderBy('id')
-                ->get();
-
-            $plan->setRelation('items', $items);
-        }
-
-        $total = $plan->items->count();
-        $done = $plan->items->where('is_completed', true)->count();
-        $pending = max(0, $total - $done);
-        $scheduled = $plan->items->filter(fn ($item) => !empty($item->start_time))->count();
-        $progress = $total ? (int) round(($done / $total) * 100) : 0;
-
-        $historySearch = trim((string) $request->input('history_search', ''));
-        $historyPeriod = (string) $request->input('history_period', 'all');
-        $historyFrom = $request->input('history_from');
-        $historyTo = $request->input('history_to');
-        $historyPerPage = (int) $request->input('history_per_page', 10);
-
-        if (!in_array($historyPerPage, [10, 25, 50, 100], true)) {
-            $historyPerPage = 10;
-        }
-
-        $pastPlansQuery = DailyPlan::query()
-            ->where('user_id', $request->user()->id)
-            ->whereDate('plan_date', '<', today()->toDateString());
-
-        if ($historySearch !== '') {
-            $pastPlansQuery->where(function ($query) use ($historySearch) {
-                $query->where('title', 'like', '%' . $historySearch . '%')
-                    ->orWhere('notes', 'like', '%' . $historySearch . '%')
-                    ->orWhereHas('items', function ($itemQuery) use ($historySearch) {
-                        $itemQuery->where('title', 'like', '%' . $historySearch . '%')
-                            ->orWhere('description', 'like', '%' . $historySearch . '%');
-                    });
-            });
-        }
-
-        switch ($historyPeriod) {
-            case 'last_7_days':
-                $pastPlansQuery->whereDate('plan_date', '>=', today()->subDays(7)->toDateString());
-                break;
-
-            case 'last_30_days':
-                $pastPlansQuery->whereDate('plan_date', '>=', today()->subDays(30)->toDateString());
-                break;
-
-            case 'last_90_days':
-                $pastPlansQuery->whereDate('plan_date', '>=', today()->subDays(90)->toDateString());
-                break;
-
-            case 'this_month':
-                $pastPlansQuery->whereDate('plan_date', '>=', today()->startOfMonth()->toDateString());
-                break;
-
-            case 'last_month':
-                $start = today()->subMonthNoOverflow()->startOfMonth();
-                $end = $start->copy()->endOfMonth();
-                $pastPlansQuery->whereBetween('plan_date', [
-                    $start->toDateString(),
-                    $end->toDateString(),
-                ]);
-                break;
-
-            case 'custom':
-                if ($historyFrom) {
-                    $pastPlansQuery->whereDate('plan_date', '>=', Carbon::parse($historyFrom)->toDateString());
-                }
-                if ($historyTo) {
-                    $pastPlansQuery->whereDate('plan_date', '<=', Carbon::parse($historyTo)->toDateString());
-                }
-                break;
-        }
-
-        $pastPlans = $pastPlansQuery
-            ->withCount([
-                'items',
-                'items as completed_items_count' => fn ($q) => $q->where('is_completed', true),
-            ])
-            ->orderByDesc('plan_date')
-            ->paginate($historyPerPage, ['*'], 'past_page')
-            ->withQueryString();
-
-        $activeTab = $request->input('tab') === 'history'
-            || $request->filled('past_page')
-            || $historySearch !== ''
-            || $historyPeriod !== 'all'
-            || $request->filled('history_from')
-            || $request->filled('history_to')
-            ? 'history'
-            : 'tasks';
-
-        $goalOptions = PersonalGoal::where('user_id', $request->user()->id)->where('is_archived', false)->whereIn('status',['not_started','in_progress'])->orderBy('title')->pluck('title','id');
-
-        return view('daily-planner.index', compact(
-            'plan',
-            'date',
-            'total',
-            'done',
-            'pending',
-            'scheduled',
-            'progress',
-            'pastPlans',
-            'historySearch',
-            'historyPeriod',
-            'historyFrom',
-            'historyTo',
-            'historyPerPage',
-            'activeTab',
-            'goalOptions'
-        ));
-    }
-
-    public function updatePlan(Request $request)
-    {
-        $data = $request->validate([
-            'plan_date' => 'required|date',
-            'title'     => 'required|string|max:255',
-            'notes'     => 'nullable|string',
-            'achievements' => 'nullable|string',
-            'challenges' => 'nullable|string',
-        ]);
-
-        DailyPlan::updateOrCreate(
-            [
-                'user_id'   => $request->user()->id,
-                'plan_date' => $data['plan_date'],
-            ],
-            [
-                'title' => $data['title'],
-                'notes' => $data['notes'] ?? null,
-                'achievements' => $data['achievements'] ?? null,
-                'challenges' => $data['challenges'] ?? null,
-            ]
-        );
-
-        return back()->with('success', 'Day plan saved successfully.');
-    }
-
-    public function storeItem(Request $request)
-    {
-        $data = $request->validate([
-            'plan_date'   => 'required|date',
-            'title'       => 'required|string|max:255',
-            'personal_goal_id' => 'nullable|integer|exists:personal_goals,id',
-            'description' => 'nullable|string',
-            'achievements' => 'nullable|string',
-            'challenges' => 'nullable|string',
-            'priority'    => 'required|in:low,medium,high',
-            'start_time'  => 'nullable|date_format:H:i',
-            'end_time'    => 'nullable|date_format:H:i|after:start_time',
-        ]);
-
         $plan = DailyPlan::firstOrCreate(
             [
-                'user_id'   => $request->user()->id,
-                'plan_date' => $data['plan_date'],
+                'user_id' => $request->user()->id,
+                'plan_date' => $date->toDateString(),
             ],
             ['title' => 'My Daily Plan']
         );
 
-        unset($data['plan_date']);
-        $data['sort_order'] = ($plan->items()->max('sort_order') ?? 0) + 1;
-        $plan->items()->create($data);
-
-        return back()->with('success', 'Task added successfully.');
-    }
-
-    private function owned(Request $request, DailyPlanItem $item): DailyPlanItem
-    {
-        abort_unless(
-            $item->plan && (int) $item->plan->user_id === (int) $request->user()->id,
-            403
+        $items = $this->recurrence->itemsForDate(
+            $request->user()->id,
+            $date
         );
 
-        return $item;
-    }
+        $plan->setRelation(
+            'items',
+            new \Illuminate\Database\Eloquent\Collection(
+                $items->all()
+            )
+        );
 
-    public function toggle(Request $request, DailyPlanItem $item)
-    {
-        $this->owned($request, $item);
+        $stats = $this->recurrence->statistics($items);
 
-        $newState = !$item->is_completed;
+        $activeTab = in_array(
+            $request->query('tab'),
+            ['tasks', 'history'],
+            true
+        )
+            ? $request->query('tab')
+            : 'tasks';
 
-        $item->update([
-            'is_completed' => $newState,
-            'completed_at' => $newState ? now() : null,
+        $historySearch = trim(
+            (string) $request->query('history_q', '')
+        );
+
+        $historyPeriod = (string) $request->query(
+            'history_period',
+            'all'
+        );
+
+        $historyFrom = $request->query('history_from');
+        $historyTo = $request->query('history_to');
+
+        $historyPerPage = (int) $request->query(
+            'history_per_page',
+            10
+        );
+
+        if (! in_array(
+            $historyPerPage,
+            [10, 25, 50, 100],
+            true
+        )) {
+            $historyPerPage = 10;
+        }
+
+        $pastQuery = DailyPlan::query()
+            ->where('user_id', $request->user()->id)
+            ->whereDate('plan_date', '<', today());
+
+        if ($historySearch !== '') {
+            $pastQuery->where(function ($query) use ($historySearch) {
+                $query
+                    ->where(
+                        'title',
+                        'like',
+                        "%{$historySearch}%"
+                    )
+                    ->orWhere(
+                        'notes',
+                        'like',
+                        "%{$historySearch}%"
+                    )
+                    ->orWhereHas(
+                        'items',
+                        function ($items) use ($historySearch) {
+                            $items
+                                ->where(
+                                    'title',
+                                    'like',
+                                    "%{$historySearch}%"
+                                )
+                                ->orWhere(
+                                    'description',
+                                    'like',
+                                    "%{$historySearch}%"
+                                );
+                        }
+                    );
+            });
+        }
+
+        $this->applyHistoryPeriod(
+            $pastQuery,
+            $historyPeriod,
+            $historyFrom,
+            $historyTo
+        );
+
+        $pastPlans = $pastQuery
+            ->orderByDesc('plan_date')
+            ->paginate(
+                $historyPerPage,
+                ['*'],
+                'history_page'
+            )
+            ->withQueryString();
+
+        $pastPlans->getCollection()->transform(
+            function (DailyPlan $past) use ($request) {
+                $pastItems = $this->recurrence->itemsForDate(
+                    $request->user()->id,
+                    $past->plan_date
+                );
+
+                $pastStats =
+                    $this->recurrence->statistics($pastItems);
+
+                $past->setAttribute(
+                    'total',
+                    $pastStats['total']
+                );
+
+                $past->setAttribute(
+                    'completed',
+                    $pastStats['completed']
+                );
+
+                $past->setAttribute(
+                    'pending',
+                    $pastStats['pending']
+                );
+
+                $past->setAttribute(
+                    'progress',
+                    $pastStats['progress']
+                );
+
+                return $past;
+            }
+        );
+
+        $goalOptions = PersonalGoal::query()
+            ->where('user_id', $request->user()->id)
+            ->orderBy('title')
+            ->pluck('title', 'id');
+
+        return view('daily-planner.index', [
+            'date' => $date,
+            'plan' => $plan,
+            'total' => $stats['total'],
+            'done' => $stats['completed'],
+            'pending' => $stats['pending'],
+            'scheduled' => $stats['timed'],
+            'progress' => $stats['progress'],
+            'goalOptions' => $goalOptions,
+            'activeTab' => $activeTab,
+            'pastPlans' => $pastPlans,
+            'historySearch' => $historySearch,
+            'historyPeriod' => $historyPeriod,
+            'historyFrom' => $historyFrom,
+            'historyTo' => $historyTo,
+            'historyPerPage' => $historyPerPage,
         ]);
-
-        return back()->with('success', $newState ? 'Task marked as completed.' : 'Task reopened.');
     }
 
-    public function updateItem(Request $request, DailyPlanItem $item)
+    public function updatePlan(Request $request): RedirectResponse
     {
-        $this->owned($request, $item);
-
         $data = $request->validate([
-            'plan_date'   => 'nullable|date',
-            'title'       => 'required|string|max:255',
-            'personal_goal_id' => 'nullable|integer|exists:personal_goals,id',
-            'description' => 'nullable|string',
-            'achievements' => 'nullable|string',
-            'challenges' => 'nullable|string',
-            'priority'    => 'required|in:low,medium,high',
-            'start_time'  => 'nullable|date_format:H:i',
-            'end_time'    => 'nullable|date_format:H:i|after:start_time',
+            'plan_date' => ['required', 'date'],
+            'title' => ['required', 'string', 'max:255'],
+            'notes' => ['nullable', 'string'],
+            'achievements' => ['nullable', 'string'],
+            'challenges' => ['nullable', 'string'],
         ]);
+
+        $date = Carbon::parse(
+            $data['plan_date']
+        )->toDateString();
+
+        $plan = DailyPlan::firstOrCreate(
+            [
+                'user_id' => $request->user()->id,
+                'plan_date' => $date,
+            ],
+            ['title' => 'My Daily Plan']
+        );
+
+        $plan->update([
+            'title' => $data['title'],
+            'notes' => $data['notes'] ?? null,
+            'achievements' => $data['achievements'] ?? null,
+            'challenges' => $data['challenges'] ?? null,
+        ]);
+
+        return $this->backToDate(
+            $date,
+            'Day plan saved.'
+        );
+    }
+
+    public function storeItem(Request $request): RedirectResponse
+    {
+        $data = $this->validateItem($request, true);
+
+        $planDate = Carbon::parse(
+            $data['plan_date']
+        )->toDateString();
+
+        $plan = DailyPlan::firstOrCreate(
+            [
+                'user_id' => $request->user()->id,
+                'plan_date' => $planDate,
+            ],
+            ['title' => 'My Daily Plan']
+        );
+
+        $recurrence = $this->recurrence->normalizeRecurrence(
+            $data,
+            $planDate
+        );
+
+        unset(
+            $data['plan_date'],
+            $data['repeat_type'],
+            $data['repeat_days'],
+            $data['repeat_interval'],
+            $data['repeat_starts_on'],
+            $data['repeat_ends_on'],
+            $data['edit_scope'],
+            $data['occurrence_date']
+        );
+
+        $data = array_merge($data, $recurrence);
+
+        $data['sort_order'] =
+            ($plan->items()->max('sort_order') ?? 0) + 1;
+
+        $item = $plan->items()->create($data);
+
+        $this->taskReminders->sync($item, $request->user(), Carbon::parse($planDate));
+
+        return $this->backToDate(
+            $planDate,
+            $recurrence['repeat_type'] === 'once'
+                ? 'Task added.'
+                : 'Recurring task added. You only need to create this task once.'
+        );
+    }
+
+    public function updateItem(
+        Request $request,
+        DailyPlanItem $item
+    ): RedirectResponse {
+        $this->owned($request, $item);
+
+        $data = $this->validateItem(
+            $request,
+            false
+        );
+
+        $scope = $data['edit_scope'] ?? 'series';
+
+        $viewDate = Carbon::parse(
+            $data['occurrence_date']
+                ?? $data['plan_date']
+                ?? $item->plan->plan_date
+        )->toDateString();
+
+        if ($item->isRecurring() && $scope === 'occurrence') {
+            $this->recurrence->updateOccurrenceOnly(
+                $item,
+                $request->user()->id,
+                Carbon::parse($viewDate),
+                $data
+            );
+
+            return $this->backToDate(
+                $viewDate,
+                'Only this occurrence was updated.'
+            );
+        }
 
         $oldDate = $item->plan->plan_date->toDateString();
-        $targetDate = isset($data['plan_date']) ? Carbon::parse($data['plan_date'])->toDateString() : null;
-        unset($data['plan_date']);
-        if ($targetDate && $targetDate !== $oldDate) {
+
+        $targetDate = filled($data['plan_date'] ?? null)
+            ? Carbon::parse(
+                $data['plan_date']
+            )->toDateString()
+            : $oldDate;
+
+        $recurrence =
+            $this->recurrence->normalizeRecurrence(
+                $data,
+                $targetDate
+            );
+
+        unset(
+            $data['plan_date'],
+            $data['repeat_type'],
+            $data['repeat_days'],
+            $data['repeat_interval'],
+            $data['repeat_starts_on'],
+            $data['repeat_ends_on'],
+            $data['edit_scope'],
+            $data['occurrence_date']
+        );
+
+        $data = array_merge($data, $recurrence);
+
+        if (
+            ! $item->isRecurring()
+            && $targetDate !== $oldDate
+        ) {
             if ($item->is_completed) {
-                return back()->with('error', 'Completed tasks stay on their original date. Reopen the task first if it needs rescheduling.');
+                return $this->backToDate(
+                    $oldDate
+                )->withErrors([
+                    'task' =>
+                        'Completed tasks cannot be moved. Reopen the task first.',
+                ]);
             }
-            $targetPlan = DailyPlan::firstOrCreate(['user_id' => $request->user()->id, 'plan_date' => $targetDate], ['title' => 'My Daily Plan']);
+
+            $targetPlan = DailyPlan::firstOrCreate(
+                [
+                    'user_id' => $request->user()->id,
+                    'plan_date' => $targetDate,
+                ],
+                ['title' => 'My Daily Plan']
+            );
+
             $data['daily_plan_id'] = $targetPlan->id;
-            $data['sort_order'] = ($targetPlan->items()->max('sort_order') ?? 0) + 1;
-        }
-        $item->update($data);
-        if ($targetDate && $targetDate !== $oldDate) {
-            $this->rescheduleLinkedReminders($request, $item, $targetDate);
+
+            $data['sort_order'] =
+                ($targetPlan->items()->max('sort_order') ?? 0)
+                + 1;
         }
 
-        return redirect()->route('daily-planner.index', ['date' => $targetDate ?: $oldDate])->with('success', 'Task updated successfully.');
+        $item->update($data);
+
+        $this->taskReminders->sync($item->fresh(), $request->user(), Carbon::parse($viewDate ?? $occurrenceDate ?? $targetDate ?? $oldDate));
+
+        if (
+            ! $item->isRecurring()
+            && $targetDate !== $oldDate
+        ) {
+            $this->rescheduleReminderDate(
+                $request,
+                $item,
+                $targetDate
+            );
+        }
+
+        return $this->backToDate(
+            $viewDate,
+            $item->isRecurring()
+                ? 'Recurring task series updated.'
+                : 'Task updated.'
+        );
     }
 
-    public function moveItem(Request $request, DailyPlanItem $item)
-    {
+    public function toggle(
+        Request $request,
+        DailyPlanItem $item
+    ): RedirectResponse {
         $this->owned($request, $item);
 
+        $date = Carbon::parse(
+            $request->input(
+                'occurrence_date',
+                $item->plan->plan_date
+            )
+        );
+
+        $completion = $this->recurrence->toggleOccurrence(
+            $item,
+            $request->user()->id,
+            $date
+        );
+
+        $freshItem = $item->fresh();
+        if ((bool) ($completion->is_completed ?? $freshItem->is_completed)) {
+            $this->taskReminders->cancel($freshItem, $request->user());
+        } else {
+            $this->taskReminders->sync($freshItem, $request->user(), $date);
+        }
+
+        $syncMessage = app(DailyPlannerWellbeingSyncService::class)->syncCompletion(
+            $request->user(),
+            $freshItem,
+            $date,
+            (bool) ($completion->is_completed ?? $freshItem->is_completed)
+        );
+
+        return $this->backToDate(
+            $date->toDateString(),
+            $syncMessage ?: 'Task status updated.'
+        );
+    }
+
+    public function moveItem(
+        Request $request,
+        DailyPlanItem $item
+    ): RedirectResponse {
+        $this->owned($request, $item);
+
+        if ($item->isRecurring()) {
+            return $this->backToDate(
+                $request->input(
+                    'occurrence_date',
+                    today()->toDateString()
+                )
+            )->withErrors([
+                'task' =>
+                    'Recurring tasks follow their repeat schedule. Edit the recurring series instead of moving it.',
+            ]);
+        }
+
         if ($item->is_completed) {
-            return back()->with('error', 'Completed tasks stay on their original date so your history remains accurate.');
+            return $this->backToDate(
+                $item->plan->plan_date->toDateString()
+            )->withErrors([
+                'task' =>
+                    'Completed tasks cannot be moved. Reopen the task first.',
+            ]);
         }
 
         $data = $request->validate([
             'target_date' => ['required', 'date'],
         ]);
 
-        $oldDate = $item->plan->plan_date->toDateString();
-        $targetDate = Carbon::parse($data['target_date'])->toDateString();
+        $targetDate = Carbon::parse(
+            $data['target_date']
+        )->toDateString();
 
-        if ($targetDate === $oldDate) {
-            return back()->with('success', 'Task is already scheduled for that date.');
-        }
+        $this->movePendingItemToDate(
+            $request,
+            $item,
+            $targetDate
+        );
 
-        $this->movePendingItemToDate($request, $item, $targetDate);
-
-        return redirect()
-            ->route('daily-planner.index', ['date' => $oldDate])
-            ->with('success', 'Task moved to '.Carbon::parse($targetDate)->format('d M Y').'.');
+        return $this->backToDate(
+            $targetDate,
+            'Task moved successfully.'
+        );
     }
 
-    public function bulkMove(Request $request)
+    public function bulkMove(Request $request): RedirectResponse
     {
         $data = $request->validate([
             'ids' => ['required', 'array', 'min:1'],
@@ -297,54 +484,277 @@ class DailyPlannerController extends Controller
             'target_date' => ['required', 'date'],
         ]);
 
-        $targetDate = Carbon::parse($data['target_date'])->toDateString();
+        $targetDate = Carbon::parse(
+            $data['target_date']
+        )->toDateString();
+
         $items = DailyPlanItem::query()
             ->with('plan')
             ->whereIn('id', $data['ids'])
-            ->whereHas('plan', fn ($q) => $q->where('user_id', $request->user()->id))
+            ->whereHas(
+                'plan',
+                fn ($query) =>
+                    $query->where(
+                        'user_id',
+                        $request->user()->id
+                    )
+            )
             ->get();
 
         $moved = 0;
         $skipped = 0;
+
         foreach ($items as $item) {
-            if ($item->is_completed) {
+            if ($item->isRecurring() || $item->is_completed) {
                 $skipped++;
                 continue;
             }
-            if ($item->plan->plan_date->toDateString() === $targetDate) {
-                $skipped++;
-                continue;
-            }
-            $this->movePendingItemToDate($request, $item, $targetDate);
+
+            $this->movePendingItemToDate(
+                $request,
+                $item,
+                $targetDate
+            );
+
             $moved++;
         }
 
-        $message = $moved.' pending task'.($moved === 1 ? '' : 's').' moved to '.Carbon::parse($targetDate)->format('d M Y').'.';
-        if ($skipped > 0) {
-            $message .= ' '.$skipped.' completed/already scheduled task'.($skipped === 1 ? ' was' : 's were').' left unchanged.';
-        }
-
-        return back()->with($moved > 0 ? 'success' : 'error', $message);
+        return $this->backToDate(
+            $targetDate,
+            $moved.' task'.($moved === 1 ? '' : 's')
+            .' moved.'
+            .($skipped
+                ? " {$skipped} recurring/completed task(s) skipped."
+                : '')
+        );
     }
 
-    private function movePendingItemToDate(Request $request, DailyPlanItem $item, string $targetDate): void
+    public function destroyItem(
+        Request $request,
+        DailyPlanItem $item
+    ): RedirectResponse {
+        $this->owned($request, $item);
+
+        $date = Carbon::parse(
+            $request->input(
+                'occurrence_date',
+                $item->plan->plan_date
+            )
+        );
+
+        $scope = $request->input(
+            'delete_scope',
+            $item->isRecurring() ? 'occurrence' : 'series'
+        );
+
+        if ($item->isRecurring() && $scope === 'occurrence') {
+            $this->recurrence->skipOccurrence(
+                $item,
+                $request->user()->id,
+                $date
+            );
+
+            return $this->backToDate(
+                $date->toDateString(),
+                'Only this occurrence was removed.'
+            );
+        }
+
+        if ($item->isRecurring() && $scope === 'future') {
+            $item->update([
+                'repeat_ends_on' =>
+                    $date->copy()
+                        ->subDay()
+                        ->toDateString(),
+            ]);
+
+            return $this->backToDate(
+                $date->toDateString(),
+                'This and future occurrences were removed.'
+            );
+        }
+
+        $this->taskReminders->cancel($item, $request->user());
+        $item->delete();
+
+        return $this->backToDate(
+            $date->toDateString(),
+            'Task deleted.'
+        );
+    }
+
+    public function bulkDestroy(Request $request): RedirectResponse
     {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+            'reminder_enabled' => ['nullable', 'boolean'],
+            'reminder_offset_minutes' => ['nullable', 'integer', Rule::in(DailyPlannerTaskReminderService::OFFSETS)],
+            'reminder_custom_at' => ['nullable', 'date'],
+            'reminder_channels' => ['nullable', 'array'],
+            'reminder_channels.*' => [Rule::in(['in_app', 'push', 'email'])],
+            'occurrence_date' => ['nullable', 'date'],
+        ]);
+
+        $date = Carbon::parse(
+            $data['occurrence_date'] ?? today()
+        );
+
+        $items = DailyPlanItem::query()
+            ->with('plan')
+            ->whereIn('id', $data['ids'])
+            ->whereHas(
+                'plan',
+                fn ($query) =>
+                    $query->where(
+                        'user_id',
+                        $request->user()->id
+                    )
+            )
+            ->get();
+
+        foreach ($items as $item) {
+            if ($item->isRecurring()) {
+                $this->recurrence->skipOccurrence(
+                    $item,
+                    $request->user()->id,
+                    $date
+                );
+            } else {
+                $item->delete();
+            }
+        }
+
+        return $this->backToDate(
+            $date->toDateString(),
+            $items->count().' task(s) updated.'
+        );
+    }
+
+    private function validateItem(
+        Request $request,
+        bool $creating
+    ): array {
+        return $request->validate([
+            'plan_date' => [
+                $creating ? 'required' : 'nullable',
+                'date',
+            ],
+            'title' => ['required', 'string', 'max:255'],
+            'personal_goal_id' => [
+                'nullable',
+                'integer',
+                'exists:personal_goals,id',
+            ],
+            'description' => ['nullable', 'string'],
+            'achievements' => ['nullable', 'string'],
+            'challenges' => ['nullable', 'string'],
+            'priority' => [
+                'required',
+                Rule::in(['low', 'medium', 'high']),
+            ],
+            'start_time' => [
+                'nullable',
+                'date_format:H:i',
+            ],
+            'end_time' => [
+                'nullable',
+                'date_format:H:i',
+                'after:start_time',
+            ],
+            'repeat_type' => [
+                'nullable',
+                Rule::in(
+                    DailyPlannerRecurrenceService::REPEAT_TYPES
+                ),
+            ],
+            'repeat_days' => [
+                'nullable',
+                'array',
+                Rule::requiredIf(
+                    fn () =>
+                        $request->input('repeat_type')
+                        === 'specific_days'
+                ),
+            ],
+            'repeat_days.*' => [
+                Rule::in(
+                    DailyPlannerRecurrenceService::WEEK_DAYS
+                ),
+            ],
+            'repeat_interval' => [
+                'nullable',
+                'integer',
+                'min:1',
+                'max:52',
+            ],
+            'repeat_starts_on' => ['nullable', 'date'],
+            'repeat_ends_on' => [
+                'nullable',
+                'date',
+                'after_or_equal:repeat_starts_on',
+            ],
+            'occurrence_date' => ['nullable', 'date'],
+            'edit_scope' => [
+                'nullable',
+                Rule::in(['occurrence', 'series']),
+            ],
+        ]);
+    }
+
+    private function owned(
+        Request $request,
+        DailyPlanItem $item
+    ): void {
+        $item->loadMissing('plan');
+
+        abort_unless(
+            $item->plan
+            && (int) $item->plan->user_id
+                === (int) $request->user()->id,
+            403
+        );
+    }
+
+    private function movePendingItemToDate(
+        Request $request,
+        DailyPlanItem $item,
+        string $targetDate
+    ): void {
         $targetPlan = DailyPlan::firstOrCreate(
-            ['user_id' => $request->user()->id, 'plan_date' => $targetDate],
+            [
+                'user_id' => $request->user()->id,
+                'plan_date' => $targetDate,
+            ],
             ['title' => 'My Daily Plan']
         );
 
         $item->update([
             'daily_plan_id' => $targetPlan->id,
-            'sort_order' => ($targetPlan->items()->max('sort_order') ?? 0) + 1,
+            'sort_order' =>
+                ($targetPlan->items()->max('sort_order') ?? 0) + 1,
         ]);
 
-        $this->rescheduleLinkedReminders($request, $item, $targetDate);
+        $this->rescheduleReminderDate(
+            $request,
+            $item,
+            $targetDate
+        );
     }
 
-    private function rescheduleLinkedReminders(Request $request, DailyPlanItem $item, string $targetDate): void
-    {
-        if (!Schema::hasColumns('reminders', ['source_type', 'source_id'])) return;
+    private function rescheduleReminderDate(
+        Request $request,
+        DailyPlanItem $item,
+        string $targetDate
+    ): void {
+        if (
+            ! Schema::hasColumns(
+                'reminders',
+                ['source_type', 'source_id']
+            )
+        ) {
+            return;
+        }
 
         Reminder::query()
             ->where('user_id', $request->user()->id)
@@ -352,33 +762,106 @@ class DailyPlannerController extends Controller
             ->where('source_id', $item->id)
             ->where('is_active', true)
             ->get()
-            ->each(function (Reminder $reminder) use ($targetDate) {
-                if (!$reminder->next_run_at) return;
-                $time = $reminder->next_run_at->format('H:i:s');
-                $reminder->next_run_at = Carbon::parse($targetDate.' '.$time);
-                $reminder->save();
-            });
+            ->each(
+                function (Reminder $reminder) use ($targetDate) {
+                    if (! $reminder->next_run_at) {
+                        return;
+                    }
+
+                    $reminder->next_run_at = Carbon::parse(
+                        $targetDate.' '
+                        .$reminder->next_run_at->format('H:i:s')
+                    );
+
+                    $reminder->save();
+                }
+            );
     }
 
-    public function destroyItem(Request $request, DailyPlanItem $item)
-    {
-        $this->owned($request, $item);
-        $item->delete();
+    private function applyHistoryPeriod(
+        $query,
+        string $period,
+        ?string $from,
+        ?string $to
+    ): void {
+        $today = today();
 
-        return back()->with('success', 'Task deleted successfully.');
+        match ($period) {
+            '7_days' => $query->whereDate(
+                'plan_date',
+                '>=',
+                $today->copy()->subDays(7)
+            ),
+            '30_days' => $query->whereDate(
+                'plan_date',
+                '>=',
+                $today->copy()->subDays(30)
+            ),
+            '90_days' => $query->whereDate(
+                'plan_date',
+                '>=',
+                $today->copy()->subDays(90)
+            ),
+            'this_month' => $query->whereBetween(
+                'plan_date',
+                [
+                    $today->copy()->startOfMonth(),
+                    $today->copy()->endOfMonth(),
+                ]
+            ),
+            'last_month' => $query->whereBetween(
+                'plan_date',
+                [
+                    $today->copy()
+                        ->subMonthNoOverflow()
+                        ->startOfMonth(),
+                    $today->copy()
+                        ->subMonthNoOverflow()
+                        ->endOfMonth(),
+                ]
+            ),
+            'custom' => $this->applyCustomRange(
+                $query,
+                $from,
+                $to
+            ),
+            default => null,
+        };
     }
 
-    public function bulkDestroy(Request $request)
-    {
-        $ids = $request->validate([
-            'ids'   => 'required|array|min:1',
-            'ids.*' => 'integer',
-        ])['ids'];
+    private function applyCustomRange(
+        $query,
+        ?string $from,
+        ?string $to
+    ): void {
+        if ($from) {
+            $query->whereDate(
+                'plan_date',
+                '>=',
+                Carbon::parse($from)
+            );
+        }
 
-        DailyPlanItem::whereIn('id', $ids)
-            ->whereHas('plan', fn ($q) => $q->where('user_id', $request->user()->id))
-            ->delete();
+        if ($to) {
+            $query->whereDate(
+                'plan_date',
+                '<=',
+                Carbon::parse($to)
+            );
+        }
+    }
 
-        return back()->with('success', 'Selected tasks deleted successfully.');
+    private function backToDate(
+        string $date,
+        ?string $success = null
+    ): RedirectResponse {
+        $response = redirect()->route(
+            'daily-planner.index',
+            ['date' => $date]
+        );
+
+        return $success
+            ? $response->with('success', $success)
+            : $response;
     }
 }

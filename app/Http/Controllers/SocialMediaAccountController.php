@@ -1,104 +1,174 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers;
 
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
+use Illuminate\View\View;
 
-class SocialMediaAccountController extends Controller
+final class SocialMediaAccountController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request): View
     {
+        $accounts = collect();
+        $tableReady = Schema::hasTable('social_media_accounts');
+
+        if ($tableReady && Schema::hasColumn('social_media_accounts', 'user_id')) {
+            $query = DB::table('social_media_accounts')
+                ->where('user_id', $request->user()->id);
+
+            if (Schema::hasColumn('social_media_accounts', 'platform')) {
+                $query->orderBy('platform');
+            } else {
+                $query->orderBy('id');
+            }
+
+            $accounts = $query->get();
+        }
+
         return view('profile.social-media', [
-            'accounts' => DB::table('social_media_accounts')
-                ->select([
-                    'id', 'platform', 'account_name', 'username', 'external_account_id',
-                    'automation_provider', 'automation_endpoint',
-                    'is_active', 'auto_publish_enabled', 'oauth_expires_at',
-                    DB::raw("CASE WHEN oauth_access_token IS NULL THEN 0 ELSE 1 END AS is_connected"),
-                ])
-                ->where('user_id', $request->user()->id)
-                ->orderBy('platform')
-                ->get(),
+            'accounts' => $accounts,
+            'accountsTableReady' => $tableReady,
         ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request): RedirectResponse
     {
+        $this->ensureAccountsTable();
+
         $data = $request->validate([
-            'platform' => ['required', Rule::in(['instagram','facebook','x','tiktok','linkedin','whatsapp_status','whatsapp_channel'])],
-            'account_name' => ['required','string','max:120'],
-            'username' => ['nullable','string','max:180'],
+            'platform' => ['required', Rule::in([
+                'instagram', 'facebook', 'x', 'tiktok', 'linkedin',
+            ])],
+            'account_name' => ['required', 'string', 'max:120'],
+            'username' => ['nullable', 'string', 'max:180'],
         ]);
 
-        DB::table('social_media_accounts')->insert([
+        $row = [
             'user_id' => $request->user()->id,
             'platform' => $data['platform'],
-            'account_name' => $data['account_name'],
-            'username' => $data['username'] ?? null,
-            'is_active' => true,
-            'auto_publish_enabled' => false,
+            'account_name' => trim($data['account_name']),
+            'username' => isset($data['username']) && trim((string) $data['username']) !== ''
+                ? trim((string) $data['username'])
+                : null,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ];
 
-        return back()->with('success', 'Social media account added. Connect its API authorisation before enabling automatic posting.');
+        if (Schema::hasColumn('social_media_accounts', 'is_active')) {
+            $row['is_active'] = true;
+        }
+
+        if (Schema::hasColumn('social_media_accounts', 'auto_publish_enabled')) {
+            $row['auto_publish_enabled'] = false;
+        }
+
+        DB::table('social_media_accounts')->insert($row);
+
+        return back()->with('success', 'Social media account added.');
     }
 
-    public function updateAutomaticPublishing(Request $request, int $account)
-    {
+    public function update(
+        Request $request,
+        int $account
+    ): RedirectResponse {
+        $this->ensureAccountsTable();
+
         $data = $request->validate([
-            'enabled' => ['required','boolean'],
-            'external_account_id' => ['nullable','string','max:255'],
-            'access_token' => ['nullable','string','max:10000'],
-            'automation_provider' => ['nullable','string','max:100'],
-            'automation_endpoint' => ['nullable','url','max:2000'],
-            'automation_secret' => ['nullable','string','max:10000'],
+            'platform' => ['required', Rule::in([
+                'instagram', 'facebook', 'x', 'tiktok', 'linkedin',
+                'whatsapp_status', 'whatsapp_channel',
+            ])],
+            'account_name' => ['required', 'string', 'max:120'],
+            'username' => ['nullable', 'string', 'max:180'],
+            'is_active' => ['nullable', 'boolean'],
+            'auto_publish_enabled' => ['nullable', 'boolean'],
         ]);
 
-        $row = DB::table('social_media_accounts')->where('id', $account)->where('user_id', $request->user()->id)->first();
-        abort_unless($row, 404);
+        $query = DB::table('social_media_accounts')
+            ->where('id', $account)
+            ->where('user_id', $request->user()->id);
+
+        abort_unless($query->exists(), 404);
 
         $update = [
-            'auto_publish_enabled' => (bool) $data['enabled'],
+            'platform' => $data['platform'],
+            'account_name' => trim($data['account_name']),
+            'username' => isset($data['username']) &&
+                trim((string) $data['username']) !== ''
+                    ? trim((string) $data['username'])
+                    : null,
             'updated_at' => now(),
         ];
-        if (array_key_exists('external_account_id', $data)) {
-            $update['external_account_id'] = trim((string) $data['external_account_id']) ?: null;
-        }
-        if (! empty($data['access_token'])) {
-            $update['oauth_access_token'] = Crypt::encryptString($data['access_token']);
-        }
-        if (array_key_exists('automation_provider', $data)) {
-            $update['automation_provider'] = trim((string) $data['automation_provider']) ?: null;
-        }
-        if (array_key_exists('automation_endpoint', $data)) {
-            $update['automation_endpoint'] = trim((string) $data['automation_endpoint']) ?: null;
-        }
-        if (! empty($data['automation_secret'])) {
-            $update['automation_secret'] = Crypt::encryptString($data['automation_secret']);
+
+        if (Schema::hasColumn('social_media_accounts', 'is_active')) {
+            $update['is_active'] = $request->boolean('is_active');
         }
 
-        DB::table('social_media_accounts')->where('id', $account)->where('user_id', $request->user()->id)->update($update);
-        return back()->with('success', 'Automatic publishing settings updated.');
+        if (Schema::hasColumn(
+            'social_media_accounts',
+            'auto_publish_enabled'
+        )) {
+            $update['auto_publish_enabled'] =
+                $request->boolean('auto_publish_enabled');
+        }
+
+        $query->update($update);
+
+        return back()->with('success', 'Social media account updated.');
     }
 
-    public function updateWhatsApp(Request $request)
+    public function updateWhatsApp(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'whatsapp_number' => ['nullable','string','max:30'],
-            'whatsapp_channel_name' => ['nullable','string','max:180'],
-            'whatsapp_channel_url' => ['nullable','url','max:500'],
+            'whatsapp_number' => ['nullable', 'string', 'max:30'],
+            'whatsapp_channel_name' => ['nullable', 'string', 'max:180'],
+            'whatsapp_channel_url' => ['nullable', 'url', 'max:500'],
         ]);
-        $request->user()->forceFill($data)->save();
+
+        $user = $request->user();
+        $update = [];
+
+        foreach ($data as $column => $value) {
+            if (Schema::hasColumn($user->getTable(), $column)) {
+                $update[$column] = $value;
+            }
+        }
+
+        if ($update !== []) {
+            $user->forceFill($update)->save();
+        }
+
         return back()->with('success', 'WhatsApp settings updated.');
     }
 
-    public function destroy(Request $request, int $account)
+    public function destroy(Request $request, int $account): RedirectResponse
     {
-        DB::table('social_media_accounts')->where('id', $account)->where('user_id', $request->user()->id)->delete();
+        if (Schema::hasTable('social_media_accounts') &&
+            Schema::hasColumn('social_media_accounts', 'user_id')) {
+            DB::table('social_media_accounts')
+                ->where('id', $account)
+                ->where('user_id', $request->user()->id)
+                ->delete();
+        }
+
         return back()->with('success', 'Social media account removed.');
+    }
+
+    private function ensureAccountsTable(): void
+    {
+        abort_unless(
+            Schema::hasTable('social_media_accounts') &&
+            Schema::hasColumn('social_media_accounts', 'user_id') &&
+            Schema::hasColumn('social_media_accounts', 'platform') &&
+            Schema::hasColumn('social_media_accounts', 'account_name'),
+            503,
+            'Social media accounts are not ready yet. Run the latest migrations.'
+        );
     }
 }

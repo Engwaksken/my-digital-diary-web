@@ -1,198 +1,274 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers;
 
 use App\Mail\OrganizationInviteMail;
+use App\Mail\OrganizationMemberAccountCreatedMail;
 use App\Models\Organization;
 use App\Models\OrganizationMember;
-use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Services\OrganizationMembershipService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\View\View;
+use RuntimeException;
 
-/**
- * Org-admin self-service — invite/activate/deactivate/replace/remove
- * staff, all scoped to the org the current user actually owns or
- * administers. Distinct from the SITE admin area (Admin\...
- * controllers) — this is a regular user managing their OWN team, not a
- * platform operator managing every account.
- */
-class OrganizationController extends Controller
+final class OrganizationController extends Controller
 {
-    /**
-     * The organization the current user can manage — either they own
-     * it, or they're a member with organization_role = 'admin'. Null if
-     * neither, which every method below treats as "nothing to manage."
-     */
-    private function managedOrganization(Request $request): ?Organization
-    {
-        $user = $request->user();
-
-        $owned = Organization::where('owner_user_id', $user->id)->first();
-        if ($owned) {
-            return $owned;
-        }
-
-        if ($user->organization_id && $user->organization_role === 'admin') {
-            return $user->organization;
-        }
-
-        return null;
-    }
+    public function __construct(
+        private readonly OrganizationMembershipService $members
+    ) {}
 
     public function show(Request $request): View
     {
-        $organization = $this->managedOrganization($request);
-        $organization?->load('plan');
+        $organization = $this->members
+            ->ensureManagedOrganization($request->user());
 
         return view('organization.show', [
             'organization' => $organization,
-            'members' => $organization ? $organization->members()->with('user')->orderByDesc('id')->paginate(15)->withQueryString() : null,
+            'members' => $organization
+                ? $organization->members()
+                    ->with('user')
+                    ->orderByRaw(
+                        "FIELD(status, 'active', 'invited', 'inactive')"
+                    )
+                    ->orderByDesc('id')
+                    ->paginate(15)
+                    ->withQueryString()
+                : null,
+            'seatLimit' => $organization
+                ? $this->members->seatLimit($organization)
+                : 0,
+            'seatsUsed' => $organization
+                ? $this->members->seatsUsed($organization)
+                : 0,
+            'remainingSeats' => $organization
+                ? $this->members->remainingSeats($organization)
+                : 0,
+            'eligibleForTeam' => $this->members
+                ->canUseTeamWorkspace($request->user()),
         ]);
     }
 
     public function invite(Request $request): RedirectResponse
     {
         $organization = $this->managedOrganization($request);
-        abort_unless($organization, 403);
 
         $data = $request->validate([
+            'name' => ['nullable', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255'],
-            'role' => ['required', 'in:admin,staff'],
+            'role' => [
+                'required',
+                Rule::in(['admin', 'staff', 'member', 'viewer']),
+            ],
+            'temporary_password' => ['nullable', 'confirmed', Password::min(8)->letters()->numbers()],
         ]);
 
-        if (! $organization->hasSeatAvailable()) {
-            return back()->withErrors(['email' => 'No member slots available on your current plan — remove someone first or upgrade your plan.']);
+        $email = strtolower(trim($data['email']));
+
+        $existing = User::query()
+            ->whereRaw('LOWER(email) = ?', [$email])
+            ->first();
+
+        try {
+            if ($existing) {
+                $this->members->addExistingUser(
+                    $organization,
+                    $existing,
+                    $data['role']
+                );
+
+                return back()->with(
+                    'success',
+                    'Existing My Digital Diary user added successfully. Their existing password was not changed.'
+                );
+            }
+
+            if (empty(trim((string) ($data['name'] ?? '')))) {
+                return back()->withErrors([
+                    'name' => 'Name is required when creating a new member account.',
+                ])->withInput();
+            }
+
+            if (empty($data['temporary_password'])) {
+                return back()->withErrors([
+                    'temporary_password' =>
+                        'Set a temporary password for a new member account.',
+                ])->withInput();
+            }
+
+            $member = $this->members->createAndAddNewUser(
+                $organization,
+                trim((string) $data['name']),
+                $email,
+                (string) $data['temporary_password'],
+                $data['role']
+            );
+
+            try {
+                Mail::to($member->user->email)->send(
+                    new OrganizationMemberAccountCreatedMail(
+                        $member->user,
+                        $organization,
+                        $member->role
+                    )
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
+            return back()->with(
+                'success',
+                'New member account created. Share the temporary password with the member through a separate trusted channel.'
+            );
+        } catch (RuntimeException $e) {
+            return back()->withErrors([
+                'email' => $e->getMessage(),
+            ])->withInput();
         }
-
-        if ($organization->members()->where('invited_email', $data['email'])->whereIn('status', ['invited', 'active'])->exists()) {
-            return back()->withErrors(['email' => 'That email already has a pending invite or is already a member of this organization.']);
-        }
-
-        $member = $organization->members()->create([
-            'invited_email' => $data['email'],
-            'role' => $data['role'],
-            'status' => 'invited',
-            'invite_token' => Str::random(48),
-            'invited_at' => now(),
-        ]);
-
-        Mail::to($data['email'])->send(new OrganizationInviteMail($member, $organization));
-
-        return back()->with('success', "Invitation sent to {$data['email']}.");
     }
 
-    public function activate(Request $request, OrganizationMember $member): RedirectResponse
-    {
-        $this->authorizeMember($request, $member);
+    public function editMember(
+        Request $request,
+        OrganizationMember $member
+    ): RedirectResponse {
+        $organization = $this->managedOrganization($request);
 
-        $member->update(['status' => 'active', 'activated_at' => now()]);
-        $member->user?->update(['organization_id' => $member->organization_id, 'organization_role' => $member->role]);
+        $data = $request->validate([
+            'email' => ['nullable', 'email', 'max:255'],
+            'role' => [
+                'required',
+                Rule::in(['admin', 'staff', 'member', 'viewer']),
+            ],
+        ]);
+
+        if (
+            $member->status === 'invited'
+            && empty($data['email'])
+        ) {
+            return back()->withErrors([
+                'email' => 'Email is required for a pending invitation.',
+            ]);
+        }
+
+        try {
+            $this->members->editMember(
+                $organization,
+                $member,
+                $data
+            );
+        } catch (RuntimeException $e) {
+            return back()->withErrors([
+                'member' => $e->getMessage(),
+            ]);
+        }
+
+        return back()->with(
+            'success',
+            'Member workspace details updated.'
+        );
+    }
+
+    public function updateRole(
+        Request $request,
+        OrganizationMember $member
+    ): RedirectResponse {
+        $organization = $this->managedOrganization($request);
+
+        $data = $request->validate([
+            'role' => [
+                'required',
+                Rule::in(['admin', 'staff', 'member', 'viewer']),
+            ],
+        ]);
+
+        try {
+            $this->members->updateRole(
+                $organization,
+                $member,
+                $data['role']
+            );
+        } catch (RuntimeException $e) {
+            return back()->withErrors(['role' => $e->getMessage()]);
+        }
+
+        return back()->with('success', 'Member role updated.');
+    }
+
+    public function activate(
+        Request $request,
+        OrganizationMember $member
+    ): RedirectResponse {
+        $organization = $this->managedOrganization($request);
+
+        $this->members->setActive($organization, $member, true);
 
         return back()->with('success', 'Member reactivated.');
     }
 
-    public function deactivate(Request $request, OrganizationMember $member): RedirectResponse
-    {
-        $this->authorizeMember($request, $member);
+    public function deactivate(
+        Request $request,
+        OrganizationMember $member
+    ): RedirectResponse {
+        $organization = $this->managedOrganization($request);
 
-        // Deactivating (unlike removing) keeps the seat reserved for
-        // this person — their access is paused, but they're not
-        // offboarded and the seat isn't freed for someone else yet.
-        $member->update(['status' => 'inactive', 'deactivated_at' => now()]);
+        $this->members->setActive($organization, $member, false);
 
-        return back()->with('success', 'Member deactivated — access paused.');
+        return back()->with('success', 'Member access suspended.');
     }
 
-    /**
-     * Offboarding: frees the seat, revokes company access, and — if the
-     * person has no verified personal email on file — flags their
-     * account so the NEXT time they log in, they're prompted to add and
-     * verify one before continuing under a Free/Individual plan. Their
-     * own personal tracking data (expenses, health logs, etc.) is never
-     * touched here; only their organization membership and subscription
-     * standing change.
-     */
-    public function removeMember(Request $request, OrganizationMember $member): RedirectResponse
-    {
-        $this->authorizeMember($request, $member);
+    public function removeMember(
+        Request $request,
+        OrganizationMember $member
+    ): RedirectResponse {
+        $organization = $this->managedOrganization($request);
 
-        $user = $member->user;
-        $member->delete(); // frees the seat immediately
+        $this->members->remove($organization, $member);
 
-        if ($user) {
-            $user->update([
-                'organization_id' => null,
-                'organization_role' => null,
-                'offboarded_at' => now(),
-                // Grace period rather than an instant hard cutoff — gives
-                // them a window to verify a personal email and/or
-                // subscribe individually without losing access mid-task.
-                // Adjust this if you'd rather cut access immediately.
-                'subscription_status' => 'trialing',
-                'trial_ends_at' => now()->addDays(7),
-                'subscription_plan_id' => null,
-                'subscription_expires_at' => null,
-            ]);
-        }
-
-        return back()->with('success', 'Removed from the organization — a member slot is now free.');
+        return back()->with(
+            'success',
+            'Member removed. Their personal diary data was not deleted.'
+        );
     }
 
-    /**
-     * Convenience action: removes whoever currently holds a seat and
-     * immediately invites someone new to take it, in one step rather
-     * than two separate ones.
-     */
-    public function replace(Request $request, OrganizationMember $member): RedirectResponse
-    {
-        $this->authorizeMember($request, $member);
+    public function replace(
+        Request $request,
+        OrganizationMember $member
+    ): RedirectResponse {
+        $organization = $this->managedOrganization($request);
 
         $data = $request->validate([
             'new_email' => ['required', 'email', 'max:255'],
-            'new_role' => ['required', 'in:admin,staff'],
+            'new_role' => [
+                'required',
+                Rule::in(['admin', 'staff', 'member', 'viewer']),
+            ],
         ]);
 
-        $organization = $member->organization;
-        $user = $member->user;
-        $member->delete();
+        $this->members->remove($organization, $member);
 
-        if ($user) {
-            $user->update([
-                'organization_id' => null,
-                'organization_role' => null,
-                'offboarded_at' => now(),
-                'subscription_status' => 'trialing',
-                'trial_ends_at' => now()->addDays(7),
-                'subscription_plan_id' => null,
-                'subscription_expires_at' => null,
-            ]);
-        }
-
-        $newMember = $organization->members()->create([
-            'invited_email' => $data['new_email'],
+        $request->merge([
+            'email' => $data['new_email'],
             'role' => $data['new_role'],
-            'status' => 'invited',
-            'invite_token' => Str::random(48),
-            'invited_at' => now(),
         ]);
 
-        Mail::to($data['new_email'])->send(new OrganizationInviteMail($newMember, $organization));
-
-        return back()->with('success', "A member slot is now free, and a new invitation was sent to {$data['new_email']}.");
+        return $this->invite($request);
     }
 
-    /**
-     * Public — reached from the emailed invite link, before the person
-     * necessarily has an account. Existing users get linked immediately;
-     * new ones are sent to register first, then land back here.
-     */
-    public function acceptInvite(Request $request, string $token): RedirectResponse|View
-    {
-        $member = OrganizationMember::where('invite_token', $token)->where('status', 'invited')->first();
+    public function acceptInvite(
+        Request $request,
+        string $token
+    ): RedirectResponse|View {
+        $member = OrganizationMember::query()
+            ->where('invite_token', $token)
+            ->where('status', 'invited')
+            ->first();
 
         if (! $member) {
             return view('organization.invite-invalid');
@@ -201,43 +277,92 @@ class OrganizationController extends Controller
         if (! $request->user()) {
             session(['pending_org_invite_token' => $token]);
 
-            $existingUser = User::where('email', $member->invited_email)->first();
+            $existingUser = User::query()
+                ->whereRaw(
+                    'LOWER(email) = ?',
+                    [strtolower((string) $member->invited_email)]
+                )
+                ->first();
 
-            return redirect()->route($existingUser ? 'login' : 'register')
-                ->with('info', 'Log in or create an account with ' . $member->invited_email . ' to accept this invitation.');
+            return redirect()
+                ->route($existingUser ? 'login' : 'register')
+                ->with(
+                    'info',
+                    'Sign in or register using '
+                    .$member->invited_email
+                    .' to accept this invitation.'
+                );
         }
 
-        return $this->finalizeInviteAcceptance($request, $member);
+        abort_unless(
+            strtolower((string) $request->user()->email)
+                === strtolower((string) $member->invited_email),
+            403,
+            'Use the email address that received this invitation.'
+        );
+
+        $member->forceFill([
+            'user_id' => $request->user()->id,
+            'status' => 'active',
+            'invite_token' => null,
+            'activated_at' => now(),
+            'deactivated_at' => null,
+        ])->save();
+
+        $organization = $member->organization;
+
+        if ($organization) {
+            $this->members->addExistingUser(
+                $organization,
+                $request->user(),
+                $member->role
+            );
+        }
+
+        return redirect()
+            ->route('organization.show')
+            ->with('success', 'Organization invitation accepted.');
     }
 
-    /**
-     * Called right after login/registration if a pending invite token
-     * was stashed in the session — see EnsureUserHasAccess or the
-     * post-login redirect logic, which should check for this. (If that
-     * wiring isn't in place yet, this method is still safe to call
-     * directly from acceptInvite() above for an already-logged-in user.)
-     */
-    public function finalizeInviteAcceptance(Request $request, OrganizationMember $member): RedirectResponse
+    private function managedOrganization(Request $request): Organization
     {
+        $organization = $this->members
+            ->ensureManagedOrganization($request->user());
+
+        abort_unless(
+            $organization,
+            403,
+            'Your current subscription does not include team member management.'
+        );
+
         $user = $request->user();
 
-        if (strcasecmp($user->email, $member->invited_email) !== 0) {
-            return redirect()->route('dashboard')->withErrors([
-                'invite' => 'This invitation was sent to ' . $member->invited_email . ', which doesn\'t match your logged-in account.',
-            ]);
-        }
+        $allowed =
+            (int) $organization->owner_user_id === (int) $user->id
+            || (
+                isset($user->organization_id)
+                && (int) $user->organization_id === (int) $organization->id
+                && strtolower((string) ($user->organization_role ?? '')) === 'admin'
+            );
 
-        $member->update(['user_id' => $user->id, 'status' => 'active', 'activated_at' => now()]);
-        $user->update(['organization_id' => $member->organization_id, 'organization_role' => $member->role]);
+        abort_unless($allowed, 403);
 
-        session()->forget('pending_org_invite_token');
-
-        return redirect()->route('dashboard')->with('success', 'You\'ve joined ' . $member->organization->name . '.');
+        return $organization;
     }
 
-    private function authorizeMember(Request $request, OrganizationMember $member): void
-    {
-        $organization = $this->managedOrganization($request);
-        abort_unless($organization && $organization->id === $member->organization_id, 403);
+    private function sendInvite(
+        OrganizationMember $member,
+        Organization $organization
+    ): bool {
+        try {
+            Mail::to($member->invited_email)->send(
+                new OrganizationInviteMail($member, $organization)
+            );
+
+            return true;
+        } catch (\Throwable $e) {
+            report($e);
+            return false;
+        }
     }
 }

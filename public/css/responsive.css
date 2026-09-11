@@ -1,0 +1,627 @@
+/*
+ * My Digital Diary — Responsive Styles
+ *
+ * Extracted from layouts/app.blade.php (Phase 3 cleanup).
+ * Contains: layout responsive rules, phone horizontal tables,
+ * phone authoritative overrides, and admin table responsive rules.
+ */
+
+/* ==========================================================================
+   1. LAYOUT RESPONSIVE (#pm-layout-responsive)
+   ========================================================================== */
+
+html, body {
+    width: 100%;
+    max-width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
+}
+
+#pm-app-shell {
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+#main-content {
+    min-width: 0;
+    width: 100%;
+}
+
+img, video, canvas, svg {
+    max-width: 100%;
+}
+
+[role="tablist"] {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+}
+
+.pm-responsive-table,
+.overflow-x-auto {
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 768px) {
+    #pm-app-shell {
+        display: block !important;
+    }
+
+    #sidebar {
+        position: fixed !important;
+        top: 0 !important;
+        right: auto !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        z-index: 40 !important;
+
+        display: flex !important;
+        flex-direction: column !important;
+
+        width: 16rem !important;
+        min-width: 16rem !important;
+        max-width: 16rem !important;
+
+        height: 100vh !important;
+        height: 100dvh !important;
+        min-height: 100vh !important;
+        min-height: 100dvh !important;
+        max-height: 100dvh !important;
+
+        overflow: hidden !important;
+    }
+
+    #sidebar nav {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+    }
+
+    #pm-app-shell > .flex-1 {
+        display: block !important;
+        width: calc(100% - 16rem) !important;
+        min-width: 0 !important;
+        min-height: 100vh !important;
+        min-height: 100dvh !important;
+        margin-left: 16rem !important;
+    }
+
+    #main-content {
+        width: 100% !important;
+        min-height: calc(100dvh - 1px) !important;
+    }
+}
+
+@media (max-width: 767.98px) {
+    #pm-app-shell,
+    #pm-app-shell > .flex-1,
+    #main-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        margin-left: 0 !important;
+    }
+
+    #main-content {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+        overflow-x: hidden !important;
+    }
+
+    .grid.grid-cols-2:not(.pm-keep-two-columns),
+    .grid.grid-cols-3:not(.pm-keep-three-columns),
+    .grid.grid-cols-4:not(.pm-keep-four-columns) {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+}
+
+/* ==========================================================================
+   2. PHONE HORIZONTAL TABLES (#pm-horizontal-phone-tables-20260819)
+   ========================================================================== */
+
+/*
+ * Do not turn rows/cells into cards or narrow columns. The page remains
+ * viewport-width while the table itself scrolls horizontally inside its
+ * own bounded region.
+ */
+.pm-horizontal-table-wrap {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+}
+
+.pm-horizontal-data-table {
+    display: table !important;
+    width: max-content !important;
+    min-width: 100% !important;
+    max-width: none !important;
+    table-layout: auto !important;
+    border-collapse: collapse !important;
+}
+
+.pm-horizontal-data-table thead {
+    display: table-header-group !important;
+}
+
+.pm-horizontal-data-table tbody {
+    display: table-row-group !important;
+}
+
+.pm-horizontal-data-table tr {
+    display: table-row !important;
+}
+
+.pm-horizontal-data-table th,
+.pm-horizontal-data-table td {
+    display: table-cell !important;
+    width: auto !important;
+    max-width: none !important;
+    vertical-align: top !important;
+}
+
+.pm-goals-horizontal-table {
+    min-width: 1480px !important;
+}
+
+.pm-invoices-horizontal-table {
+    min-width: 1080px !important;
+}
+
+.pm-receipts-horizontal-table {
+    min-width: 900px !important;
+}
+
+.pm-enterprise-inquiries-horizontal-table {
+    min-width: 1120px !important;
+}
+
+@media (max-width: 767.98px) {
+    html,
+    body {
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
+    .pm-horizontal-table-wrap {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        border-radius: 12px !important;
+    }
+
+    .pm-horizontal-data-table th,
+    .pm-horizontal-data-table td {
+        white-space: nowrap !important;
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+    }
+
+    .pm-horizontal-data-table td.pm-table-wrap-text,
+    .pm-horizontal-data-table th.pm-table-wrap-text {
+        min-width: 220px !important;
+        max-width: 300px !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+    }
+}
+
+/* ==========================================================================
+   3. PHONE AUTHORITATIVE (#pm-phone-authoritative-20260819)
+   ========================================================================== */
+
+/*
+ * Loaded last in <head>. These rules deliberately override old page/module
+ * widths without changing desktop sidebar behaviour.
+ */
+@media (max-width: 767.98px) {
+    html,
+    body {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow-x: hidden !important;
+    }
+
+    body {
+        margin: 0 !important;
+    }
+
+    #pm-app-shell,
+    #pm-app-shell > .flex-1,
+    #main-content,
+    main,
+    main > *,
+    .apple-page,
+    .apple-surface,
+    .pm-card-bg,
+    .card,
+    .dashboard-card,
+    section {
+        min-width: 0 !important;
+        max-width: 100% !important;
+    }
+
+    #pm-app-shell {
+        display: block !important;
+    }
+
+    #pm-app-shell > .flex-1 {
+        width: 100% !important;
+        margin-left: 0 !important;
+    }
+
+    #main-content {
+        width: 100% !important;
+        padding: 10px !important;
+        margin: 0 !important;
+        overflow-x: hidden !important;
+    }
+
+    /*
+     * Any legacy module that has a fixed width/min-width must shrink to the
+     * available phone viewport instead of creating the narrow clipped column.
+     */
+    #main-content [style*="width"],
+    #main-content [style*="min-width"],
+    #main-content .container,
+    #main-content .max-w-screen-xl,
+    #main-content .max-w-7xl,
+    #main-content .max-w-6xl,
+    #main-content .max-w-5xl,
+    #main-content .max-w-4xl,
+    #main-content .max-w-3xl,
+    #main-content .max-w-2xl {
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    /*
+     * Forms and card grids become one useful column on phones.
+     * Explicit .pm-keep-* classes may still opt out.
+     */
+    #main-content .grid.grid-cols-2:not(.pm-keep-two-columns),
+    #main-content .grid.grid-cols-3:not(.pm-keep-three-columns),
+    #main-content .grid.grid-cols-4:not(.pm-keep-four-columns),
+    #main-content .grid.grid-cols-5,
+    #main-content .grid.grid-cols-6 {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    /*
+     * Meeting/calendar modules.
+     */
+    .fc,
+    .fc-media-screen,
+    .fc-view-harness,
+    .fc-view-harness-active,
+    .fc-daygrid,
+    .fc-scrollgrid,
+    .meeting-calendar,
+    .meetings-calendar,
+    [class*="meeting-calendar"],
+    [class*="calendar-wrap"],
+    [class*="calendar-container"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    .fc .fc-toolbar {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
+        gap: 6px !important;
+    }
+
+    .fc .fc-toolbar-chunk {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 4px !important;
+        min-width: 0 !important;
+    }
+
+    .fc .fc-toolbar-title {
+        font-size: 1rem !important;
+        line-height: 1.2 !important;
+    }
+
+    .fc .fc-button {
+        padding: .35rem .5rem !important;
+        font-size: .72rem !important;
+    }
+
+    .fc .fc-scrollgrid,
+    .fc table {
+        table-layout: fixed !important;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    .fc .fc-col-header-cell-cushion,
+    .fc .fc-daygrid-day-number {
+        font-size: .68rem !important;
+        padding: 3px !important;
+    }
+
+    .fc .fc-daygrid-event {
+        max-width: 100% !important;
+        overflow: hidden !important;
+        font-size: .62rem !important;
+    }
+
+    .fc .fc-event-title,
+    .fc .fc-event-time {
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    /*
+     * Ordinary data tables should scroll inside their own surface rather
+     * than making the entire page wider than the phone.
+     */
+    .table-responsive,
+    .pm-responsive-table,
+    .apple-table-wrap,
+    .overflow-x-auto {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    table {
+        max-width: none;
+    }
+
+    /*
+     * Header/button groups can wrap instead of overflowing.
+     */
+    .apple-hero,
+    .apple-section-head,
+    .page-header,
+    .toolbar,
+    .actions,
+    .form-actions {
+        max-width: 100% !important;
+        flex-wrap: wrap !important;
+    }
+
+    /*
+     * Native dialogs: phone-safe gutters, internal scrolling and no clipped
+     * footer buttons. Keep dialog:not([open]) in modal-responsive.css.
+     */
+    dialog[open] {
+        position: fixed !important;
+        top: 50% !important;
+        right: 8px !important;
+        bottom: auto !important;
+        left: 8px !important;
+        width: auto !important;
+        max-width: none !important;
+        max-height: calc(100dvh - 16px) !important;
+        margin: 0 !important;
+        transform: translateY(-50%) !important;
+        overflow: hidden !important;
+    }
+
+    dialog[open] > form,
+    dialog[open] > .pm-modal-content,
+    dialog[open] .pm-modal-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: calc(100dvh - 16px) !important;
+        overflow: hidden !important;
+    }
+
+    .pm-modal-body,
+    dialog .pm-modal-body {
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+    }
+
+    .pm-modal-footer,
+    dialog .pm-modal-footer {
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+        padding: 12px !important;
+    }
+
+    .pm-modal-footer > button,
+    .pm-modal-footer > a {
+        max-width: 100% !important;
+    }
+
+    /*
+     * Reminder notification dialog.
+     */
+    #reminder-alarm-modal[open] {
+        padding: 16px !important;
+        overflow: visible !important;
+    }
+
+    #reminder-alarm-modal[open] > .flex.justify-end {
+        width: 100% !important;
+        padding: 0 !important;
+    }
+
+    #reminder-alarm-dismiss {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: 46px !important;
+        justify-content: center !important;
+        margin: 0 !important;
+    }
+
+    /*
+     * Text/images must not force a horizontal overflow.
+     */
+    p,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    a,
+    button,
+    td,
+    th {
+        overflow-wrap: anywhere;
+    }
+
+    img,
+    video,
+    canvas,
+    svg,
+    iframe {
+        max-width: 100% !important;
+    }
+}
+
+@media (max-width: 380px) {
+    #main-content {
+        padding: 7px !important;
+    }
+
+    dialog[open] {
+        right: 5px !important;
+        left: 5px !important;
+        max-height: calc(100dvh - 10px) !important;
+    }
+
+    .fc .fc-toolbar-title {
+        font-size: .9rem !important;
+    }
+}
+
+/* ==========================================================================
+   4. ADMIN HORIZONTAL TABLES (#pm-admin-horizontal-tables-20260819)
+   ========================================================================== */
+
+/*
+ * ALL ADMIN TABLES — PHONE HORIZONTAL MODE
+ * This rule is intentionally global for admin.* routes. It overrides any
+ * legacy responsive-table/card CSS that changes rows or cells into blocks.
+ * Only the table region scrolls; the page itself remains phone-width.
+ */
+.pm-admin-page .pm-admin-table-scroll {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior-inline: contain !important;
+    scrollbar-width: thin;
+}
+
+.pm-admin-page #main-content table.pm-admin-horizontal-table {
+    display: table !important;
+    width: max-content !important;
+    min-width: 960px !important;
+    max-width: none !important;
+    table-layout: auto !important;
+    border-collapse: collapse !important;
+}
+
+.pm-admin-page #main-content table.pm-admin-horizontal-table thead {
+    display: table-header-group !important;
+}
+
+.pm-admin-page #main-content table.pm-admin-horizontal-table tbody {
+    display: table-row-group !important;
+}
+
+.pm-admin-page #main-content table.pm-admin-horizontal-table tfoot {
+    display: table-footer-group !important;
+}
+
+.pm-admin-page #main-content table.pm-admin-horizontal-table tr {
+    display: table-row !important;
+    width: auto !important;
+    max-width: none !important;
+}
+
+.pm-admin-page #main-content table.pm-admin-horizontal-table th,
+.pm-admin-page #main-content table.pm-admin-horizontal-table td {
+    display: table-cell !important;
+    width: auto !important;
+    min-width: max-content !important;
+    max-width: none !important;
+    white-space: nowrap !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    writing-mode: horizontal-tb !important;
+    vertical-align: middle !important;
+}
+
+.pm-admin-page #main-content table.pm-admin-horizontal-table
+.pm-table-wrap-text {
+    min-width: 220px !important;
+    max-width: 320px !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+
+@media (max-width: 767.98px) {
+    .pm-admin-page #main-content {
+        overflow-x: hidden !important;
+    }
+
+    .pm-admin-page .pm-admin-table-scroll {
+        border-radius: 12px !important;
+    }
+
+    .pm-admin-page #main-content table.pm-admin-horizontal-table th,
+    .pm-admin-page #main-content table.pm-admin-horizontal-table td {
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+    }
+
+    .pm-admin-table-swipe-hint {
+        display: flex !important;
+        align-items: center !important;
+        gap: 5px !important;
+        margin: 0 0 7px !important;
+        color: #94a3b8 !important;
+        font-size: 11px !important;
+        font-weight: 600 !important;
+    }
+}
+
+@media (min-width: 768px) {
+    .pm-admin-table-swipe-hint {
+        display: none !important;
+    }
+}
+
+/* ==========================================================================
+   5. APPLE GRID RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 900px) {
+    .apple-grid-3 {
+        grid-template-columns: 1fr;
+    }
+    .apple-hero {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+    .apple-hero .apple-btn {
+        width: 100%;
+    }
+}

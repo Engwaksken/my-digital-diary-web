@@ -1,0 +1,106 @@
+/*
+ * My Digital Diary — Guest Layout Styles
+ *
+ * Extracted from layouts/guest.blade.php (Phase 3 cleanup).
+ * Guest/auth shell: brand, card, footer and responsive rules.
+ * Keep auth.css and professional-forms.css as separate files.
+ */
+
+/* ==========================================================================
+   1. GUEST SHELL
+   ========================================================================== */
+
+.pm-guest-shell {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: 28px 16px;
+}
+
+.pm-guest-wrap {
+    width: min(100%, 470px);
+}
+
+.pm-guest-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+    text-align: center;
+    text-decoration: none;
+}
+
+.pm-guest-logo {
+    width: 84px;
+    height: 84px;
+    display: grid;
+    place-items: center;
+    border-radius: 26px;
+    background: rgba(255, 255, 255, .94);
+    border: 1px solid rgba(255, 255, 255, .9);
+    box-shadow: 0 14px 38px rgba(15, 23, 42, .10);
+}
+
+.pm-guest-logo svg,
+.pm-guest-logo img {
+    max-width: 58px;
+    max-height: 58px;
+}
+
+.pm-guest-brand-name {
+    font: 700 1.12rem/1.2 'Outfit', sans-serif;
+    color: #18202d;
+    letter-spacing: -.02em;
+}
+
+.pm-guest-card {
+    width: 100%;
+    padding: clamp(22px, 5vw, 34px);
+    border-radius: 24px;
+    background: rgba(255, 255, 255, .94);
+    border: 1px solid rgba(255, 255, 255, .9);
+    box-shadow: 0 20px 55px rgba(15, 23, 42, .10);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+}
+
+.pm-guest-footer {
+    padding-top: 18px;
+    color: var(--auth-muted, #667085);
+    text-align: center;
+    font-size: .76rem;
+}
+
+.pm-guest-footer a {
+    color: var(--brand-1);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+/* ==========================================================================
+   2. RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 480px) {
+    .pm-guest-shell {
+        padding: 18px 12px;
+        place-items: start center;
+    }
+
+    .pm-guest-wrap {
+        margin-top: 2vh;
+    }
+
+    .pm-guest-card {
+        padding: 20px 16px;
+        border-radius: 20px;
+    }
+
+    .pm-guest-logo {
+        width: 72px;
+        height: 72px;
+        border-radius: 22px;
+    }
+}

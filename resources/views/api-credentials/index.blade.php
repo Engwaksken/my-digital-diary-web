@@ -23,26 +23,25 @@
     </p>
 
     @if ($hasOwnActiveKey)
-        <div class="rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-800 px-4 py-3 text-sm mb-4 flex items-center gap-2">
-            <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+        <x-alert type="success" :dismissible="false" :autoDismiss="false" class="mb-4">
             You're using your own API key — unlimited AI plan generations.
-        </div>
+        </x-alert>
     @elseif ($settings->hasDefaultAiKey())
-        <div class="rounded-lg bg-amber-50 border border-amber-100 text-amber-800 px-4 py-3 text-sm mb-4 flex items-center justify-between gap-3 flex-wrap">
-            <span class="flex items-center gap-2">
-                <i class="fa-solid fa-gift" aria-hidden="true"></i>
+        <x-alert type="warning" :dismissible="false" :autoDismiss="false" class="mb-4">
+            <span class="flex items-center justify-between gap-3 flex-wrap">
+                <span>
                 Using the free shared plan — {{ $sharedUsedThisMonth }} of {{ $settings->default_ai_free_limit_per_month }} used this month.
+                </span>
+                <button type="button" onclick="document.getElementById('api-credential-modal').showModal()"
+                        class="text-xs font-medium underline hover:no-underline">
+                    Add your own key for unlimited use &rarr;
+                </button>
             </span>
-            <button type="button" onclick="document.getElementById('api-credential-modal').showModal()"
-                    class="text-xs font-medium underline hover:no-underline">
-                Add your own key for unlimited use &rarr;
-            </button>
-        </div>
+        </x-alert>
     @else
-        <div class="rounded-lg bg-slate-50 border border-slate-200 text-slate-600 px-4 py-3 text-sm mb-4 flex items-center gap-2">
-            <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+        <x-alert type="info" :dismissible="false" :autoDismiss="false" class="mb-4">
             No free shared plan is configured — add your own API key below to use the AI Planner.
-        </div>
+        </x-alert>
     @endif
 
     <div class="pm-card-bg shadow-sm border border-slate-100 rounded-xl overflow-x-auto" role="region" aria-label="API keys table" tabindex="0">
@@ -87,11 +86,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr>
-                        <td colspan="5" class="px-4 py-6 text-center text-slate-500">
-                            No API keys yet. Add one to enable the AI Planner.
-                        </td>
-                    </tr>
+                    <tr><td colspan="5"><x-empty-state icon="fa-solid fa-key" title="No API keys yet" message="Add one to enable the AI Planner." /></td></tr>
                 @endforelse
             </tbody>
         </table>

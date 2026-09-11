@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Reminder;
 use App\Services\ReminderItemLookupService;
+use App\Services\ReminderConsolidationService;
 use Illuminate\Http\Request;
 
 class ReminderController extends CrudController
@@ -31,7 +32,7 @@ class ReminderController extends CrudController
             'annually' => 'Annually',
         ]],
         ['name' => 'interval_minutes', 'label' => 'N (only used if "Every N Minutes")', 'type' => 'number'],
-        ['name' => 'next_run_at', 'label' => 'Next Run At', 'type' => 'datetime-local', 'required' => true],
+        ['name' => 'next_run_at', 'label' => 'Reminder Date & Time', 'type' => 'datetime-local', 'required' => true, 'hint' => 'Use the 12-hour clock with AM or PM.'],
         ['name' => 'channel', 'label' => 'Send Via', 'type' => 'select', 'required' => true, 'options' => [
             'database' => 'In-App Only', 'mail' => 'In-App + Email',
         ]],
@@ -60,8 +61,10 @@ class ReminderController extends CrudController
      * parameter there breaks that (a real fatal error, only caught once
      * the class actually loads — php -l can't detect this).
      */
-    public function __construct(protected ReminderItemLookupService $lookup)
-    {
+    public function __construct(
+        protected ReminderItemLookupService $lookup,
+        protected ReminderConsolidationService $consolidation
+    ) {
     }
 
     /**
@@ -70,6 +73,13 @@ class ReminderController extends CrudController
      * item(s)" multi-select with that user's actual records from the
      * chosen module.
      */
+    public function index(Request $request)
+    {
+        $this->consolidation->syncUser($request->user());
+
+        return parent::index($request);
+    }
+
     public function itemsForModule(Request $request)
     {
         $module = $request->query('module', '');
@@ -162,12 +172,39 @@ class ReminderController extends CrudController
     protected function stats(Request $request): array
     {
         $userId = $request->user()->id;
-        $base = Reminder::where('user_id', $userId);
+        $base = Reminder::query()->where('user_id', $userId);
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('reminders', 'is_archived')) {
+            $base->where(function ($query): void {
+                $query->whereNull('is_archived')->orWhere('is_archived', false);
+            });
+        }
 
         return [
-            ['label' => 'Active', 'value' => (string) (clone $base)->where('is_active', true)->count(), 'icon' => 'fa-solid fa-bell', 'color' => 'yellow'],
-            ['label' => 'Due next 7 days', 'value' => (string) (clone $base)->where('is_active', true)->where('next_run_at', '<=', now()->addDays(7))->count(), 'icon' => 'fa-solid fa-clock', 'color' => 'amber'],
-            ['label' => 'Total', 'value' => (string) $base->count(), 'icon' => 'fa-solid fa-list-ol', 'color' => 'slate'],
+            [
+                'label' => 'Active',
+                'value' => (string) (clone $base)->where('is_active', true)->count(),
+                'icon' => 'fa-solid fa-bell',
+                'color' => 'emerald',
+            ],
+            [
+                'label' => 'Daily',
+                'value' => (string) (clone $base)->where('frequency', 'daily')->count(),
+                'icon' => 'fa-solid fa-calendar-day',
+                'color' => 'sky',
+            ],
+            [
+                'label' => 'Weekly',
+                'value' => (string) (clone $base)->where('frequency', 'weekly')->count(),
+                'icon' => 'fa-solid fa-calendar-week',
+                'color' => 'violet',
+            ],
+            [
+                'label' => 'Total',
+                'value' => (string) (clone $base)->count(),
+                'icon' => 'fa-solid fa-list-check',
+                'color' => 'slate',
+            ],
         ];
     }
 

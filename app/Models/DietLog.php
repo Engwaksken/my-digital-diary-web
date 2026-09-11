@@ -11,7 +11,7 @@ class DietLog extends Model
 
     protected $table = 'diet_logs';
 
-    protected $fillable = ['user_id', 'meal_type', 'food_items', 'calories', 'logged_at', 'notes', 'is_archived',];
+    protected $fillable = ['user_id', 'daily_food_journal_id', 'meal_type', 'food_items', 'calories', 'logged_at', 'notes', 'is_archived',];
 
     protected $casts = [
         'logged_at' => 'date',

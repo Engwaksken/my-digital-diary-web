@@ -99,15 +99,25 @@
                         <p class="text-xs text-slate-500 mt-1">Authorise your own calendar account. My Digital Diary never asks for your external-calendar password.</p>
                     </div>
                     @if ($pmCalendarConnections->isNotEmpty() && \Illuminate\Support\Facades\Route::has('meetings.sync'))
-                        <form method="POST" action="{{ route('meetings.sync') }}">
-                            @csrf
-                            <button type="submit" class="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold bg-[var(--brand-1)] text-white hover:opacity-90">
-                                <i class="fa-solid fa-rotate" aria-hidden="true"></i>
-                                Sync calendars now
-                            </button>
-                        </form>
+                        <button type="button" onclick="document.getElementById('pm-calendar-sync-range').classList.toggle('hidden')"
+                                class="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold bg-[var(--brand-1)] text-white hover:opacity-90">
+                            <i class="fa-solid fa-rotate"></i> Sync selected dates
+                        </button>
                     @endif
                 </div>
+
+                @if ($pmCalendarConnections->isNotEmpty() && \Illuminate\Support\Facades\Route::has('meetings.sync'))
+                    <form id="pm-calendar-sync-range" method="POST" action="{{ route('meetings.sync') }}" class="hidden mb-3 rounded-xl border border-slate-200 bg-white p-3">
+                        @csrf
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                            <div><label class="text-[11px] font-semibold text-slate-600">Provider</label><select name="provider" class="w-full rounded-lg border-slate-300 text-sm"><option value="">All connected</option>@foreach($pmCalendarConnections as $c)<option value="{{ $c->platform }}">{{ ucfirst($c->platform) }}</option>@endforeach</select></div>
+                            <div><label class="text-[11px] font-semibold text-slate-600">Sync from date</label><input required type="date" name="sync_from_date" value="{{ now()->toDateString() }}" class="w-full rounded-lg border-slate-300 text-sm"></div>
+                            <div><label class="text-[11px] font-semibold text-slate-600">Sync to date</label><input type="date" name="sync_to_date" value="{{ now()->addMonth()->toDateString() }}" class="w-full rounded-lg border-slate-300 text-sm"></div>
+                            <div class="flex items-end"><button class="w-full px-3 py-2 rounded-lg bg-[var(--brand-1)] text-white text-xs font-semibold"><i class="fa-solid fa-rotate mr-1"></i> Sync Calendar</button></div>
+                        </div>
+                        <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" name="include_recurring" value="1" checked> Include recurring occurrences</label>
+                    </form>
+                @endif
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     @foreach ($pmKnownCalendarPlatforms as $pmPlatformKey => $pmPlatformLabel)

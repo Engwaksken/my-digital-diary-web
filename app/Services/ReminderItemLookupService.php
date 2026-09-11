@@ -68,7 +68,7 @@ class ReminderItemLookupService
                 ->all(),
 
             // Personal Life
-            'education' => EducationPlan::where('user_id', $userId)->orderByDesc('id')->limit(50)->get()
+            'education' => EducationPlan::where('user_id', $userId)->where('is_archived', false)->orderByDesc('id')->limit(50)->get()
                 ->map(fn ($e) => [
                     'id' => $e->id,
                     'label' => $e->title . ($e->institution ? ' — ' . $e->institution : ''),

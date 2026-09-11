@@ -18,6 +18,7 @@ use App\Models\Project;
 use App\Models\ProjectTask;
 use App\Models\Reminder;
 use App\Models\SavingsGoal;
+use App\Models\SavingsContribution;
 use App\Models\SleepLog;
 use App\Models\SpiritualPractice;
 use Illuminate\Http\Request;
@@ -57,6 +58,25 @@ class DashboardController extends Controller
 
         $monthlyBudget = Budget::where('user_id', $userId)
             ->where('period', 'monthly')
+            ->sum('amount');
+
+        /*
+         * Savings on the Dashboard must come from actual contribution rows,
+         * not the lifetime amount cached through Savings Goals.
+         */
+        $dashboardTimezone = $request->user()->timezone ?: 'Africa/Kampala';
+        $localMonth = Carbon::now($dashboardTimezone);
+
+        $monthlySavings = SavingsContribution::query()
+            ->where('user_id', $userId)
+            ->whereBetween('contributed_at', [
+                $localMonth->copy()->startOfMonth()->toDateString(),
+                $localMonth->copy()->endOfMonth()->toDateString(),
+            ])
+            ->sum('amount');
+
+        $totalSavingsContributions = SavingsContribution::query()
+            ->where('user_id', $userId)
             ->sum('amount');
 
         $activeProjects = Project::where('user_id', $userId)
@@ -104,7 +124,6 @@ class DashboardController extends Controller
 
         // Use the user's local day. Server/UTC date differences previously made
         // Daily Planner tasks disappear from Today's Focus on Web/Mobile.
-        $dashboardTimezone = $request->user()->timezone ?: 'Africa/Kampala';
         $localToday = Carbon::now($dashboardTimezone);
         $localDate = $localToday->toDateString();
 
@@ -112,34 +131,79 @@ class DashboardController extends Controller
             ->whereDate('plan_date', $localDate)
             ->first();
 
-        $todaysPlanItems = $todayPlan
-            ? $todayPlan->items()
-                ->where('is_completed', false)
-                ->orderByRaw("
-                    CASE priority
-                        WHEN 'high' THEN 1
-                        WHEN 'medium' THEN 2
-                        ELSE 3
-                    END
-                ")
-                ->orderByRaw('CASE WHEN start_time IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('start_time')
-                ->orderBy('sort_order')
-                ->orderBy('id')
-                ->limit(6)
-                ->get()
-            : collect();
+        // Use the same recurrence-aware service as the Daily Planner page/API.
+        // This makes daily/weekly/monthly/repeat tasks appear in Today's Focus
+        // even when they are generated virtually rather than stored directly
+        // against today's DailyPlan row.
+        try {
+            if (! class_exists(\App\Services\DailyPlannerRecurrenceService::class)) {
+                throw new \RuntimeException('DailyPlannerRecurrenceService is not available.');
+            }
 
-        // Final fallback reads the same source used by Week/Month Review.
+            $allTodayPlannerItems = app(
+                \App\Services\DailyPlannerRecurrenceService::class
+            )->itemsForDate($userId, $localToday);
+
+            $todaysPlanItems = $allTodayPlannerItems
+                ->filter(fn ($item) => ! (bool) data_get($item, 'is_completed', false))
+                ->sortBy(function ($item) {
+                    $priority = strtolower((string) data_get($item, 'priority', ''));
+                    $weight = in_array($priority, ['urgent', 'high'], true)
+                        ? 0
+                        : ($priority === 'medium' ? 1 : 2);
+
+                    $time = (string) data_get($item, 'start_time', '');
+                    return sprintf('%d-%s-%010d', $weight, $time ?: '99:99:99', (int) data_get($item, 'id', 0));
+                })
+                ->take(6)
+                ->values();
+
+            $todayStats = app(
+                \App\Services\DailyPlannerRecurrenceService::class
+            )->statistics($allTodayPlannerItems);
+
+            $todayPlanProgress = (int) ($todayStats['progress'] ?? 0);
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            $todaysPlanItems = $todayPlan
+                ? $todayPlan->items()
+                    ->where('is_completed', false)
+                    ->orderByRaw("CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")
+                    ->orderByRaw('CASE WHEN start_time IS NULL THEN 1 ELSE 0 END')
+                    ->orderBy('start_time')
+                    ->orderBy('sort_order')
+                    ->orderBy('id')
+                    ->limit(6)
+                    ->get()
+                : collect();
+
+            $todayPlanProgress = $todayPlan ? $todayPlan->progressPercent() : 0;
+        }
+
         if ($todaysPlanItems->isEmpty()) {
             $todaysPlanItems = app(
                 \App\Services\PeriodReviewMetricsService::class
             )->todayFocus($request->user(), 6);
         }
 
-        $todayPlanProgress = $todayPlan
-            ? $todayPlan->progressPercent()
-            : 0;
+        // Statistics used by the existing Start My Day / Close My Day cards.
+        // They are displayed in a popup instead of adding duplicate cards at
+        // the bottom of the dashboard.
+        $startDaySummary = [];
+        $endDaySummary = [];
+
+        try {
+            if (class_exists(\App\Services\DailyRoutineService::class)) {
+                $dailyRoutineService = app(\App\Services\DailyRoutineService::class);
+                $startDaySummary = $dailyRoutineService->start($request->user());
+                $endDaySummary = $dailyRoutineService->end($request->user());
+            }
+        } catch (\Throwable $exception) {
+            report($exception);
+            $startDaySummary = [];
+            $endDaySummary = [];
+        }
 
         $activeProjectsList = Project::where('user_id', $userId)
             ->whereIn('status', ['planned', 'in_progress'])
@@ -194,6 +258,7 @@ class DashboardController extends Controller
         // --- Growth tab -----------------------------------------------------
 
         $inProgressEducation = EducationPlan::where('user_id', $userId)
+            ->where('is_archived', false)
             ->where('status', 'in_progress')
             ->orderBy('target_completion_date')
             ->limit(5)
@@ -268,15 +333,59 @@ class DashboardController extends Controller
             ->values();
 
         $dailyInsight = app(\App\Services\DailyInsightService::class)->current($request->user());
-        $dailyInsight['route'] = route($dailyInsight['route_name']);
+        $dailyInsight['route'] = \Illuminate\Support\Facades\Route::has($dailyInsight['route_name'] ?? '')
+            ? route($dailyInsight['route_name'])
+            : route('daily-planner.index');
         $personalProgress = app(\App\Services\PersonalProgressService::class)->summary($request->user());
         $goalIntelligence = app(\App\Services\GoalIntelligenceService::class)->build($request->user());
         $notificationCenter = app(\App\Services\NotificationCenterService::class)->forUser($request->user(), 12);
+
+        // Steps are counted by the mobile app and synchronised to Laravel.
+        // The web dashboard reads the latest server value and continues to
+        // refresh it through wellbeing.steps.live.
+        // Keep Dashboard available even when the steps migration has not
+        // been run yet, the service is temporarily unavailable, or route/
+        // config caches still contain an older application snapshot.
+        $stepData = [
+            'date' => now($request->user()->timezone ?: 'Africa/Kampala')->toDateString(),
+            'steps' => 0,
+            'daily_goal' => 5000,
+            'next_daily_goal' => 5000,
+            'goal_achieved' => false,
+            'progress_percent' => 0,
+            'remaining_steps' => 5000,
+            'is_tracking' => false,
+            'tracking_started_at' => null,
+            'tracking_stopped_at' => null,
+            'last_synced_at' => null,
+        ];
+
+        try {
+            if (class_exists(\App\Services\DailyStepService::class)) {
+                $resolvedStepData = app(\App\Services\DailyStepService::class)
+                    ->payload($request->user());
+
+                if (is_array($resolvedStepData)) {
+                    $stepData = array_replace($stepData, $resolvedStepData);
+                }
+            }
+        } catch (\Throwable $exception) {
+            // Step tracking is optional dashboard data. A database, schema,
+            // or sync problem must never turn the whole Dashboard into the
+            // generic "Temporary problem" page.
+            logger()->warning('Dashboard step data unavailable', [
+                'user_id' => $request->user()->id,
+                'message' => $exception->getMessage(),
+            ]);
+        }
+
 
         return view('dashboard', compact(
             'monthlyIncome',
             'monthlyExpenses',
             'monthlyBudget',
+            'monthlySavings',
+            'totalSavingsContributions',
             'activeProjects',
             'totalSaved',
             'totalSavingsTarget',
@@ -309,9 +418,20 @@ class DashboardController extends Controller
             'dailyInsight',
             'personalProgress',
             'goalIntelligence',
-            'notificationCenter'
+            'notificationCenter',
+            'startDaySummary',
+            'endDaySummary',
+            'stepData'
         ));
     }
+
+
+    public function refreshTodayInsight(Request $request)
+    {
+        app(\App\Services\DailyInsightService::class)->refresh($request->user());
+        return redirect()->route('dashboard')->with('success', 'Today’s Insight refreshed.');
+    }
+
 
     /**
      * The full activity log — same underlying data as the dashboard's

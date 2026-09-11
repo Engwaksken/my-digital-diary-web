@@ -62,8 +62,8 @@
         <button type="button" onclick="openAnnualPlanModal()" class="btn-primary text-white px-4 py-2.5 rounded-lg text-sm font-medium"><i class="fa-solid fa-plus mr-1"></i> Add Plan</button>
     </div>
 
-    @if(session('success'))<div class="rounded-lg bg-emerald-50 text-emerald-700 px-4 py-3 text-sm">{{ session('success') }}</div>@endif
-    @if($errors->any())<div class="rounded-lg bg-rose-50 text-rose-700 px-4 py-3 text-sm"><ul class="list-disc pl-5">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+    @if(session('success'))<x-alert type="success" :message="session('success')" :dismissible="false" :autoDismiss="false" />@endif
+    @if($errors->any())<x-alert type="error" :dismissible="false" :autoDismiss="false"><ul class="list-disc pl-5">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></x-alert>@endif
 
     <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
         @foreach([
@@ -137,7 +137,7 @@
                 </div>
             </div>
         @empty
-            <div class="p-10 text-center text-slate-500"><i class="fa-solid fa-calendar-xmark text-3xl mb-2"></i><p>No plans match the selected filters.</p></div>
+            <x-empty-state icon="fa-solid fa-calendar-xmark" title="No plans match the selected filters." />
         @endforelse
     </div>
 
