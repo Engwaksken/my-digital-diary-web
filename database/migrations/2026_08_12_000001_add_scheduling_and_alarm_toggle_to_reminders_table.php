@@ -12,14 +12,18 @@ return new class extends Migration
         // SQLite doesn't support ALTER COLUMN ... MODIFY ENUM, so we recreate the table
         Schema::table('reminders', function (Blueprint $table) {
             // Only used when frequency = 'every_n_minutes'.
-            $table->unsignedInteger('interval_minutes')->nullable()->after('frequency');
+            if (!Schema::hasColumn('reminders', 'interval_minutes')) {
+                $table->unsignedInteger('interval_minutes')->nullable()->after('frequency');
+            }
 
             // Lets a user turn the in-app popup+sound alarm on/off per
             // reminder, independent of whether the reminder is still
             // active at all (is_active) or which channel (mail/database)
             // it uses. A reminder can keep emailing without ever popping
             // up an alarm, or vice versa.
-            $table->boolean('alarm_enabled')->default(true)->after('is_active');
+            if (!Schema::hasColumn('reminders', 'alarm_enabled')) {
+                $table->boolean('alarm_enabled')->default(true)->after('is_active');
+            }
         });
 
         if (DB::getDriverName() === 'sqlite') {
@@ -66,7 +70,12 @@ return new class extends Migration
         }
 
         Schema::table('reminders', function (Blueprint $table) {
-            $table->dropColumn(['interval_minutes', 'alarm_enabled']);
+            if (Schema::hasColumn('reminders', 'interval_minutes')) {
+                $table->dropColumn('interval_minutes');
+            }
+            if (Schema::hasColumn('reminders', 'alarm_enabled')) {
+                $table->dropColumn('alarm_enabled');
+            }
         });
     }
 };
