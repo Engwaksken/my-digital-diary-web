@@ -470,8 +470,12 @@ class MeetingController extends CrudController
             $query = $this->visibleMeetingsQuery($request)->whereIn('id', $matchingIds);
         }
 
-        $connections = \App\Models\UserMeetingConnection::where('user_id', $request->user()->id)->get()->keyBy('platform');
-        $enabledPlatforms = \App\Models\MeetingPlatformConfig::where('is_enabled', true)->get();
+        $connections = \Illuminate\Support\Facades\Schema::hasTable('user_meeting_connections')
+            ? \App\Models\UserMeetingConnection::where('user_id', $request->user()->id)->get()->keyBy('platform')
+            : collect();
+        $enabledPlatforms = \Illuminate\Support\Facades\Schema::hasTable('meeting_platform_configs')
+            ? \App\Models\MeetingPlatformConfig::where('is_enabled', true)->get()
+            : collect();
 
         return $this->renderIndex($request, $query, [
             'connections' => $connections,
