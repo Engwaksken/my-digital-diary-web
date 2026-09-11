@@ -133,7 +133,7 @@ body {
                 linear-gradient(180deg, #f8fafc 0%, #f2f5f7 100%) !important;
 }
 
-main a { text-decoration: none !important; }
+a { text-decoration: none !important; }
 
 .apple-page { max-width: 1500px; margin: 0 auto; }
 
