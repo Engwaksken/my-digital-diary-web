@@ -22,6 +22,7 @@ class IoTecSubscriptionTransaction extends Model
         'status',
         'status_code',
         'status_message',
+        'payment_id',
         'card_redirect_url',
         'gateway_response',
         'paid_at',
@@ -38,5 +39,10 @@ class IoTecSubscriptionTransaction extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function payment(): BelongsTo
+    {
+        return $this->belongsTo(Payment::class);
     }
 }
