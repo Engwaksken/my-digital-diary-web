@@ -3,9 +3,14 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\BillingEventLog;
+use App\Models\Invoice;
 use App\Models\Payment;
+use App\Models\PaymentTransactionLog;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 
 /**
@@ -161,5 +166,68 @@ class AdminPaymentsController extends Controller
         $payment->user?->notify(new \App\Notifications\PaymentFailedNotification($payment, $data['notes'] ?? null));
 
         return back()->with('success', 'Payment marked as rejected.');
+    }
+
+    public function bulkDestroy(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'payment_ids' => ['required', 'array', 'min:1'],
+            'payment_ids.*' => ['integer'],
+        ]);
+
+        $selectedIds = collect($data['payment_ids'])
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($selectedIds->isEmpty()) {
+            return back()->with('warning', 'No payments were selected.');
+        }
+
+        $eligibleIds = Payment::query()
+            ->whereIn('id', $selectedIds)
+            ->whereIn('status', ['failed', 'rejected'])
+            ->where('created_at', '<=', now()->subDays(5))
+            ->pluck('id');
+
+        if ($eligibleIds->isEmpty()) {
+            return back()->with('warning', 'No selected payments are eligible for deletion. Only failed/rejected payments older than 5 days can be deleted.');
+        }
+
+        DB::transaction(function () use ($eligibleIds): void {
+            if (Schema::hasTable('invoices') && Schema::hasColumn('invoices', 'payment_id')) {
+                Invoice::query()
+                    ->whereIn('payment_id', $eligibleIds)
+                    ->where('status', '!=', 'paid')
+                    ->update(['payment_id' => null]);
+            }
+
+            if (Schema::hasTable('payment_transaction_logs') && Schema::hasColumn('payment_transaction_logs', 'payment_id')) {
+                PaymentTransactionLog::query()
+                    ->whereIn('payment_id', $eligibleIds)
+                    ->update(['payment_id' => null]);
+            }
+
+            if (Schema::hasTable('billing_event_logs') && Schema::hasColumn('billing_event_logs', 'payment_id')) {
+                BillingEventLog::query()
+                    ->whereIn('payment_id', $eligibleIds)
+                    ->update(['payment_id' => null]);
+            }
+
+            Payment::query()
+                ->whereIn('id', $eligibleIds)
+                ->delete();
+        });
+
+        $deleted = $eligibleIds->count();
+        $skipped = $selectedIds->count() - $deleted;
+        $message = $deleted === 1 ? '1 failed/rejected payment deleted.' : "{$deleted} failed/rejected payments deleted.";
+
+        if ($skipped > 0) {
+            $message .= " {$skipped} skipped because they are not failed/rejected or are newer than 5 days.";
+        }
+
+        return back()->with('success', $message);
     }
 }

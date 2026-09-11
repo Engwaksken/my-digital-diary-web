@@ -407,6 +407,11 @@ Route::middleware([
             [AdminPaymentsController::class, 'index']
         )->name('payments.index');
 
+        Route::delete(
+            'payments/bulk-destroy',
+            [AdminPaymentsController::class, 'bulkDestroy']
+        )->name('payments.bulk-destroy');
+
         Route::post(
             'payments/{payment}/approve',
             [AdminPaymentsController::class, 'approve']
