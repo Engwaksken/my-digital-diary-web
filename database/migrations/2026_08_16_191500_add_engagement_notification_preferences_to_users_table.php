@@ -9,7 +9,7 @@ return new class extends Migration {
     {
         Schema::table('users', function (Blueprint $table) {
             if (! Schema::hasColumn('users', 'engagement_notification_preferences')) {
-                $table->json('engagement_notification_preferences')->nullable()->after('onboarding_completed_at');
+                $table->json('engagement_notification_preferences')->nullable();
             }
         });
     }

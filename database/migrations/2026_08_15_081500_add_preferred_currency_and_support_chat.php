@@ -9,7 +9,7 @@ return new class extends Migration {
     {
         Schema::table('users', function (Blueprint $table) {
             if (!Schema::hasColumn('users', 'preferred_currency_code')) {
-                $table->string('preferred_currency_code', 8)->nullable()->after('font_size');
+                $table->string('preferred_currency_code', 8)->nullable();
             }
         });
 
