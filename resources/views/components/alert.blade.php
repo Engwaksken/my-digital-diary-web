@@ -26,6 +26,22 @@
 ])
 
 @php
+    // Child sections render before their parent layout. Track success alerts
+    // per request so a legacy page alert and the shared layout flash do not
+    // announce the same session message twice.
+    $skipDuplicateSuccess = false;
+
+    if ($type === 'success' && filled($message)) {
+        $renderedSuccessAlerts = request()->attributes->get('pm.rendered_success_alerts', []);
+        $successKey = (string) $message;
+        $skipDuplicateSuccess = in_array($successKey, $renderedSuccessAlerts, true);
+
+        if (! $skipDuplicateSuccess) {
+            $renderedSuccessAlerts[] = $successKey;
+            request()->attributes->set('pm.rendered_success_alerts', $renderedSuccessAlerts);
+        }
+    }
+
     $config = [
         'success' => [
             'icon' => 'fa-circle-check',
@@ -62,6 +78,7 @@
     $alertId = 'alert-' . \Illuminate\Support\Str::random(8);
 @endphp
 
+@if (! $skipDuplicateSuccess)
 <div
     id="{{ $alertId }}"
     role="{{ $config['role'] }}"
@@ -105,4 +122,5 @@
             }, 5000);
         })();
     </script>
+@endif
 @endif
