@@ -298,6 +298,7 @@
                     </button>
                 </div>
                 <p id="spiritual-ai-status" class="mt-2 text-xs text-fuchsia-700">AI fills empty fields only. You can edit everything before saving.</p>
+                <div id="spiritual-bible-refs" class="mt-2 hidden rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-700"></div>
             </div>
             @csrf
             <input id="spiritual-method" type="hidden" name="_method" value="POST">
@@ -577,15 +578,42 @@ async function generateSpiritualAiDraft() {
         });
         const json = await response.json();
         if (!response.ok || !json.ok) throw new Error(json.message || 'Could not generate a draft.');
+        const refsBox = document.getElementById('spiritual-bible-refs');
+        const refs = Array.isArray(json.data?.bible_references) ? json.data.bible_references : [];
+        if (refsBox) {
+            if (refs.length) {
+                refsBox.classList.remove('hidden');
+                refsBox.innerHTML = '<p class="font-bold text-slate-900">Bible references (' + refs.length + ')</p>' +
+                    refs.map(ref => '<p class="mt-1">' + String(ref.reference || '') + ' — ' + String(ref.text || '') + '</p>').join('');
+            } else {
+                refsBox.classList.add('hidden');
+                refsBox.innerHTML = '';
+            }
+        }
         let filled = 0;
         Object.entries(json.data || {}).forEach(([name,value]) => {
+            if (name === 'bible_references' || name === 'bible_references_text') return;
             const field = form.elements.namedItem(name);
             if (!field || String(field.value || '').trim() !== '') return;
             field.value = value;
             field.dispatchEvent(new Event('change',{bubbles:true}));
             filled++;
         });
-        status.textContent = `Draft ready. ${filled} empty field${filled === 1 ? '' : 's'} filled. Review before saving.`;
+        if (typeof json.data?.bible_references_text === 'string' && json.data.bible_references_text.trim() !== '') {
+            const sacred = form.elements.namedItem('inspirational_text') || form.elements.namedItem('scriptures');
+            if (sacred) {
+                const current = String(sacred.value || '').trim();
+                if (current === '') {
+                    sacred.value = json.data.bible_references_text;
+                    sacred.dispatchEvent(new Event('change',{bubbles:true}));
+                    filled++;
+                } else if (!current.includes(json.data.bible_references_text.split('\n')[0])) {
+                    sacred.value = current + '\n\n' + json.data.bible_references_text;
+                    sacred.dispatchEvent(new Event('change',{bubbles:true}));
+                }
+            }
+        }
+        status.textContent = `Draft ready. ${filled} empty field${filled === 1 ? '' : 's'} filled${refs.length ? `, including ${refs.length} Bible references` : ''}. Review before saving.`;
         button.innerHTML = '<i class="fa-solid fa-rotate"></i><span>Regenerate</span>';
     } catch (error) {
         status.textContent = error.message || 'AI could not prepare a draft. Your current form was kept.';

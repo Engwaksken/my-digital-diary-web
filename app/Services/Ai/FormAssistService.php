@@ -51,6 +51,23 @@ SYS;
         $allowed = array_keys($definition['fields']);
 
         $result = [];
+        if ($module === 'spiritual-practices') {
+            $faithPath = isset($cleanContext['faith_path']) && is_scalar($cleanContext['faith_path'])
+                ? (string) $cleanContext['faith_path']
+                : null;
+            $references = (new ScriptureReferenceService())->forTopic($topic, $faithPath);
+            if ($references !== []) {
+                $result['bible_references'] = $references;
+                $result['bible_references_text'] = mb_substr(
+                    collect($references)
+                        ->map(fn ($ref) => $ref['reference'].' — '.$ref['text'])
+                        ->implode("\n"),
+                    0,
+                    1500
+                );
+            }
+        }
+
         foreach ($allowed as $field) {
             if (! array_key_exists($field, $raw)) {
                 continue;
@@ -74,6 +91,16 @@ SYS;
             }
 
             $result[$field] = mb_substr($value, 0, $definition['limits'][$field] ?? 6000);
+        }
+
+        if ($module === 'spiritual-practices' && isset($result['bible_references_text'])) {
+            $refsText = (string) $result['bible_references_text'];
+            $existing = isset($result['inspirational_text']) ? (string) $result['inspirational_text'] : '';
+            if (trim($existing) === '') {
+                $result['inspirational_text'] = mb_substr($refsText, 0, 1500);
+            } elseif ($refsText !== '' && ! str_contains($existing, (string) ($result['bible_references'][0]['reference'] ?? ''))) {
+                $result['inspirational_text'] = mb_substr(trim($existing)."\n\n".$refsText, 0, 1500);
+            }
         }
 
         return $result;
