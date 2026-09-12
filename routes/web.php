@@ -393,6 +393,7 @@ Route::middleware(['auth', 'verified', \App\Http\Middleware\EnsureSubscribedOrOr
     // Budget document extraction/import routes must be before Route::resource('budgets', ...).
     Route::post('budgets/extract', [BudgetController::class, 'extractImport'])->name('budgets.extract');
     Route::post('budgets/import/confirm', [BudgetController::class, 'confirmImport'])->name('budgets.import.confirm');
+    Route::post('budgets/{budget}/expense-status', [BudgetController::class, 'setExpenseStatus'])->name('budgets.expense-status');
 
     Route::resource('incomes', IncomeController::class);
     Route::resource('budgets', BudgetController::class);
