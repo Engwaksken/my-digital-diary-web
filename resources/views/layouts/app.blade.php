@@ -557,7 +557,7 @@
         overlay.style.setProperty('bottom', '0', 'important');
         overlay.style.setProperty('left', '0', 'important');
         overlay.style.setProperty('width', '100vw', 'important');
-        overlay.style.setProperty('height', '100dvh', 'important');
+        overlay.style.setProperty('height', 'var(--pm-modal-vh)', 'important');
         overlay.style.setProperty('display', 'flex', 'important');
         overlay.style.setProperty('align-items', 'center', 'important');
         overlay.style.setProperty('justify-content', 'center', 'important');
@@ -567,7 +567,8 @@
 
         const panel = overlay.querySelector(
             ':scope > .modal, :scope > .modal-dialog, :scope > .app-dialog, ' +
-            ':scope > .ajax-dialog, :scope > .church-modal-dialog, :scope > .birds-modal-dialog'
+            ':scope > .ajax-dialog, :scope > .church-modal-dialog, :scope > .birds-modal-dialog, ' +
+            ':scope > .dp-modal-panel, :scope > .sc-modal-panel'
         );
 
         if (panel) {
@@ -585,7 +586,8 @@
         document.querySelectorAll('dialog[open]').forEach(forceNativeDialogPosition);
 
         document.querySelectorAll(
-            '.modal-overlay, .app-modal, .ajax-modal, .member-modal-overlay, .church-modal, .birds-modal'
+            '.modal-overlay, .app-modal, .ajax-modal, .member-modal-overlay, .church-modal, .birds-modal, ' +
+            '.dp-modal-backdrop, .sc-modal'
         ).forEach(forceLegacyOverlayPosition);
     }
 
@@ -753,10 +755,11 @@ document.addEventListener('DOMContentLoaded', function () {
             '.modal-overlay.show, .modal-overlay.open, .modal-overlay.is-open,' +
             '.app-modal.show, .app-modal.open, .app-modal.is-open,' +
             '.ajax-modal.show, .ajax-modal.open, .ajax-modal.is-open,' +
-            '.member-modal-overlay.show, .member-modal-overlay.open, .member-modal-overlay.is-open,' +
-            '.church-modal.show, .church-modal.open, .church-modal.is-open,' +
-            '.birds-modal.show, .birds-modal.open, .birds-modal.is-open,' +
-            '.pm-component-modal-shell[style*="display: block"]'
+             '.member-modal-overlay.show, .member-modal-overlay.open, .member-modal-overlay.is-open,' +
+             '.church-modal.show, .church-modal.open, .church-modal.is-open,' +
+             '.birds-modal.show, .birds-modal.open, .birds-modal.is-open,' +
+             '.dp-modal-backdrop.is-open, .sc-modal.open,' +
+             '.pm-component-modal-shell[style*="display: block"]'
         );
 
         document.documentElement.classList.toggle('pm-modal-open', hasNative || hasLegacy);
@@ -764,6 +767,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     syncModalViewport();
+    markModalState();
     window.addEventListener('resize', syncModalViewport, { passive: true });
     window.addEventListener('orientationchange', syncModalViewport, { passive: true });
 
@@ -784,7 +788,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     document.addEventListener('focusin', (event) => {
-        if (event.target.closest('dialog, .modal-overlay, .app-modal, .ajax-modal, .member-modal-overlay, .church-modal, .birds-modal, .pm-component-modal-shell')) {
+        if (event.target.closest('dialog, .modal-overlay, .app-modal, .ajax-modal, .member-modal-overlay, .church-modal, .birds-modal, .dp-modal-backdrop, .sc-modal, .pm-component-modal-shell')) {
             setTimeout(syncModalViewport, 60);
             setTimeout(syncModalViewport, 260);
         }

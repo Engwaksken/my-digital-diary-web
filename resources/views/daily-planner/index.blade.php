@@ -1140,14 +1140,12 @@
         const modal = document.getElementById(id);
         if (!modal) return;
         modal.classList.add('is-open');
-        document.body.style.overflow = 'hidden';
     };
 
     window.closeDpModal = function(id) {
         const modal = document.getElementById(id);
         if (!modal) return;
         modal.classList.remove('is-open');
-        document.body.style.overflow = '';
     };
 
     window.toggleRepeatFields = function(prefix) {

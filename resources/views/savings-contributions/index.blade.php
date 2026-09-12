@@ -511,7 +511,6 @@ function openContributionModal() {
     document.getElementById('contributionNotes').value = '';
 
     contributionModal.classList.add('open');
-    document.body.style.overflow = 'hidden';
 }
 
 function editContributionFromButton(button) {
@@ -547,12 +546,10 @@ function editContribution(data) {
     document.getElementById('contributionNotes').value = data.notes || '';
 
     contributionModal.classList.add('open');
-    document.body.style.overflow = 'hidden';
 }
 
 function closeContributionModal() {
     contributionModal.classList.remove('open');
-    document.body.style.overflow = '';
 }
 
 function closeContributionModalOnBackdrop(event) {
