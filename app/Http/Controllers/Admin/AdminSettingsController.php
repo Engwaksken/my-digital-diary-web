@@ -13,6 +13,7 @@ use App\Models\MeetingPlatformConfig;
 use App\Models\SiteSetting;
 use App\Models\User;
 use App\Services\Ai\ActiveAiClient;
+use App\Services\LegalContentFormatter;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -493,11 +494,11 @@ class AdminSettingsController extends Controller
                     ]
                     ?? null
                 )
-                    ? trim(
+                    ? app(LegalContentFormatter::class)->sanitize(trim(
                         $data[
                             'privacy_policy_content'
                         ]
-                    )
+                    ))
                     : null;
         }
 
@@ -537,11 +538,11 @@ class AdminSettingsController extends Controller
                     ]
                     ?? null
                 )
-                    ? trim(
+                    ? app(LegalContentFormatter::class)->sanitize(trim(
                         $data[
                             'terms_of_use_content'
                         ]
-                    )
+                    ))
                     : null;
         }
 
@@ -935,11 +936,11 @@ class AdminSettingsController extends Controller
                 ]
                 ?? null
             )
-                ? trim(
+                ? app(LegalContentFormatter::class)->sanitize(trim(
                     $data[
                         'privacy_policy_content'
                     ]
-                )
+                ))
                 : null;
 
         $settings->privacy_policy_version =
@@ -997,11 +998,11 @@ class AdminSettingsController extends Controller
                 ]
                 ?? null
             )
-                ? trim(
+                ? app(LegalContentFormatter::class)->sanitize(trim(
                     $data[
                         'terms_of_use_content'
                     ]
-                )
+                ))
                 : null;
 
         $settings->terms_of_use_version =

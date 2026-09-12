@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\LegalContentFormatter;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 
@@ -188,11 +189,8 @@ class SiteSetting extends Model
      * Returns the admin-edited content if one has been saved, otherwise a
      * sensible starting default — so the /privacy-policy page never shows
      * blank just because an admin hasn't touched Settings yet. Stored and
-     * rendered as PLAIN TEXT (not raw HTML) deliberately — an admin-editable
-     * textarea that got rendered as unescaped HTML would be a stored-XSS
-     * risk on every visitor's browser. The page renders this with
-     * `white-space: pre-line` so blank lines between sections still read
-     * as paragraph breaks.
+     * rendered through LegalContentFormatter, which permits only the small
+     * structural tag set documented in Admin Settings.
      */
     public function privacyPolicyContent(): string
     {
@@ -264,6 +262,11 @@ WhatsApp: +256 704145972
 TEXT;
     }
 
+    public function privacyPolicyHtml(): string
+    {
+        return app(LegalContentFormatter::class)->render($this->privacyPolicyContent());
+    }
+
     public function termsOfUseContent(): string
     {
         return $this->terms_of_use_content ?: <<<'TEXT'
@@ -333,5 +336,10 @@ Email: info@digitaldiary.com
 Tel: +256 784675790
 WhatsApp: +256 704145972
 TEXT;
+    }
+
+    public function termsOfUseHtml(): string
+    {
+        return app(LegalContentFormatter::class)->render($this->termsOfUseContent());
     }
 }

@@ -1010,7 +1010,7 @@
                     @enderror
 
                     <p class="text-xs text-slate-400 mt-1">
-                        Use plain text and blank lines between sections.
+                        Plain text is supported. You may also use <code>&lt;h2&gt;</code> through <code>&lt;h6&gt;</code>, <code>&lt;strong&gt;</code>, <code>&lt;em&gt;</code>, <code>&lt;ul&gt;</code>, <code>&lt;ol&gt;</code> and <code>&lt;li&gt;</code>. All attributes and other HTML are removed.
                     </p>
                 </div>
 
@@ -1133,7 +1133,7 @@
                     @enderror
 
                     <p class="text-xs text-slate-400 mt-1">
-                        Use plain text and blank lines between sections.
+                        Plain text is supported. You may also use <code>&lt;h2&gt;</code> through <code>&lt;h6&gt;</code>, <code>&lt;strong&gt;</code>, <code>&lt;em&gt;</code>, <code>&lt;ul&gt;</code>, <code>&lt;ol&gt;</code> and <code>&lt;li&gt;</code>. All attributes and other HTML are removed.
                     </p>
                 </div>
 
