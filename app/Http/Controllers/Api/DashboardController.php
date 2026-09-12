@@ -152,6 +152,11 @@ class DashboardController extends Controller
                         : null,
                     'time' => $displayTime,
                     'is_completed' => (bool) ($item->is_completed ?? false),
+                    'repeat_type' => (string) ($item->repeat_type ?? 'once'),
+                    'is_recurring' => (string) ($item->repeat_type ?? 'once') !== 'once',
+                    'occurrence_date' => $item->occurrence_date
+                        ? Carbon::parse($item->occurrence_date)->toDateString()
+                        : null,
                     'plan_id' => $item->daily_plan_id
                         ?? $item->plan_id
                         ?? null,

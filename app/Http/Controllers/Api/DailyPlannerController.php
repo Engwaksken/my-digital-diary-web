@@ -336,7 +336,7 @@ class DailyPlannerController extends Controller
 
         $item->update($data);
 
-        $this->taskReminders->sync($item->fresh(), $request->user(), Carbon::parse($viewDate ?? $occurrenceDate ?? $targetDate ?? $oldDate));
+        $this->taskReminders->sync($item->fresh(), $request->user(), Carbon::parse($occurrenceDate ?? $targetDate ?? $oldDate));
 
         if (
             ! $item->isRecurring()

@@ -123,6 +123,8 @@ class TodayFocusTest extends TestCase
         $this->getJson('/api/dashboard/today-focus')
             ->assertOk()
             ->assertJsonPath('meta.count', 1)
+            ->assertJsonPath('data.0.repeat_type', 'daily')
+            ->assertJsonPath('data.0.occurrence_date', now()->toDateString())
             ->assertJsonFragment(['title' => 'Take vitamins']);
     }
 }

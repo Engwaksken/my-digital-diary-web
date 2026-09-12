@@ -4,14 +4,10 @@ declare(strict_types=1);
 
 use App\Http\Controllers\AiFormAssistController;
 use App\Http\Controllers\SocialMediaPlannerController;
-use App\Http\Controllers\Api\DailyStepController;
 use App\Http\Controllers\Api\EngagementController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth:sanctum'])->group(function (): void {
-    // Step history must be declared before any resource-style wildcard route.
-    Route::get('wellbeing/steps/history', [DailyStepController::class, 'history']);
-
     // Flutter AI-assisted forms, including Spiritual Growth.
     Route::post('ai/form-assist', [AiFormAssistController::class, 'generate']);
 

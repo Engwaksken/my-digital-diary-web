@@ -244,6 +244,14 @@ Route::middleware(['auth:sanctum', 'mobile.idempotent'])->name('api.')->group(fu
     Route::post('budgets/import/confirm', [BudgetController::class, 'confirmImport'])->name('budgets.import.confirm');
     Route::post('dashboard/today-insight/refresh', [DashboardController::class, 'refreshTodayInsight'])->name('dashboard.today-insight.refresh');
 
+    // These literal routes must precede the wellbeing apiResource below,
+    // otherwise its /wellbeing/{id} route treats "steps" as a record ID.
+    Route::get('wellbeing/steps', [\App\Http\Controllers\Api\DailyStepController::class, 'show']);
+    Route::get('wellbeing/steps/history', [\App\Http\Controllers\Api\DailyStepController::class, 'history']);
+    Route::post('wellbeing/steps/start', [\App\Http\Controllers\Api\DailyStepController::class, 'start']);
+    Route::post('wellbeing/steps/stop', [\App\Http\Controllers\Api\DailyStepController::class, 'stop']);
+    Route::post('wellbeing/steps/sync', [\App\Http\Controllers\Api\DailyStepController::class, 'sync']);
+
     // Full module set — every web CRUD module now has a matching JSON
     // endpoint here, following the exact same ApiCrudController pattern.
     Route::get('reminders/due-now', [\App\Http\Controllers\Api\ReminderController::class, 'dueNow']);
