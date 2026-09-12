@@ -1885,10 +1885,10 @@ html body .pm-component-modal-body {
         right: auto !important;
         bottom: auto !important;
         left: 50% !important;
-        width: calc(100vw - 32px) !important;
-        max-width: 680px !important;
-        height: calc(var(--pm-modal-vh) - 32px) !important;
-        max-height: calc(var(--pm-modal-vh) - 32px) !important;
+        width: calc(100vw - 16px) !important;
+        max-width: calc(100vw - 16px) !important;
+        height: calc(var(--pm-modal-vh) - 16px) !important;
+        max-height: calc(var(--pm-modal-vh) - 16px) !important;
         margin: 0 !important;
         overflow: hidden !important;
         transform: translate(-50%, -50%) !important;
@@ -1909,5 +1909,9 @@ html body .pm-component-modal-body {
         overflow-y: auto !important;
         overscroll-behavior: contain !important;
         -webkit-overflow-scrolling: touch !important;
+    }
+
+    html body #crud-modal[open] .pm-modal-footer {
+        flex: 0 0 auto !important;
     }
 }
