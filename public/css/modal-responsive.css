@@ -1793,25 +1793,25 @@ html body .pm-component-modal-body {
     }
 }
 
-/* Phones: fill the usable viewport with small safe gutters. */
+/* Phones: center within the usable viewport while retaining safe gutters. */
 @media (max-width: 640px) {
     :root {
         --pm-modal-edge: 8px;
     }
 
     html body dialog[open] {
-        top: max(8px, env(safe-area-inset-top)) !important;
-        right: max(8px, env(safe-area-inset-right)) !important;
-        bottom: max(8px, env(safe-area-inset-bottom)) !important;
-        left: max(8px, env(safe-area-inset-left)) !important;
+        top: 50% !important;
+        right: auto !important;
+        bottom: auto !important;
+        left: 50% !important;
 
-        width: auto !important;
+        width: calc(100vw - 16px) !important;
         height: auto !important;
-        max-width: none !important;
-        max-height: none !important;
+        max-width: calc(100vw - 16px) !important;
+        max-height: calc(var(--pm-modal-vh) - 16px) !important;
 
         margin: 0 !important;
-        transform: none !important;
+        transform: translate(-50%, -50%) !important;
     }
 
     html body dialog[open] > form,
@@ -1819,8 +1819,8 @@ html body .pm-component-modal-body {
     html body dialog[open] > .pm-modal-panel,
     html body dialog[open] > .modal-content,
     html body dialog[open] .pm-modal-form {
-        max-height: 100% !important;
-        height: 100% !important;
+        max-height: calc(var(--pm-modal-vh) - 16px) !important;
+        height: auto !important;
     }
 
     html body dialog[open] .pm-modal-body,
