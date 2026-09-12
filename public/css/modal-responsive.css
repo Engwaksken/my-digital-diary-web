@@ -1875,3 +1875,39 @@ html body .pm-component-modal-body {
         }
     }
 }
+
+/* The shared CRUD create/edit form can contain many fields. On phones it
+   needs a definite viewport-bounded height so its flex body scrolls rather
+   than expanding below the screen and taking the footer with it. */
+@media (max-width: 640px) {
+    html body #crud-modal[open] {
+        top: 50% !important;
+        right: auto !important;
+        bottom: auto !important;
+        left: 50% !important;
+        width: calc(100vw - 32px) !important;
+        max-width: 680px !important;
+        height: calc(var(--pm-modal-vh) - 32px) !important;
+        max-height: calc(var(--pm-modal-vh) - 32px) !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+        transform: translate(-50%, -50%) !important;
+    }
+
+    html body #crud-modal[open] > #crud-modal-form {
+        height: 100% !important;
+        max-height: 100% !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+    }
+
+    html body #crud-modal[open] .pm-modal-body {
+        flex: 1 1 0 !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        overscroll-behavior: contain !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+}
