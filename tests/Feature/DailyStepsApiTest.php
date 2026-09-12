@@ -32,6 +32,12 @@ class DailyStepsApiTest extends TestCase
 
         $this->postJson('/api/wellbeing/steps/stop')
             ->assertOk()
-            ->assertJsonPath('data.is_tracking', false);
+            ->assertJsonPath('data.is_tracking', false)
+            ->assertJsonPath('data.steps', 125);
+
+        $this->postJson('/api/wellbeing/steps/start')
+            ->assertOk()
+            ->assertJsonPath('data.is_tracking', true)
+            ->assertJsonPath('data.steps', 125);
     }
 }
