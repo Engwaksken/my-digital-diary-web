@@ -450,6 +450,8 @@ class SubscriptionController extends Controller
             'subscription_expires_at' => $plan ? $this->expiryFor($plan, $user) : null,
         ]);
 
+        app(\App\Services\SubscriptionAdminNotificationService::class)->notify($user);
+
         if ($plan) {
             $this->ensureOrganizationForPlan($user, $plan);
         }
@@ -951,6 +953,8 @@ class SubscriptionController extends Controller
                 // for still relevant.
                 'last_expiry_reminder_days' => null,
             ]);
+
+            app(\App\Services\SubscriptionAdminNotificationService::class)->notify($user);
 
             if ($plan) {
                 $this->ensureOrganizationForPlan($user, $plan);

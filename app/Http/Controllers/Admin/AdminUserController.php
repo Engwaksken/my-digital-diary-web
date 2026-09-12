@@ -321,6 +321,10 @@ class AdminUserController extends Controller
             return $user;
         });
 
+        if ((string) $user->subscription_status === 'active') {
+            app(\App\Services\SubscriptionAdminNotificationService::class)->notify($user);
+        }
+
         $setupEmailSent = false;
 
         if ($sendSetup) {
@@ -574,6 +578,8 @@ class AdminUserController extends Controller
                 ]);
         }
 
+        $subscriptionActivated = false;
+
         try {
             DB::transaction(function () use (
                 $user,
@@ -582,7 +588,8 @@ class AdminUserController extends Controller
                 $plan,
                 $startedAt,
                 $expiresAt,
-                $trialEndsAt
+                $trialEndsAt,
+                &$subscriptionActivated
             ): void {
                 $updates = [];
 
@@ -653,6 +660,14 @@ class AdminUserController extends Controller
 
                 if ($updates !== []) {
                     $user->forceFill($updates)->save();
+
+                    $subscriptionActivated = (string) $user->subscription_status === 'active'
+                        && $user->wasChanged([
+                            'subscription_status',
+                            'subscription_plan_id',
+                            'subscription_started_at',
+                            'subscription_expires_at',
+                        ]);
                 }
 
                 if (
@@ -676,6 +691,10 @@ class AdminUserController extends Controller
                     }
                 }
             });
+
+            if ($subscriptionActivated) {
+                app(\App\Services\SubscriptionAdminNotificationService::class)->notify($user->fresh());
+            }
 
             return redirect()
                 ->route('admin.users.index')
@@ -887,6 +906,18 @@ class AdminUserController extends Controller
                             }
 
                             $user->save();
+
+                            if (
+                                (string) $user->subscription_status === 'active'
+                                && $user->wasChanged([
+                                    'subscription_status',
+                                    'subscription_plan_id',
+                                    'subscription_started_at',
+                                    'subscription_expires_at',
+                                ])
+                            ) {
+                                app(\App\Services\SubscriptionAdminNotificationService::class)->notify($user);
+                            }
                             break;
 
                         case 'suspend':

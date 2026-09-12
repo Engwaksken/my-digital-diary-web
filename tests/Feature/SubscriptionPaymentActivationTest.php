@@ -5,8 +5,11 @@ namespace Tests\Feature;
 use App\Models\IoTecSubscriptionTransaction;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Http\Controllers\Admin\AdminUserController;
 use App\Services\SubscriptionPaymentActivationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -63,5 +66,79 @@ class SubscriptionPaymentActivationTest extends TestCase
             'payment_id' => $paymentId,
             'status' => 'paid',
         ]);
+    }
+
+    public function test_successful_iotec_activation_notifies_every_admin_in_app(): void
+    {
+        Notification::fake();
+
+        $firstAdmin = User::factory()->create(['role' => 'admin']);
+        $secondAdmin = User::factory()->create(['role' => 'admin']);
+        $superAdmin = User::factory()->create(['role' => 'super_admin']);
+        $subscriber = User::factory()->create();
+        $plan = SubscriptionPlan::create([
+            'key' => 'admin-notification-monthly',
+            'name' => 'Admin Notification Monthly',
+            'duration_months' => 1,
+            'discount_percent' => 0,
+            'flat_price' => 100,
+            'is_enabled' => true,
+            'sort_order' => 99,
+        ]);
+        $transaction = IoTecSubscriptionTransaction::create([
+            'user_id' => $subscriber->id,
+            'subscription_plan_id' => $plan->id,
+            'external_id' => (string) Str::uuid(),
+            'payment_channel' => 'mobile_money',
+            'payer' => '256700000000',
+            'amount' => 100,
+            'currency' => 'UGX',
+            'status' => 'success',
+            'paid_at' => now(),
+        ]);
+
+        app(SubscriptionPaymentActivationService::class)->activateFromIoTec($transaction);
+
+        Notification::assertSentTo($firstAdmin, \App\Notifications\SubscriptionActivatedNotification::class, function ($notification, array $channels) use ($subscriber) {
+            return $notification->subscriber->is($subscriber) && $channels === ['database'];
+        });
+        Notification::assertSentTo($secondAdmin, \App\Notifications\SubscriptionActivatedNotification::class, function ($notification, array $channels) use ($subscriber) {
+            return $notification->subscriber->is($subscriber) && $channels === ['database'];
+        });
+        Notification::assertSentTo($superAdmin, \App\Notifications\SubscriptionActivatedNotification::class, function ($notification, array $channels) use ($subscriber) {
+            return $notification->subscriber->is($subscriber) && $channels === ['database'];
+        });
+        Notification::assertNotSentTo($subscriber, \App\Notifications\SubscriptionActivatedNotification::class);
+    }
+
+    public function test_admin_granting_an_active_subscription_notifies_admins_in_app(): void
+    {
+        Notification::fake();
+
+        $admin = User::factory()->create(['role' => 'admin']);
+        $subscriber = User::factory()->create(['subscription_status' => 'trial']);
+        $plan = SubscriptionPlan::create([
+            'key' => 'admin-granted-monthly',
+            'name' => 'Admin Granted Monthly',
+            'duration_months' => 1,
+            'discount_percent' => 0,
+            'flat_price' => 100,
+            'is_enabled' => true,
+            'sort_order' => 99,
+        ]);
+
+        app(AdminUserController::class)->updateSubscription(
+            Request::create('/', 'PUT', [
+                'subscription_status' => 'active',
+                'subscription_plan_id' => $plan->id,
+                'subscription_started_at' => now()->toDateString(),
+                'subscription_expires_at' => now()->addMonth()->toDateString(),
+            ]),
+            $subscriber
+        );
+
+        Notification::assertSentTo($admin, \App\Notifications\SubscriptionActivatedNotification::class, function ($notification, array $channels) use ($subscriber) {
+            return $notification->subscriber->is($subscriber) && $channels === ['database'];
+        });
     }
 }

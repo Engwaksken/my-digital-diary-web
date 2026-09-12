@@ -66,6 +66,8 @@ class SubscriptionPaymentActivationService
 
             $transaction->forceFill($transactionUpdates)->save();
 
+            app(SubscriptionAdminNotificationService::class)->notify($user);
+
             return $user->fresh();
         });
     }

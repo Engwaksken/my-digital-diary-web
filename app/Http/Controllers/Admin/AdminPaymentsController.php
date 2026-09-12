@@ -124,6 +124,8 @@ class AdminPaymentsController extends Controller
             'last_expiry_reminder_days' => null,
         ]);
 
+        app(\App\Services\SubscriptionAdminNotificationService::class)->notify($user);
+
         if ($plan && ! $plan->isIndividual()) {
             $organization = \App\Models\Organization::where('owner_user_id', $user->id)->first();
             if ($organization) {

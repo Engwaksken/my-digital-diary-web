@@ -117,6 +117,8 @@ class PaymentGatewayWebhookController extends Controller
                     'last_expiry_reminder_days' => null,
                 ]);
 
+                app(\App\Services\SubscriptionAdminNotificationService::class)->notify($user);
+
                 // Same "a Family/Team or Organization plan needs an
                 // actual Organization row to manage seats against" logic
                 // as SubscriptionController::ensureOrganizationForPlan() —
