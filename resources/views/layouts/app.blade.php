@@ -765,6 +765,24 @@ document.addEventListener('DOMContentLoaded', function () {
         return 'Enter ' + (label || 'a value') + '.';
     }
 
+    function addPlaceholder(field) {
+        if (field.hasAttribute('placeholder')) return;
+
+        var type = (field.type || field.tagName).toLowerCase();
+        var label = getLabel(field).replace(/\(required\)/gi, '').trim().toLowerCase();
+        var placeholder = null;
+
+        if (field.tagName.toLowerCase() === 'textarea') placeholder = 'Enter ' + (label || 'details') + '...';
+        else if (type === 'email') placeholder = 'name@example.com';
+        else if (type === 'url') placeholder = 'https://example.com';
+        else if (type === 'number') placeholder = 'Enter a number';
+        else if (type === 'password') placeholder = 'Enter your password';
+        else if (type === 'search') placeholder = 'Search ' + (label || '...');
+        else if (type === 'text') placeholder = 'Enter ' + (label || 'a value');
+
+        if (placeholder) field.setAttribute('placeholder', placeholder);
+    }
+
     function addHints(root) {
         (root || document).querySelectorAll('dialog input, dialog select, dialog textarea, ' +
             '.modal-overlay input, .modal-overlay select, .modal-overlay textarea, ' +
@@ -778,6 +796,8 @@ document.addEventListener('DOMContentLoaded', function () {
             var type = (field.type || '').toLowerCase();
             if (ignoredTypes.indexOf(type) !== -1 || field.hasAttribute('data-no-hint')) return;
             if (field.parentElement && field.parentElement.classList.contains('pm-modal-field-with-hint')) return;
+
+            addPlaceholder(field);
 
             var describedBy = (field.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
             if (describedBy.some(function (id) {
