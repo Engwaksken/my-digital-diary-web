@@ -107,4 +107,27 @@ class MeetingController extends ApiCrudController
 
         return response()->json($meeting);
     }
+
+    /**
+     * Do not use ApiCrudController's builder delete here. Meeting deletion
+     * events preserve external markers on copies before the source FK clears.
+     */
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $ids = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ])['ids'];
+
+        $meetings = Meeting::where('user_id', $request->user()->id)
+            ->whereIn('id', $ids)
+            ->get();
+
+        $meetings->each->delete();
+
+        return response()->json([
+            'message' => "{$meetings->count()} item(s) deleted.",
+            'deleted' => $meetings->count(),
+        ]);
+    }
 }

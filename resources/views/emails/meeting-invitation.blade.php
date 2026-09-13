@@ -13,6 +13,14 @@
 @endif
 @endcomponent
 
+@if ($meeting->diary_join_url)
+@component('mail::button', ['url' => $meeting->diary_join_url])
+Join in My Digital Diary
+@endcomponent
+
+This link requires you to sign in with the email address that received this invitation.
+@endif
+
 @if ($meeting->notes)
 {{ $meeting->notes }}
 @endif

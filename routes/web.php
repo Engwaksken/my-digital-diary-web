@@ -235,6 +235,11 @@ Route::middleware(['auth'])->group(function () {
         ->name('profile.social-media.accounts.destroy');
     Route::put('/profile/social-media/whatsapp', [SocialMediaAccountController::class, 'updateWhatsApp'])
         ->name('profile.social-media.whatsapp');
+    // Invitees may not have a subscription, but must be authenticated; the
+    // controller verifies that the current account owns or was invited to it.
+    Route::get('meetings/{meeting}/join', [MeetingController::class, 'join'])
+        ->middleware('verified')
+        ->name('meetings.join');
 });
 
 Route::middleware(['auth', 'verified', \App\Http\Middleware\EnsureSubscribedOrOrganizationMember::class])->group(function () {

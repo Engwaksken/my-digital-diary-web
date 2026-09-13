@@ -117,6 +117,10 @@ class User extends Authenticatable implements MustVerifyEmail
                 $user->trial_ends_at = now()->addDays($trialDays);
             }
         });
+
+        static::deleting(function (User $user) {
+            Meeting::preserveExternalClassificationForUser($user);
+        });
     }
 
     /**

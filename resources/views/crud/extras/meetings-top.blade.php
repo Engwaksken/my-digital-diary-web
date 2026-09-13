@@ -12,9 +12,16 @@
                     <p class="text-sm text-slate-600">{{ $nearestMeeting->start_at->format('D, M j · g:i A') }}@if($nearestMeeting->end_at) – {{ $nearestMeeting->end_at->format('g:i A') }}@endif</p>
                 </div>
             </div>
-            <button type="button" onclick="pmOpenMeetingsCalendar()" class="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 shrink-0">
-                <i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Open calendar
-            </button>
+            <div class="flex flex-wrap gap-2 shrink-0">
+                @if ($nearestMeeting->canBeJoinedBy(auth()->user()))
+                    <a href="{{ $nearestMeeting->diary_join_url }}" class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                        <i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i> Join in My Digital Diary
+                    </a>
+                @endif
+                <button type="button" onclick="pmOpenMeetingsCalendar()" class="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+                    <i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Open calendar
+                </button>
+            </div>
         </div>
     </section>
 @endif
@@ -71,16 +78,10 @@
     }
 
     $calendarUser = auth()->user();
-    $calendarMeetings = \App\Models\Meeting::query()
-        ->where(function ($q) use ($calendarUser) {
-            $q->where('user_id', $calendarUser->id);
-            if ($calendarUser->email) {
-                $q->orWhere('attendees', 'like', '%' . $calendarUser->email . '%');
-            }
-        })
-        ->whereBetween('start_at', [now()->startOfMonth(), now()->addMonths(18)->endOfMonth()])
-        ->orderBy('start_at')
-        ->get();
+    $calendarMeetings = \App\Models\Meeting::visibleTo($calendarUser)
+        ->filter(fn ($meeting) => $meeting->start_at?->between(now()->startOfMonth(), now()->addMonths(18)->endOfMonth()))
+        ->sortBy('start_at')
+        ->values();
 
     $calendarCopiedIds = \App\Models\Meeting::query()
         ->where('user_id', $calendarUser->id)
@@ -100,7 +101,8 @@
             'source' => $source,
             'status' => method_exists($meeting, 'displayStatus') ? $meeting->displayStatus() : ($meeting->meeting_status ?: $meeting->status),
             'location' => $location,
-            'join_url' => filter_var($location, FILTER_VALIDATE_URL) ? $location : null,
+            'diary_join_url' => $meeting->canBeJoinedBy($calendarUser) ? $meeting->diary_join_url : null,
+            'external_url' => $meeting->safe_external_url,
             'is_owner' => (int) $meeting->user_id === (int) $calendarUser->id,
             'already_added' => in_array((int) $meeting->id, $calendarCopiedIds, true),
             'add_url' => route('meetings.add-to-calendar', $meeting->id),
@@ -330,7 +332,7 @@
                     (event.location ? '<div class="text-sm text-slate-600 mt-1"><i class="fa-solid fa-location-dot mr-1"></i>' + escapeHtml(event.location) + '</div>' : '') +
                     '<div class="text-xs text-slate-400 mt-2">Status: ' + escapeHtml(event.status || 'scheduled') + '</div>' +
                 '</div>' +
-                '<div class="flex flex-col items-end gap-2">' + (event.join_url ? '<a href="' + escapeHtml(event.join_url) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-2 bg-[var(--brand-1)] text-white px-3 py-2 rounded-lg text-xs font-semibold"><i class="fa-solid fa-video"></i> Open / Join</a>' : '') + addAction + '</div>' +
+                '<div class="flex flex-col items-end gap-2">' + (event.diary_join_url ? '<a href="' + escapeHtml(event.diary_join_url) + '" class="inline-flex items-center gap-2 bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-emerald-700"><i class="fa-solid fa-arrow-right-to-bracket"></i> Join in My Digital Diary</a>' : '') + (event.external_url ? '<a href="' + escapeHtml(event.external_url) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-2 bg-[var(--brand-1)] text-white px-3 py-2 rounded-lg text-xs font-semibold"><i class="fa-solid fa-arrow-up-right-from-square"></i> Open external link</a>' : '') + addAction + '</div>' +
             '</div>';
         detail.classList.remove('hidden');
     }

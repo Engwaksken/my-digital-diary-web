@@ -446,13 +446,39 @@ class MeetingController extends CrudController
      */
     private function visibleMeetingsQuery(Request $request): Builder
     {
-        $userId = $request->user()->id;
-        $email = $request->user()->email;
+        $ids = Meeting::visibleTo($request->user())->pluck('id');
 
-        return Meeting::where(function (Builder $query) use ($userId, $email) {
-            $query->where('user_id', $userId)
-                ->orWhere('attendees', 'like', '%' . $email . '%');
-        });
+        // A copied external meeting normally has its source markers copied
+        // onto itself. Load a bounded legacy ancestry chain too, so older
+        // multi-level copies do not issue one source query per row while the
+        // index and its stats determine their classification.
+        return Meeting::query()->whereKey($ids)->with(
+            'copiedFrom.copiedFrom.copiedFrom.copiedFrom.copiedFrom.copiedFrom'
+        );
+    }
+
+    /**
+     * Use model deletion events rather than a builder delete: a source
+     * meeting must pass its external markers to existing copies before the
+     * database nulls their copied_from_meeting_id foreign key.
+     */
+    public function bulkDestroy(Request $request)
+    {
+        $ids = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ])['ids'];
+
+        $meetings = Meeting::where('user_id', $request->user()->id)
+            ->whereIn('id', $ids)
+            ->get();
+
+        $meetings->each->delete();
+        $deleted = $meetings->count();
+
+        return back()->with('success', $deleted === 1
+            ? '1 Meeting deleted.'
+            : "{$deleted} Meetings deleted.");
     }
 
     public function index(Request $request)
@@ -538,11 +564,10 @@ class MeetingController extends CrudController
             return back()->with('info', 'This meeting is already in your Meetings calendar.');
         }
 
-        $emails = collect(preg_split('/[,;\s]+/', (string) $source->attendees))
-            ->map(fn ($email) => strtolower(trim($email)))
-            ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL));
-
-        abort_unless($user->email && $emails->contains(strtolower($user->email)), 403);
+        abort_unless(
+            $user->email && $source->attendeeEmails()->contains(strtolower(trim($user->email))),
+            403
+        );
 
         $alreadyAdded = Meeting::where('user_id', $user->id)
             ->where('copied_from_meeting_id', $source->id)
@@ -562,32 +587,59 @@ class MeetingController extends CrudController
             'attendees' => $source->attendees,
             'status' => $source->status,
             'notes' => $source->notes,
+            // Keep the source classification on the copy. The foreign key is
+            // nullified when its source is deleted, so relying on the relation
+            // alone would incorrectly turn a copied external event into a
+            // diary-created meeting.
+            'external_platform' => $source->external_platform,
+            'external_id' => $source->external_id,
+            'calendar_provider' => $source->calendar_provider,
+            'external_calendar_id' => $source->external_calendar_id,
+            'external_event_id' => $source->external_event_id,
+            'external_series_id' => $source->external_series_id,
         ]);
 
         return back()->with('success', 'Meeting added to your Meetings calendar.');
     }
 
+    /**
+     * A diary join is intentionally only a protected landing route; it does
+     * not provision or connect to a video-call service.
+     */
+    public function join(Request $request, Meeting $meeting)
+    {
+        abort_unless($meeting->isInternallyCreated(), 404);
+        abort_unless($meeting->canBeJoinedBy($request->user()), 403);
+
+        return view('meetings.join', ['meeting' => $meeting]);
+    }
+
     protected function stats(Request $request): array
     {
-        $base = $this->visibleMeetingsQuery($request)->where('status', 'scheduled');
+        $meetings = $this->visibleMeetingsQuery($request)
+            ->get()
+            ->filter(fn (Meeting $meeting) => $meeting->isInternallyCreated());
 
         return [
-            ['label' => 'Today', 'value' => (string) (clone $base)->whereDate('start_at', now()->toDateString())->count(), 'icon' => 'fa-solid fa-calendar-day', 'color' => 'blue'],
-            ['label' => 'Next 7 days', 'value' => (string) (clone $base)->whereBetween('start_at', [now(), now()->addDays(7)])->count(), 'icon' => 'fa-solid fa-calendar-week', 'color' => 'sky'],
-            ['label' => 'Total scheduled', 'value' => (string) $base->count(), 'icon' => 'fa-solid fa-calendar-days', 'color' => 'indigo'],
+            ['label' => 'Total', 'value' => (string) $meetings->count(), 'icon' => 'fa-solid fa-calendar-days', 'color' => 'indigo'],
+            ['label' => 'Upcoming', 'value' => (string) $meetings->filter(fn (Meeting $meeting) => $meeting->status === 'scheduled' && $meeting->start_at?->greaterThanOrEqualTo(now()))->count(), 'icon' => 'fa-solid fa-calendar-week', 'color' => 'sky'],
+            ['label' => 'Completed', 'value' => (string) $meetings->where('status', 'completed')->count(), 'icon' => 'fa-solid fa-circle-check', 'color' => 'emerald'],
+            ['label' => 'Invited attendees', 'value' => (string) $meetings->flatMap(fn (Meeting $meeting) => $meeting->attendeeEmails())->unique()->count(), 'icon' => 'fa-solid fa-users', 'color' => 'blue'],
         ];
     }
 
     protected function chart(Request $request): ?array
     {
         $days = collect(range(0, 6))->map(fn ($d) => now()->addDays($d)->startOfDay());
-
-        $counts = $days->map(function ($day) use ($request) {
-            return (clone $this->visibleMeetingsQuery($request))
-                ->where('status', 'scheduled')
-                ->whereDate('start_at', $day->toDateString())
-                ->count();
-        });
+        $visibleIds = Meeting::visibleTo($request->user())->pluck('id');
+        $countsByDate = Meeting::query()
+            ->whereKey($visibleIds)
+            ->where('status', 'scheduled')
+            ->whereBetween('start_at', [$days->first(), $days->last()->copy()->endOfDay()])
+            ->selectRaw('DATE(start_at) as meeting_date, COUNT(*) as aggregate')
+            ->groupBy('meeting_date')
+            ->pluck('aggregate', 'meeting_date');
+        $counts = $days->map(fn ($day) => (int) ($countsByDate[$day->toDateString()] ?? 0));
 
         if ($counts->sum() <= 0) {
             return null;
@@ -787,9 +839,7 @@ class MeetingController extends CrudController
 
     private function sendInvitations(Meeting $meeting, string $organizerName): void
     {
-        $emails = collect(explode(',', (string) $meeting->attendees))
-            ->map(fn ($email) => trim($email))
-            ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL));
+        $emails = $meeting->attendeeEmails();
 
         foreach ($emails as $email) {
             Mail::to($email)->send(new MeetingInvitationMail($meeting, $organizerName));

@@ -87,6 +87,54 @@ class MeetingCalendarSyncTest extends TestCase
         $this->assertSame($current->id, $view->getData()['nearestMeeting']->id);
     }
 
+    public function test_stats_only_count_internal_diary_meetings_and_their_invitees(): void
+    {
+        $user = User::factory()->create();
+
+        Meeting::create([
+            'user_id' => $user->id,
+            'title' => 'Upcoming diary meeting',
+            'start_at' => now()->addDay(),
+            'status' => 'scheduled',
+            'attendees' => 'one@example.com; two@example.com',
+        ]);
+        Meeting::create([
+            'user_id' => $user->id,
+            'title' => 'Completed diary meeting',
+            'start_at' => now()->subDay(),
+            'status' => 'completed',
+            'attendees' => "two@example.com\nthree@example.com",
+        ]);
+        $external = Meeting::create([
+            'user_id' => $user->id,
+            'title' => 'Imported meeting',
+            'start_at' => now()->addDay(),
+            'status' => 'scheduled',
+            'attendees' => 'external@example.com',
+            'external_platform' => 'google',
+            'external_id' => 'external-event',
+        ]);
+        Meeting::create([
+            'user_id' => $user->id,
+            'copied_from_meeting_id' => $external->id,
+            'title' => 'Copied imported meeting',
+            'start_at' => now()->addDay(),
+            'status' => 'scheduled',
+            'attendees' => 'copied-external@example.com',
+        ]);
+
+        $request = Request::create(route('meetings.index'), 'GET');
+        $request->setUserResolver(fn () => $user);
+        $stats = app(MeetingController::class)->index($request)->getData()['stats'];
+
+        $this->assertSame([
+            'Total' => '2',
+            'Upcoming' => '1',
+            'Completed' => '1',
+            'Invited attendees' => '3',
+        ], collect($stats)->pluck('value', 'label')->all());
+    }
+
     public function test_invited_user_can_add_meeting_once_but_owner_and_unauthorized_user_cannot(): void
     {
         $owner = User::factory()->create(['email' => 'owner@example.com']);
@@ -130,5 +178,29 @@ class MeetingCalendarSyncTest extends TestCase
 
         app(MeetingController::class)->addToCalendar($request, $meeting->id);
         $this->assertSame(1, Meeting::where('user_id', $invitee->id)->where('copied_from_meeting_id', $meeting->id)->count());
+    }
+
+    public function test_invited_visibility_requires_an_exact_normalized_attendee_email(): void
+    {
+        $owner = User::factory()->create(['email' => 'owner@example.com']);
+        $invitee = User::factory()->create(['email' => 'attendee@example.com']);
+
+        $exact = Meeting::create([
+            'user_id' => $owner->id, 'title' => 'Exact invite', 'start_at' => now()->addDay(),
+            'status' => 'scheduled', 'attendees' => ' OTHER@example.com; attendee@example.com ',
+        ]);
+        Meeting::create([
+            'user_id' => $owner->id, 'title' => 'Substring only', 'start_at' => now()->addDay(),
+            'status' => 'scheduled', 'attendees' => 'attendee@example.com.evil',
+        ]);
+
+        $request = Request::create(route('meetings.index'), 'GET');
+        $request->setUserResolver(fn () => $invitee);
+        $view = app(MeetingController::class)->index($request);
+
+        $items = $view->getData()['items']->getCollection();
+        $this->assertCount(1, $items);
+        $this->assertSame($exact->id, $items->first()->id);
+        $this->assertSame('1', collect($view->getData()['stats'])->firstWhere('label', 'Total')['value']);
     }
 }

@@ -558,14 +558,14 @@
                                 @if ($isMeetingLinkField)
                                     @php
                                         $meetingLinkValue = trim((string) ($value ?? ''));
-                                        $meetingLinkIsUrl = $meetingLinkValue !== '' && filter_var($meetingLinkValue, FILTER_VALIDATE_URL);
+                                        $meetingSafeExternalUrl = $item->safe_external_url;
                                     @endphp
                                     @if ($meetingLinkValue === '')
                                         <span class="text-slate-400"></span>
-                                    @elseif ($meetingLinkIsUrl)
-                                        <a href="{{ $meetingLinkValue }}" target="_blank" rel="noopener noreferrer"
-                                           class="inline-flex items-center gap-1 text-[var(--brand-1)] hover:underline font-medium"
-                                           title="{{ $meetingLinkValue }}">
+                                    @elseif ($meetingSafeExternalUrl)
+                                        <a href="{{ $meetingSafeExternalUrl }}" target="_blank" rel="noopener noreferrer"
+                                            class="inline-flex items-center gap-1 text-[var(--brand-1)] hover:underline font-medium"
+                                           title="{{ $meetingSafeExternalUrl }}">
                                             <i class="fa-solid fa-arrow-up-right-from-square text-[10px]" aria-hidden="true"></i>
                                             View link
                                         </a>
