@@ -477,11 +477,94 @@ class MeetingController extends CrudController
             ? \App\Models\MeetingPlatformConfig::where('is_enabled', true)->get()
             : collect();
 
+        $nearestMeeting = (clone $query)
+            ->where('status', 'scheduled')
+            ->get()
+            ->filter(function (Meeting $meeting) {
+                $now = now();
+                return ($meeting->start_at && $meeting->start_at->greaterThanOrEqualTo($now))
+                    || ($meeting->start_at && $meeting->end_at
+                        && $meeting->start_at->lessThanOrEqualTo($now)
+                        && $meeting->end_at->greaterThanOrEqualTo($now));
+            })
+            ->sortBy(function (Meeting $meeting) {
+                $now = now();
+                return $meeting->start_at->greaterThan($now)
+                    ? $meeting->start_at->timestamp
+                    : $now->timestamp - 1;
+            })
+            ->first();
+
         return $this->renderIndex($request, $query, [
             'connections' => $connections,
             'enabledPlatforms' => $enabledPlatforms,
             'statusFilter' => $statusFilter,
-        ], fn ($q) => $q->orderBy('start_at'), 100);
+            'nearestMeeting' => $nearestMeeting,
+        ], function ($q) {
+            // Sort the already-filtered result set in PHP so the current
+            // user's timezone and every supported database agree on what is
+            // current, upcoming, and past; then preserve that order in SQL
+            // for pagination.
+            $now = now();
+            $records = (clone $q)->get()->all();
+            usort($records, function (Meeting $a, Meeting $b) use ($now) {
+                $bucket = function (Meeting $meeting) use ($now): int {
+                    $start = $meeting->start_at?->timestamp;
+                    $end = $meeting->end_at?->timestamp;
+                    $current = $now->timestamp;
+                    if ($start !== null && $end !== null && $start <= $current && $end >= $current) return 0;
+                    return $start !== null && $start >= $current ? 1 : 2;
+                };
+                $bucketCompare = $bucket($a) <=> $bucket($b);
+                if ($bucketCompare !== 0) return $bucketCompare;
+                return $bucket($a) === 2
+                    ? $b->start_at->timestamp <=> $a->start_at->timestamp
+                    : $a->start_at->timestamp <=> $b->start_at->timestamp;
+            });
+            $orderedIds = collect($records)->pluck('id')->values();
+
+            if ($orderedIds->isNotEmpty()) {
+                $q->reorder()->orderByRaw('CASE id '.collect($orderedIds)->map(fn ($id, $i) => "WHEN {$id} THEN {$i}")->implode(' ').' ELSE 999999 END');
+            }
+        }, 100);
+    }
+
+    public function addToCalendar(Request $request, int $meeting): RedirectResponse
+    {
+        $user = $request->user();
+        $source = Meeting::findOrFail($meeting);
+
+        if ((int) $source->user_id === (int) $user->id) {
+            return back()->with('info', 'This meeting is already in your Meetings calendar.');
+        }
+
+        $emails = collect(preg_split('/[,;\s]+/', (string) $source->attendees))
+            ->map(fn ($email) => strtolower(trim($email)))
+            ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL));
+
+        abort_unless($user->email && $emails->contains(strtolower($user->email)), 403);
+
+        $alreadyAdded = Meeting::where('user_id', $user->id)
+            ->where('copied_from_meeting_id', $source->id)
+            ->exists();
+
+        if ($alreadyAdded) {
+            return back()->with('info', 'This meeting is already in your Meetings calendar.');
+        }
+
+        Meeting::create([
+            'user_id' => $user->id,
+            'copied_from_meeting_id' => $source->id,
+            'title' => $source->title,
+            'start_at' => $source->start_at,
+            'end_at' => $source->end_at,
+            'location' => $source->location,
+            'attendees' => $source->attendees,
+            'status' => $source->status,
+            'notes' => $source->notes,
+        ]);
+
+        return back()->with('success', 'Meeting added to your Meetings calendar.');
     }
 
     protected function stats(Request $request): array

@@ -725,10 +725,19 @@
                             @else
                                 {{-- Visible because it's shared with this user (e.g. a Meeting they're
                                      an attendee on), but not theirs to edit or delete. --}}
-                                <span class="text-xs text-slate-400 italic inline-flex items-center gap-1">
-                                    <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
-                                    Shared with you
-                                </span>
+                                @if ($routeName === 'meetings')
+                                    <form method="POST" action="{{ route('meetings.add-to-calendar', $item->id) }}" class="inline">
+                                        @csrf
+                                        <button type="submit" class="inline-flex items-center gap-1 text-amber-600 hover:text-amber-800 text-xs font-semibold" title="Add to your Meetings calendar">
+                                            <i class="fa-solid fa-calendar-plus" aria-hidden="true"></i> Add to my calendar
+                                        </button>
+                                    </form>
+                                @else
+                                    <span class="text-xs text-slate-400 italic inline-flex items-center gap-1">
+                                        <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
+                                        Shared with you
+                                    </span>
+                                @endif
                             @endif
                         </td>
                     </tr>

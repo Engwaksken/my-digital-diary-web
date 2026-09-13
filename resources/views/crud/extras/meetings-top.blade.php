@@ -1,4 +1,23 @@
 {{-- Meetings status filters + My Meetings Calendar modal + external calendar authorisation. --}}
+@if (!empty($nearestMeeting))
+    <section class="mb-4 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-4 shadow-sm" aria-label="Nearest meeting">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div class="flex items-start gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-white text-blue-600 flex items-center justify-center shrink-0 shadow-sm">
+                    <i class="fa-solid fa-bell" aria-hidden="true"></i>
+                </div>
+                <div class="min-w-0">
+                    <p class="text-xs font-bold uppercase tracking-wide text-blue-700">{{ $nearestMeeting->start_at->isPast() ? 'Happening now' : 'Next meeting' }}</p>
+                    <h2 class="text-lg font-bold text-slate-800 truncate">{{ $nearestMeeting->title }}</h2>
+                    <p class="text-sm text-slate-600">{{ $nearestMeeting->start_at->format('D, M j · g:i A') }}@if($nearestMeeting->end_at) – {{ $nearestMeeting->end_at->format('g:i A') }}@endif</p>
+                </div>
+            </div>
+            <button type="button" onclick="pmOpenMeetingsCalendar()" class="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 shrink-0">
+                <i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Open calendar
+            </button>
+        </div>
+    </section>
+@endif
 <div class="flex flex-wrap gap-2 mb-4">
     @foreach (['' => 'All', 'scheduled' => 'Upcoming', 'completed' => 'Completed', 'cancelled' => 'Cancelled', 'missed' => 'Missed'] as $value => $label)
         <a href="{{ route('meetings.index', array_merge(request()->except('status_filter', 'page'), $value ? ['status_filter' => $value] : [])) }}"
@@ -63,6 +82,13 @@
         ->orderBy('start_at')
         ->get();
 
+    $calendarCopiedIds = \App\Models\Meeting::query()
+        ->where('user_id', $calendarUser->id)
+        ->whereNotNull('copied_from_meeting_id')
+        ->pluck('copied_from_meeting_id')
+        ->map(fn ($id) => (int) $id)
+        ->all();
+
     $calendarEvents = $calendarMeetings->map(function ($meeting) use ($calendarUser) {
         $source = $meeting->external_platform ?: (($meeting->user_id === $calendarUser->id) ? 'diary' : 'shared');
         $location = (string) ($meeting->location ?? '');
@@ -75,6 +101,9 @@
             'status' => method_exists($meeting, 'displayStatus') ? $meeting->displayStatus() : ($meeting->meeting_status ?: $meeting->status),
             'location' => $location,
             'join_url' => filter_var($location, FILTER_VALIDATE_URL) ? $location : null,
+            'is_owner' => (int) $meeting->user_id === (int) $calendarUser->id,
+            'already_added' => in_array((int) $meeting->id, $calendarCopiedIds, true),
+            'add_url' => route('meetings.add-to-calendar', $meeting->id),
         ];
     })->values();
 @endphp
@@ -286,6 +315,12 @@
         if (!detail) return;
         const start = event.start ? new Date(event.start).toLocaleString() : '';
         const end = event.end ? new Date(event.end).toLocaleString() : '';
+        const addAction = event.is_owner || event.already_added
+            ? ''
+            : '<form method="POST" action="' + escapeHtml(event.add_url) + '" class="mt-3">' +
+                '<input type="hidden" name="_token" value="' + escapeHtml(@json(csrf_token())) + '">' +
+                '<button type="submit" class="inline-flex items-center gap-2 bg-amber-500 text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-amber-600"><i class="fa-solid fa-calendar-plus"></i> Add to my calendar</button>' +
+              '</form>';
         detail.innerHTML =
             '<div class="flex items-start justify-between gap-3">' +
                 '<div>' +
@@ -295,7 +330,7 @@
                     (event.location ? '<div class="text-sm text-slate-600 mt-1"><i class="fa-solid fa-location-dot mr-1"></i>' + escapeHtml(event.location) + '</div>' : '') +
                     '<div class="text-xs text-slate-400 mt-2">Status: ' + escapeHtml(event.status || 'scheduled') + '</div>' +
                 '</div>' +
-                (event.join_url ? '<a href="' + escapeHtml(event.join_url) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-2 bg-[var(--brand-1)] text-white px-3 py-2 rounded-lg text-xs font-semibold"><i class="fa-solid fa-video"></i> Open / Join</a>' : '') +
+                '<div class="flex flex-col items-end gap-2">' + (event.join_url ? '<a href="' + escapeHtml(event.join_url) + '" target="_blank" rel="noopener" class="inline-flex items-center gap-2 bg-[var(--brand-1)] text-white px-3 py-2 rounded-lg text-xs font-semibold"><i class="fa-solid fa-video"></i> Open / Join</a>' : '') + addAction + '</div>' +
             '</div>';
         detail.classList.remove('hidden');
     }

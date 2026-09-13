@@ -10,7 +10,7 @@ class Meeting extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id', 'title', 'start_at', 'end_at', 'location', 'attendees', 'status', 'notes',
+        'user_id', 'copied_from_meeting_id', 'title', 'start_at', 'end_at', 'location', 'attendees', 'status', 'notes',
         'external_platform', 'external_id', 'meeting_status', 'is_archived',
         'recurrence_frequency', 'recurrence_days_of_week', 'recurrence_ends_at', 'recurrence_parent_id',
         'calendar_provider', 'external_calendar_id', 'external_event_id', 'external_series_id',
@@ -45,6 +45,11 @@ class Meeting extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function copiedFrom()
+    {
+        return $this->belongsTo(Meeting::class, 'copied_from_meeting_id');
     }
 
     public function recordings()
