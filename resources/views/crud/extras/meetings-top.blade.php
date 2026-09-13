@@ -89,7 +89,7 @@
         ->map(fn ($id) => (int) $id)
         ->all();
 
-    $calendarEvents = $calendarMeetings->map(function ($meeting) use ($calendarUser) {
+    $calendarEvents = $calendarMeetings->map(function ($meeting) use ($calendarUser, $calendarCopiedIds) {
         $source = $meeting->external_platform ?: (($meeting->user_id === $calendarUser->id) ? 'diary' : 'shared');
         $location = (string) ($meeting->location ?? '');
         return [
