@@ -795,7 +795,10 @@ document.addEventListener('DOMContentLoaded', function () {
             '.sc-modal input, .sc-modal select, .sc-modal textarea').forEach(function (field) {
             var type = (field.type || '').toLowerCase();
             if (ignoredTypes.indexOf(type) !== -1 || field.hasAttribute('data-no-hint')) return;
-            if (field.parentElement && field.parentElement.classList.contains('pm-modal-field-with-hint')) return;
+
+            var host = field.parentElement;
+            if (host && host.classList.contains('flex') && host.parentElement) host = host.parentElement;
+            if (host && host.querySelector(':scope > .pm-modal-field-hint')) return;
 
             addPlaceholder(field);
 
@@ -809,12 +812,7 @@ document.addEventListener('DOMContentLoaded', function () {
             hint.className = 'pm-modal-field-hint';
             hint.id = (field.id || field.name || 'modal-field') + '-hint';
             hint.textContent = getHint(field);
-
-            var wrapper = document.createElement('span');
-            wrapper.className = 'pm-modal-field-with-hint';
-            field.parentNode.insertBefore(wrapper, field);
-            wrapper.appendChild(field);
-            wrapper.appendChild(hint);
+            host.appendChild(hint);
             field.setAttribute('aria-describedby', describedBy.concat(hint.id).join(' '));
         });
     }

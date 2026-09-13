@@ -8,6 +8,21 @@
     @endforeach
 </div>
 
+<section class="mb-4 rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" aria-label="Create a diary meeting">
+    <div class="flex items-start gap-3 min-w-0">
+        <div class="w-9 h-9 rounded-lg bg-white text-emerald-600 flex items-center justify-center shrink-0 shadow-sm">
+            <i class="fa-solid fa-calendar-plus" aria-hidden="true"></i>
+        </div>
+        <div class="min-w-0">
+            <p class="text-sm font-semibold text-slate-800">Create a meeting in My Digital Diary</p>
+            <p class="text-xs text-slate-600 mt-0.5">Schedule it here and invite attendees by email without connecting an external meeting platform.</p>
+        </div>
+    </div>
+    <button type="button" onclick="openCrudCreateModal()" class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 shrink-0">
+        <i class="fa-solid fa-plus" aria-hidden="true"></i> Create meeting
+    </button>
+</section>
+
 @php
     /*
      * Do not depend on CrudController passing meeting-connection variables.

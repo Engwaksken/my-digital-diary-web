@@ -93,7 +93,7 @@ class MeetingController extends CrudController
         ]],
 
         ['name' => 'location', 'label' => 'Location / Video Link', 'type' => 'text', 'placeholder' => 'e.g. Conference Room B, or a Zoom/Meet link'],
-        ['name' => 'attendees', 'label' => 'Attendees', 'type' => 'text', 'hint' => 'Comma-separated emails — invited users can see the meeting on their own Meetings page.'],
+        ['name' => 'attendees', 'label' => 'Attendees', 'type' => 'text', 'placeholder' => 'name@example.com, colleague@example.com', 'hint' => 'Optional. Add comma-separated email addresses. No Google, Zoom, or other platform is required.'],
 
         ['name' => 'status', 'label' => 'Status', 'type' => 'select', 'required' => true, 'options' => [
             'scheduled' => 'Scheduled',
