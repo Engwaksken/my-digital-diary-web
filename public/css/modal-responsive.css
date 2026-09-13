@@ -1876,3 +1876,33 @@ dialog .modal-footer a {
             none !important;
     }
 }
+
+/* Generated field guidance for modal forms. */
+dialog .pm-modal-field-with-hint,
+.modal-overlay .pm-modal-field-with-hint,
+.app-modal .pm-modal-field-with-hint,
+.ajax-modal .pm-modal-field-with-hint,
+.member-modal-overlay .pm-modal-field-with-hint,
+.church-modal .pm-modal-field-with-hint,
+.birds-modal .pm-modal-field-with-hint,
+.dp-modal-backdrop .pm-modal-field-with-hint,
+.sc-modal .pm-modal-field-with-hint {
+    display: block;
+    min-width: 0;
+}
+
+dialog .pm-modal-field-hint,
+.modal-overlay .pm-modal-field-hint,
+.app-modal .pm-modal-field-hint,
+.ajax-modal .pm-modal-field-hint,
+.member-modal-overlay .pm-modal-field-hint,
+.church-modal .pm-modal-field-hint,
+.birds-modal .pm-modal-field-hint,
+.dp-modal-backdrop .pm-modal-field-hint,
+.sc-modal .pm-modal-field-hint {
+    display: block;
+    margin-top: 6px;
+    color: var(--pm-modal-muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
