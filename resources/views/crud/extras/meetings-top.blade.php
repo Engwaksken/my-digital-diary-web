@@ -44,7 +44,7 @@
                 $q->orWhere('attendees', 'like', '%' . $calendarUser->email . '%');
             }
         })
-        ->whereBetween('start_at', [now()->subMonths(6)->startOfMonth(), now()->addMonths(18)->endOfMonth()])
+        ->whereBetween('start_at', [now()->startOfMonth(), now()->addMonths(18)->endOfMonth()])
         ->orderBy('start_at')
         ->get();
 

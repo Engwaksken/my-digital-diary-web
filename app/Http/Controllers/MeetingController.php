@@ -481,7 +481,7 @@ class MeetingController extends CrudController
             'connections' => $connections,
             'enabledPlatforms' => $enabledPlatforms,
             'statusFilter' => $statusFilter,
-        ], fn ($q) => $q->orderBy('start_at'), 10);
+        ], fn ($q) => $q->orderBy('start_at'), 100);
     }
 
     protected function stats(Request $request): array

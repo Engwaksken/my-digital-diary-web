@@ -91,7 +91,8 @@
                         Plan: <strong>{{ $user->subscriptionPlan->name }}</strong>.
                     @endif
                     @if ($user->subscription_expires_at)
-                        Renews/expires <strong>{{ $user->subscription_expires_at->format('Y-m-d') }}</strong>.
+                        Renews/expires <strong>{{ $user->subscription_expires_at->format('Y-m-d') }}</strong>
+                        (<x-countdown :date="$user->subscription_expires_at" />).
                     @elseif ($user->subscriptionPlan && $user->subscriptionPlan->isLifetime())
                         Lifetime access never expires.
                     @endif
@@ -170,6 +171,7 @@
                                             <div class="rounded-xl bg-white/80 border border-emerald-100 p-3">
                                                 <p class="text-xs text-slate-400 uppercase tracking-wide">Next renewal</p>
                                                 <p class="font-semibold text-slate-800 mt-1">{{ $user->subscription_expires_at->format('Y-m-d') }}</p>
+                                                <x-countdown :date="$user->subscription_expires_at" />
                                             </div>
                                             <div class="rounded-xl bg-white/80 border border-emerald-100 p-3">
                                                 <p class="text-xs text-slate-400 uppercase tracking-wide">Network</p>

@@ -107,7 +107,12 @@
                     </div>
                     @if($plan->description)<p class="text-sm text-slate-500 mt-1">{{ $plan->description }}</p>@endif
                     <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-slate-500">
-                        @if($plan->target_date)<span><i class="fa-solid fa-flag-checkered mr-1"></i>Target {{ $plan->target_date->format('d M Y') }}</span>@endif
+                        @if($plan->target_date)
+                            <span>
+                                <i class="fa-solid fa-flag-checkered mr-1"></i>Target {{ $plan->target_date->format('d M Y') }}
+                                <x-countdown :date="$plan->target_date" />
+                            </span>
+                        @endif
                         @if($plan->reminder_at)<span><i class="fa-solid fa-bell mr-1"></i>{{ $plan->reminder_at->format('d M Y, g:i A') }}</span>@endif
                     </div>
                     <div class="flex items-center gap-3 mt-3"><div class="h-2 bg-slate-100 rounded-full overflow-hidden flex-1"><div class="h-full bg-[var(--brand-1)]" style="width:{{ $plan->progress_percent }}%"></div></div><span class="text-sm font-semibold">{{ $plan->progress_percent }}%</span></div>

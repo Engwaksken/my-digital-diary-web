@@ -20,6 +20,11 @@ class ExternalCalendarSyncService
      */
     public function syncUser(int $userId, ?Carbon $from = null, ?Carbon $to = null, ?string $provider = null, bool $includeRecurring = true): array
     {
+        // Calendar history is intentionally never imported.  Apply this at
+        // the service boundary so web, API, OAuth callback, and scheduled
+        // sync callers all share the same lower bound.
+        $from = $this->currentMonthStart($from);
+
         $connections = UserMeetingConnection::where('user_id', $userId)
             ->when($provider, fn ($q) => $q->where('platform', $provider))
             ->get();
@@ -49,6 +54,11 @@ class ExternalCalendarSyncService
      */
     public function syncConnection(UserMeetingConnection $connection, ?Carbon $from = null, ?Carbon $to = null, bool $includeRecurring = true): array
     {
+        $from = $this->currentMonthStart($from);
+        if ($to && $to->lessThan($from)) {
+            return ['imported' => 0, 'updated' => 0];
+        }
+
         $platform = $connection->platform;
         // Existing user connections can continue syncing with their current
         // access token even if the administrator later disables NEW OAuth
@@ -81,7 +91,7 @@ class ExternalCalendarSyncService
         // period again here for every provider. This guarantees that the
         // user's From/To dates are respected consistently.
         if ($from || $to) {
-            $rangeStart = ($from ?: now()->subMonths(6))->copy()->startOfDay();
+            $rangeStart = $from->copy()->startOfDay();
             $rangeEnd = ($to ?: $rangeStart->copy()->addMonth())->copy()->endOfDay();
 
             $events = array_values(array_filter($events, function (array $event) use ($rangeStart, $rangeEnd): bool {
@@ -188,7 +198,7 @@ class ExternalCalendarSyncService
     {
         $calendarList = $this->getJsonWithToken($connection, 'https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250');
         $events = [];
-        $timeMin = ($from ?: now()->subMonths(6))->copy()->startOfDay()->toIso8601String();
+        $timeMin = ($from ?: $this->currentMonthStart())->copy()->startOfDay()->toIso8601String();
         $timeMax = ($to ?: now()->addMonths(18))->copy()->endOfDay()->toIso8601String();
 
         foreach ($calendarList['items'] ?? [] as $calendar) {
@@ -246,7 +256,7 @@ class ExternalCalendarSyncService
         $events = [];
         $url = 'https://graph.microsoft.com/v1.0/me/calendarView';
         $query = [
-            'startDateTime' => ($from ?: now()->subMonths(6))->copy()->startOfDay()->utc()->toIso8601String(),
+            'startDateTime' => ($from ?: $this->currentMonthStart())->copy()->startOfDay()->utc()->toIso8601String(),
             'endDateTime' => ($to ?: now()->addMonths(18))->copy()->endOfDay()->utc()->toIso8601String(),
             '$top' => 100,
             '$orderby' => 'start/dateTime',
@@ -381,5 +391,14 @@ class ExternalCalendarSyncService
         }
 
         return Carbon::parse($value)->setTimezone(config('app.timezone'));
+    }
+
+    private function currentMonthStart(?Carbon $from = null): Carbon
+    {
+        $minimum = now()->startOfMonth();
+
+        return $from && $from->greaterThan($minimum)
+            ? $from->copy()
+            : $minimum;
     }
 }

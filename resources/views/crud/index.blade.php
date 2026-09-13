@@ -143,6 +143,17 @@
         </div>
     @endif
 
+    @php
+        $countdownDateFields = [
+            'projects' => 'deadline',
+            'personal-goals' => 'target_date',
+            'health-checkups' => 'next_due_date',
+            'debts' => 'due_date',
+            'education-plans' => 'target_completion_date',
+        ];
+        $countdownField = $countdownDateFields[$routeName] ?? null;
+    @endphp
+
     @if (!empty($chart))
         @php
             // Built as a plain string here rather than nesting loop/conditional
@@ -614,7 +625,10 @@
                                     @endphp
                                     {{ $displayTime }}
                                 @elseif (is_object($value) && method_exists($value, 'format'))
-                                    {{ $field['type'] === 'datetime-local' ? $value->format('d M Y, g:i A') : $value->format('Y-m-d') }}
+                                    <span class="block">{{ $field['type'] === 'datetime-local' ? $value->format('d M Y, g:i A') : $value->format('Y-m-d') }}</span>
+                                    @if ($field['name'] === $countdownField)
+                                        <x-countdown :date="$value" />
+                                    @endif
                                 @elseif (is_array($value) || $value instanceof \Illuminate\Support\Collection)
                                     @php
                                         $arrayValue = $value instanceof \Illuminate\Support\Collection ? $value->all() : $value;
