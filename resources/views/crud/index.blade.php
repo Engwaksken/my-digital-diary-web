@@ -76,8 +76,10 @@
                 @php
                     $statColor = $stat['color'] ?? $accent;
                     $statIcon = $stat['icon'] ?? $icon;
+                    $statRoute = $stat['route'] ?? ($stat['url'] ?? ($stat['link'] ?? null));
                 @endphp
-                <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-{{ $statColor }}-400 p-4 hover:shadow-md transition-shadow">
+                @if ($statRoute)
+                    <a href="{{ $statRoute }}" class="pm-card-bg rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-{{ $statColor }}-400 p-4 hover:shadow-md transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--brand-1)]">
                     <div class="flex items-center gap-3">
                         <div class="w-9 h-9 rounded-lg bg-{{ $statColor }}-50 text-{{ $statColor }}-600 flex items-center justify-center shrink-0">
                             <i class="{{ $statIcon }} text-sm" aria-hidden="true"></i>
@@ -87,7 +89,20 @@
                             <p class="text-xl font-bold text-slate-800 truncate">{{ $stat['value'] }}</p>
                         </div>
                     </div>
-                </div>
+                    </a>
+                @else
+                    <div class="pm-card-bg rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-{{ $statColor }}-400 p-4 hover:shadow-md transition-shadow">
+                        <div class="flex items-center gap-3">
+                            <div class="w-9 h-9 rounded-lg bg-{{ $statColor }}-50 text-{{ $statColor }}-600 flex items-center justify-center shrink-0">
+                                <i class="{{ $statIcon }} text-sm" aria-hidden="true"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <p class="text-xs text-slate-500 uppercase tracking-wide truncate">{{ $stat['label'] }}</p>
+                                <p class="text-xl font-bold text-slate-800 truncate">{{ $stat['value'] }}</p>
+                            </div>
+                        </div>
+                    </div>
+                @endif
             @endforeach
         </div>
     @endif
