@@ -449,6 +449,9 @@
                             <p class="font-semibold text-slate-700 mt-0.5">
                                 {{ $item->target_date ? \Illuminate\Support\Carbon::parse($item->target_date)->format('d M Y') : 'No date' }}
                             </p>
+                            @if ($item->target_date)
+                                 <x-countdown :date="$item->target_date" :status="$item->status" />
+                            @endif
                         </div>
                     </div>
 
@@ -626,8 +629,8 @@
                                     {{ $displayTime }}
                                 @elseif (is_object($value) && method_exists($value, 'format'))
                                     <span class="block">{{ $field['type'] === 'datetime-local' ? $value->format('d M Y, g:i A') : $value->format('Y-m-d') }}</span>
-                                    @if ($field['name'] === $countdownField)
-                                        <x-countdown :date="$value" />
+                                    @if ($field['name'] === $countdownField && !($routeName === 'debts' && $item->status === 'paid'))
+                                        <x-countdown :date="$value" :status="$item->status ?? null" />
                                     @endif
                                 @elseif (is_array($value) || $value instanceof \Illuminate\Support\Collection)
                                     @php

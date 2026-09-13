@@ -110,7 +110,7 @@
                         @if($plan->target_date)
                             <span>
                                 <i class="fa-solid fa-flag-checkered mr-1"></i>Target {{ $plan->target_date->format('d M Y') }}
-                                <x-countdown :date="$plan->target_date" />
+                                <x-countdown :date="$plan->target_date" :status="$plan->status" />
                             </span>
                         @endif
                         @if($plan->reminder_at)<span><i class="fa-solid fa-bell mr-1"></i>{{ $plan->reminder_at->format('d M Y, g:i A') }}</span>@endif
