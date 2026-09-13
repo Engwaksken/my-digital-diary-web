@@ -1,75 +1,52 @@
 /*
- * Modal + form system — v2
- *
- * What changed vs the previous pass:
- *  - Visual layer refreshed to a calmer, "soft UI" look: larger radius,
- *    layered low-opacity shadows instead of one hard shadow, a slower
- *    ease-out curve on every transition, and a touch-friendly 44–48px
- *    control height everywhere instead of the old fixed 44/42px pair.
- *  - Sizing is fluid: dialog width/padding/type now scale continuously
- *    with clamp() instead of jumping between three fixed breakpoints, so
- *    a foldable, a small tablet, or an ultra-wide monitor all get a
- *    result tuned for their actual viewport instead of the nearest step.
- *  - Every selector, id and class hook from the previous file is kept
- *    (including the legacy .modal-overlay/.app-modal/.church-modal/etc.
- *    family and the per-module #crud-modal/#meeting-modal/... ids), so
- *    no Blade/JS needs to change for this to apply.
- *  - The positioning/lifecycle rules in sections 1–4 and the two "guard"
- *    blocks are functional bug fixes (see their original comments) and
- *    are kept as-is in substance — only tokens/values were tuned.
- */
+|--------------------------------------------------------------------------
+| My Digital Diary - Universal Modal System
+|--------------------------------------------------------------------------
+| Responsive native <dialog> + legacy overlay modal styling.
+| Desktop: centred modal.
+| Tablet: viewport bounded.
+| Phone: safe edge gutters, one-column forms, scrollable body,
+|        full-width action buttons and mobile keyboard safety.
+|--------------------------------------------------------------------------
+*/
 
 :root {
     --pm-modal-text: #0f172a;
     --pm-modal-muted: #64748b;
-    --pm-modal-border: #e6eaf0;
-    --pm-modal-border-strong: #d7dee8;
-    --pm-modal-surface: #ffffff;
+
+    --pm-modal-border: #e5e7eb;
+    --pm-modal-border-strong: #cbd5e1;
+
+    --pm-modal-bg: #ffffff;
     --pm-modal-soft: #f8fafc;
+
     --pm-modal-danger: #e11d48;
+
     --pm-modal-radius: 20px;
-    --pm-modal-radius-sm: 14px;
+    --pm-modal-radius-mobile: 16px;
 
-    /* Layered, low-opacity shadow reads as "soft" instead of a single
-       hard drop shadow — a wide diffuse layer for lift, a tighter one
-       for definition, and a hairline to keep the edge crisp on light
-       backgrounds. */
-    --pm-modal-shadow:
-        0 32px 80px -16px rgba(15, 23, 42, 0.24),
-        0 10px 28px -10px rgba(15, 23, 42, 0.14),
-        0 0 0 1px rgba(15, 23, 42, 0.03);
     --pm-modal-z: 99990;
+    --pm-overlay-z: 99980;
 
-    /* Shared easing so every open/close, hover and focus transition in
-       the modal system feels like one deliberate motion language rather
-       than a pile of ad-hoc durations. */
-    --pm-ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --pm-modal-shadow:
+        0 30px 80px rgba(15, 23, 42, 0.20),
+        0 10px 30px rgba(15, 23, 42, 0.10);
+
     --pm-duration: 0.22s;
+    --pm-ease: cubic-bezier(0.16, 1, 0.3, 1);
 
     --pm-field-radius: 12px;
     --pm-field-height: 46px;
-    --pm-field-height-sm: 42px;
 }
 
-/* --------------------------------------------------------------------------
-   1. PAGE / BOX SAFETY
-   -------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   PAGE SAFETY
+   ========================================================================== */
 
 html,
 body {
     max-width: 100%;
-}
-
-dialog *,
-.pm-modal-shell *,
-.modal-overlay *,
-.app-modal *,
-.ajax-modal *,
-.member-modal-overlay *,
-.church-modal *,
-.birds-modal * {
-    box-sizing: border-box;
-    min-width: 0;
 }
 
 html.pm-modal-open,
@@ -77,212 +54,183 @@ body.pm-modal-open,
 html.modal-open,
 body.modal-open {
     overflow: hidden !important;
-    overscroll-behavior: none;
+    overscroll-behavior: none !important;
 }
 
-/*
- * GUARD: a `position: fixed` dialog is only positioned relative to the
- * VIEWPORT if every ancestor is free of `transform`, `filter`,
- * `perspective` and `will-change`. If any wrapper between <body> and
- * the dialog picks one of those up (a page-transition wrapper, a
- * sidebar animation, a Tailwind `transform` utility left on by
- * default, etc.) the dialog silently re-anchors to that ancestor
- * instead of the screen — which is what produces a modal that renders
- * correctly on desktop but is shifted/clipped on phone. This forces
- * those properties off on the most likely ancestors the instant a
- * modal is open, so the viewport stays the dialog's containing block
- * no matter what page-level CSS does.
- */
-html.pm-modal-open body,
-html.pm-modal-open #main-content,
-html.pm-modal-open .flex-1,
-html.pm-modal-open main,
-html.pm-modal-open #pm-app-shell,
-html.modal-open body,
-html.modal-open #main-content,
-html.modal-open .flex-1,
-html.modal-open main,
-html.modal-open #pm-app-shell {
-    transform: none !important;
-    filter: none !important;
-    perspective: none !important;
-    will-change: auto !important;
+
+/* Everything inside a modal must be allowed to shrink */
+dialog *,
+.modal-overlay *,
+.app-modal *,
+.ajax-modal *,
+.member-modal-overlay *,
+.church-modal *,
+.birds-modal *,
+.dp-modal-backdrop *,
+.sc-modal * {
+    box-sizing: border-box;
+    min-width: 0;
 }
 
-/* --------------------------------------------------------------------------
-   2. NATIVE DIALOG LIFECYCLE
-   -------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   NATIVE DIALOG
+   ========================================================================== */
 
 dialog:not([open]) {
     display: none !important;
 }
 
-/*
- * Every open native dialog is positioned relative to the VIEWPORT,
- * never relative to the sidebar or the main content column.
- *
- * Using top/left 50% + translate is deliberate: previous inset/margin
- * combinations were being overridden by page-level CRUD rules.
- *
- * Width is now `clamp(min, fluid, max)` instead of a single fixed
- * `min(680px, calc(100vw - 40px))`: it keeps the same viewport-safety
- * guarantee (never wider than the screen minus a 40px gutter) while
- * growing/shrinking smoothly with the viewport rather than sitting at
- * one width until a breakpoint flips it.
- */
-dialog[open] {
-    display: block !important;
 
+dialog[open] {
     position: fixed !important;
-    /* IMPORTANT: do not use `inset:auto` after top/left.
-       The inset shorthand would reset top/left and cancel centring. */
+
     top: 50% !important;
     left: 50% !important;
+
     right: auto !important;
     bottom: auto !important;
 
-    transform: translate(-50%, -50%) !important;
-    margin: 0 !important;
-    padding: 0 !important;
-
-    box-sizing: border-box !important;
-
     width: clamp(320px, 92vw, 680px) !important;
+
     min-width: 0 !important;
     max-width: calc(100vw - 40px) !important;
 
     height: auto !important;
+    min-height: 0 !important;
     max-height: calc(100dvh - 40px) !important;
 
+    margin: 0 !important;
+    padding: 0 !important;
+
     overflow: hidden !important;
-    overscroll-behavior: contain;
 
     border: 1px solid var(--pm-modal-border) !important;
     border-radius: var(--pm-modal-radius) !important;
 
-    background: var(--pm-modal-surface) !important;
+    background: var(--pm-modal-bg) !important;
     color: var(--pm-modal-text) !important;
 
     box-shadow: var(--pm-modal-shadow) !important;
+
+    transform: translate(-50%, -50%) !important;
+
     z-index: var(--pm-modal-z) !important;
 
-    animation: pm-modal-in var(--pm-duration) var(--pm-ease) both;
+    animation:
+        pm-modal-open
+        var(--pm-duration)
+        var(--pm-ease)
+        both;
 }
 
-@keyframes pm-modal-in {
-    from {
-        opacity: 0;
-        transform: translate(-50%, -50%) scale(0.97) !important;
-    }
-    to {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(1) !important;
-    }
-}
 
 dialog::backdrop {
-    background: rgba(15, 23, 42, .58) !important;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    animation: pm-backdrop-in var(--pm-duration) var(--pm-ease) both;
+    background: rgba(15, 23, 42, 0.58) !important;
+
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+
+    animation:
+        pm-backdrop-open
+        var(--pm-duration)
+        var(--pm-ease)
+        both;
 }
 
-@keyframes pm-backdrop-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
+
+@keyframes pm-modal-open {
+    from {
+        opacity: 0;
+
+        transform:
+            translate(-50%, -50%)
+            scale(0.97);
+    }
+
+    to {
+        opacity: 1;
+
+        transform:
+            translate(-50%, -50%)
+            scale(1);
+    }
 }
 
-/* --------------------------------------------------------------------------
-   3. NATIVE DIALOG SIZE CLASSES
-   -------------------------------------------------------------------------- */
 
-dialog.pm-dialog-sm[open],
-dialog[open].pm-dialog-sm {
+@keyframes pm-backdrop-open {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+
+/* ==========================================================================
+   DIALOG SIZES
+   ========================================================================== */
+
+dialog.pm-dialog-sm[open] {
     width: clamp(300px, 88vw, 420px) !important;
 }
 
-dialog.pm-dialog-quick[open],
-dialog[open].pm-dialog-quick {
+
+dialog.pm-dialog-quick[open] {
     width: clamp(300px, 90vw, 520px) !important;
 }
 
-dialog.pm-dialog[open],
-dialog[open].pm-dialog {
+
+dialog.pm-dialog[open] {
     width: clamp(320px, 92vw, 680px) !important;
 }
 
-dialog.pm-dialog-lg[open],
-dialog[open].pm-dialog-lg {
+
+dialog.pm-dialog-lg[open] {
     width: clamp(320px, 94vw, 840px) !important;
 }
 
-dialog.pm-dialog-xl[open],
-dialog[open].pm-dialog-xl {
+
+dialog.pm-dialog-xl[open] {
     width: clamp(320px, 96vw, 1040px) !important;
 }
 
-/* Known application dialogs inherit the same contract. */
+
+/* Known application dialogs */
 #crud-modal[open],
 #crud-view-modal[open],
 #crud-delete-modal[open],
 #meeting-modal[open],
 #expense-modal[open],
 #annualPlanModal[open],
-#reminder-alarm-modal[open],
-#confirm-modal[open] {
+#confirm-modal[open],
+#reminder-alarm-modal[open] {
     max-width: calc(100vw - 40px) !important;
 }
 
 
-/* --------------------------------------------------------------------------
-   3A. DESKTOP / TABLET TRUE VIEWPORT CENTRING
-   --------------------------------------------------------------------------
-   Do NOT add `inset:auto` to this rule. `inset` is a shorthand for
-   top/right/bottom/left and would erase the 50% coordinates below.
-   -------------------------------------------------------------------------- */
-@media (min-width: 641px) {
-    dialog[open],
-    dialog.pm-modal-shell[open],
-    dialog[class*="pm-dialog"][open],
-    #crud-modal[open],
-    #crud-view-modal[open],
-    #crud-delete-modal[open],
-    #meeting-modal[open],
-    #expense-modal[open],
-    #annualPlanModal[open],
-    #reminder-alarm-modal[open],
-    #confirm-modal[open] {
-        position: fixed !important;
-
-        top: 50% !important;
-        left: 50% !important;
-        right: auto !important;
-        bottom: auto !important;
-
-        margin: 0 !important;
-        transform: translate(-50%, -50%) !important;
-        transform-origin: center center !important;
-    }
-}
-
-/* --------------------------------------------------------------------------
-   4. INNER FORM / CARD
-   -------------------------------------------------------------------------- */
+/* ==========================================================================
+   MODAL STRUCTURE
+   ========================================================================== */
 
 dialog[open] > form,
 dialog[open] > .pm-modal-content,
 dialog[open] > .pm-modal-panel,
-dialog[open] .pm-modal-form,
-dialog[open] .pm-modal-content,
-dialog[open] .pm-modal-panel {
+dialog[open] > .modal-content,
+dialog[open] .pm-modal-form {
     display: flex !important;
     flex-direction: column !important;
 
     width: 100% !important;
+
     min-width: 0 !important;
     max-width: 100% !important;
 
     height: auto !important;
+
+    min-height: 0 !important;
     max-height: calc(100dvh - 40px) !important;
 
     margin: 0 !important;
@@ -290,21 +238,20 @@ dialog[open] .pm-modal-panel {
 
     overflow: hidden !important;
 
-    background: var(--pm-modal-surface) !important;
+    background: var(--pm-modal-bg) !important;
+
     border-radius: inherit !important;
 }
 
-/*
- * Some older CRUD dialogs have direct children rather than a .pm-modal-body.
- * They still stay within the dialog width.
- */
+
 dialog[open] > * {
     max-width: 100%;
 }
 
-/* --------------------------------------------------------------------------
-   5. HEADER
-   -------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
 
 dialog .pm-modal-header,
 dialog .modal-header,
@@ -313,66 +260,92 @@ dialog .modal-header,
 .ajax-modal-header,
 .church-modal-header {
     position: relative !important;
+
     top: auto !important;
     right: auto !important;
     bottom: auto !important;
     left: auto !important;
 
-    z-index: 4;
-
-    flex: 0 0 auto;
+    flex: 0 0 auto !important;
 
     display: flex !important;
+
     align-items: flex-start !important;
     justify-content: space-between !important;
 
     gap: 12px !important;
 
     width: 100% !important;
+
     min-width: 0 !important;
     max-width: 100% !important;
 
     margin: 0 !important;
-    padding: clamp(14px, 2.4vw, 20px) clamp(16px, 3vw, 24px) !important;
+
+    padding:
+        16px
+        20px !important;
 
     background: #ffffff !important;
-    border-bottom: 1px solid var(--pm-modal-border) !important;
+
+    border-bottom:
+        1px
+        solid
+        var(--pm-modal-border) !important;
+
+    z-index: 5;
 }
+
 
 dialog .pm-modal-heading {
     flex: 1 1 auto !important;
 
     display: flex !important;
+
     align-items: flex-start !important;
 
-    gap: 11px !important;
+    gap: 10px !important;
 
     min-width: 0 !important;
-    max-width: 100% !important;
 }
+
 
 dialog .pm-modal-heading > div,
 dialog .pm-modal-title-wrap {
     flex: 1 1 auto !important;
+
     min-width: 0 !important;
-    max-width: 100% !important;
 }
+
 
 dialog .pm-modal-icon {
     width: 40px !important;
     height: 40px !important;
+
     min-width: 40px !important;
+
     flex: 0 0 40px !important;
 
-    display: inline-flex !important;
+    display: flex !important;
+
     align-items: center !important;
     justify-content: center !important;
 
     border-radius: 12px !important;
 
-    background: var(--brand-1-tint-10, rgba(0, 137, 123, .10)) !important;
-    color: var(--brand-1, #00897b) !important;
+    background:
+        var(
+            --brand-1-tint-10,
+            rgba(0, 137, 123, 0.10)
+        ) !important;
+
+    color:
+        var(
+            --brand-1,
+            #00897b
+        ) !important;
 }
+
 
 dialog .pm-modal-title,
 dialog .modal-header h1,
@@ -381,25 +354,26 @@ dialog .modal-header h3,
 dialog .modal-header h4 {
     margin: 0 !important;
 
-    max-width: 100% !important;
-
     color: var(--pm-modal-text) !important;
 
-    font-size: clamp(15.5px, 1.1vw + 12px, 18px) !important;
+    font-size: 17px !important;
     font-weight: 800 !important;
-    letter-spacing: -0.01em !important;
-    line-height: 1.28 !important;
+
+    line-height: 1.3 !important;
 
     white-space: normal !important;
+
     overflow-wrap: anywhere !important;
 }
+
 
 dialog .pm-modal-description,
 dialog .pm-modal-subtitle,
 dialog .pm-modal-header p {
-    margin: 3px 0 0 !important;
-
-    max-width: 100% !important;
+    margin:
+        3px
+        0
+        0 !important;
 
     color: var(--pm-modal-muted) !important;
 
@@ -407,60 +381,66 @@ dialog .pm-modal-header p {
     line-height: 1.45 !important;
 
     white-space: normal !important;
+
     overflow-wrap: anywhere !important;
 }
 
+
+/* Close button */
 dialog .pm-modal-close,
 dialog .modal-close,
 dialog button[data-modal-close],
 dialog button[data-close-modal] {
-    width: 36px !important;
-    height: 36px !important;
-    min-width: 36px !important;
-    max-width: 36px !important;
-    flex: 0 0 36px !important;
+    width: 38px !important;
+    height: 38px !important;
+
+    min-width: 38px !important;
+    max-width: 38px !important;
+
+    flex: 0 0 38px !important;
 
     padding: 0 !important;
 
-    display: inline-flex !important;
+    display: flex !important;
+
     align-items: center !important;
     justify-content: center !important;
 
-    border: 1px solid var(--pm-modal-border-strong) !important;
+    border:
+        1px
+        solid
+        var(--pm-modal-border-strong) !important;
+
     border-radius: 11px !important;
 
     background: #ffffff !important;
+
     color: #64748b !important;
 
     cursor: pointer;
-    transition: background-color var(--pm-duration) var(--pm-ease),
-                border-color var(--pm-duration) var(--pm-ease),
-                color var(--pm-duration) var(--pm-ease),
-                transform 0.15s var(--pm-ease);
+
+    touch-action: manipulation;
 }
+
 
 dialog .pm-modal-close:hover,
 dialog .modal-close:hover,
 dialog button[data-modal-close]:hover,
 dialog button[data-close-modal]:hover {
     background: #f1f5f9 !important;
-    border-color: #cbd5e1 !important;
+
     color: #334155 !important;
 }
 
-dialog .pm-modal-close:active,
-dialog .modal-close:active,
-dialog button[data-modal-close]:active,
-dialog button[data-close-modal]:active {
-    transform: scale(0.94);
-}
 
-/* --------------------------------------------------------------------------
-   6. BODY — THIS IS THE SCROLLING REGION
-   -------------------------------------------------------------------------- */
+/* ==========================================================================
+   BODY
+   ========================================================================== */
 
 dialog .pm-modal-body,
 dialog .modal-body,
+dialog .modal-scroll-body,
+dialog [data-modal-scroll],
 .modal-dialog-body,
 .app-modal-body,
 .ajax-modal-body,
@@ -469,62 +449,51 @@ dialog .modal-body,
 dialog form > .overflow-y-auto,
 dialog > .overflow-y-auto {
     flex: 1 1 auto !important;
+
     min-height: 0 !important;
 
     width: 100% !important;
+
     min-width: 0 !important;
     max-width: 100% !important;
 
     margin: 0 !important;
-    padding: clamp(16px, 2.6vw, 24px) clamp(16px, 3vw, 24px) !important;
+
+    padding:
+        20px !important;
 
     overflow-x: hidden !important;
     overflow-y: auto !important;
 
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-gutter: stable;
-    scrollbar-width: thin;
+    overscroll-behavior: contain !important;
+
+    -webkit-overflow-scrolling: touch !important;
 
     background: #ffffff !important;
 }
 
-/* Thin, unobtrusive scrollbar on WebKit so a scrolling form body doesn't
-   feel like a raw browser chrome element inside a "soft" card. */
-dialog .pm-modal-body::-webkit-scrollbar,
-dialog .modal-body::-webkit-scrollbar {
-    width: 8px;
-}
 
-dialog .pm-modal-body::-webkit-scrollbar-thumb,
-dialog .modal-body::-webkit-scrollbar-thumb {
-    background: #e2e8f0;
-    border-radius: 8px;
-}
-
-dialog .pm-modal-body::-webkit-scrollbar-thumb:hover,
-dialog .modal-body::-webkit-scrollbar-thumb:hover {
-    background: #cbd5e1;
-}
-
-/* --------------------------------------------------------------------------
-   7. FORM CONTROLS
-   -------------------------------------------------------------------------- */
+/* ==========================================================================
+   FORM CONTROLS
+   ========================================================================== */
 
 dialog label {
-    display: inline-block !important;
+    display: block !important;
+
     max-width: 100% !important;
 
     margin-bottom: 6px !important;
 
     color: #334155 !important;
+
     font-size: 13px !important;
     font-weight: 600 !important;
-    letter-spacing: 0.01em !important;
 
-    white-space: normal !important;
+    line-height: 1.4 !important;
+
     overflow-wrap: anywhere !important;
 }
+
 
 dialog input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
 dialog select,
@@ -533,126 +502,106 @@ dialog .pm-input {
     display: block !important;
 
     width: 100% !important;
+
     min-width: 0 !important;
     max-width: 100% !important;
 
     box-sizing: border-box !important;
 
-    border: 1.5px solid var(--pm-modal-border-strong) !important;
-    border-radius: var(--pm-field-radius) !important;
+    border:
+        1.5px
+        solid
+        var(--pm-modal-border-strong) !important;
+
+    border-radius:
+        var(--pm-field-radius) !important;
 
     background: #ffffff !important;
-    color: var(--pm-modal-text) !important;
 
-    font-size: 14px !important;
+    color:
+        var(--pm-modal-text) !important;
 
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
-    transition: border-color var(--pm-duration) var(--pm-ease),
-                box-shadow var(--pm-duration) var(--pm-ease),
-                background-color var(--pm-duration) var(--pm-ease) !important;
+    /*
+     * 16px also stops iPhone Safari zooming
+     * when an input receives focus.
+     */
+    font-size: 16px !important;
 }
 
-dialog input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):hover:not(:focus):not(:disabled),
-dialog select:hover:not(:focus):not(:disabled),
-dialog textarea:hover:not(:focus):not(:disabled),
-dialog .pm-input:hover:not(:focus):not(:disabled) {
-    border-color: #b8c2d0 !important;
-}
-
-dialog input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):focus,
-dialog select:focus,
-dialog textarea:focus,
-dialog .pm-input:focus {
-    outline: none !important;
-    border-color: var(--brand-2, #6D9773) !important;
-    box-shadow: 0 0 0 4px var(--brand-2-tint-25, rgba(109, 151, 115, 0.25)) !important;
-}
-
-dialog input:disabled,
-dialog select:disabled,
-dialog textarea:disabled,
-dialog .pm-input:disabled {
-    background: var(--pm-modal-soft) !important;
-    color: var(--pm-modal-muted) !important;
-    box-shadow: none !important;
-    cursor: not-allowed;
-}
-
-dialog input[aria-invalid="true"],
-dialog select[aria-invalid="true"],
-dialog textarea[aria-invalid="true"],
-dialog .pm-input[aria-invalid="true"] {
-    border-color: var(--pm-modal-danger) !important;
-}
-
-dialog input[aria-invalid="true"]:focus,
-dialog select[aria-invalid="true"]:focus,
-dialog textarea[aria-invalid="true"]:focus,
-dialog .pm-input[aria-invalid="true"]:focus {
-    box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.15) !important;
-}
 
 dialog input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
 dialog select,
 dialog .pm-input {
-    min-height: var(--pm-field-height) !important;
-    padding: 10px 14px !important;
+    min-height:
+        var(--pm-field-height) !important;
+
+    padding:
+        10px
+        14px !important;
 }
+
 
 dialog textarea {
     min-height: 100px !important;
-    padding: 11px 14px !important;
+
+    padding:
+        11px
+        14px !important;
+
     line-height: 1.5 !important;
+
     resize: vertical !important;
 }
 
-dialog input[type="file"] {
-    overflow: hidden !important;
-    text-overflow: ellipsis;
-    padding-top: 8px !important;
-    padding-bottom: 8px !important;
-    cursor: pointer;
+
+dialog input:focus,
+dialog select:focus,
+dialog textarea:focus,
+dialog .pm-input:focus {
+    outline: none !important;
+
+    border-color:
+        var(
+            --brand-2,
+            #6D9773
+        ) !important;
+
+    box-shadow:
+        0
+        0
+        0
+        4px
+        rgba(109, 151, 115, 0.22) !important;
 }
+
+
+dialog input:disabled,
+dialog select:disabled,
+dialog textarea:disabled {
+    background:
+        var(--pm-modal-soft) !important;
+
+    color:
+        var(--pm-modal-muted) !important;
+
+    cursor: not-allowed;
+}
+
 
 dialog input[type="date"],
 dialog input[type="time"],
-dialog input[type="datetime-local"] {
-    min-height: var(--pm-field-height) !important;
+dialog input[type="datetime-local"],
+dialog input[type="file"] {
+    width: 100% !important;
+
+    min-width: 0 !important;
     max-width: 100% !important;
 }
 
-/* Small helper / error text under a field — consistent rhythm below
-   every control instead of ad-hoc margins per form. */
-dialog .pm-help,
-dialog .pm-field-hint {
-    display: block !important;
-    margin-top: 6px !important;
-    color: var(--pm-modal-muted) !important;
-    font-size: 12px !important;
-    line-height: 1.45 !important;
-}
 
-dialog .pm-field-error,
-dialog .text-danger,
-dialog .invalid-feedback {
-    display: block !important;
-    margin-top: 6px !important;
-    color: var(--pm-modal-danger) !important;
-    font-size: 12px !important;
-    font-weight: 600 !important;
-    line-height: 1.45 !important;
-}
-
-/* Field spacing rhythm: consecutive fields inside the body get consistent
-   breathing room without every Blade partial needing its own margin. */
-dialog .pm-modal-body > .pm-field + .pm-field,
-dialog .pm-modal-body > .pm-form-group + .pm-form-group {
-    margin-top: 16px !important;
-}
-
-/* --------------------------------------------------------------------------
-   8. GRID / FLEX WIDTH HARDENING
-   -------------------------------------------------------------------------- */
+/* ==========================================================================
+   GRID SAFETY
+   ========================================================================== */
 
 dialog .grid,
 dialog .pm-form-grid,
@@ -661,72 +610,71 @@ dialog .form-grid-2,
 dialog .modal-form-grid,
 dialog .member-form-grid {
     width: 100% !important;
+
     min-width: 0 !important;
     max-width: 100% !important;
+
     gap: 16px !important;
 }
+
 
 dialog .grid > *,
 dialog .flex > *,
 dialog .pm-form-grid > *,
-dialog .form-grid > * {
+dialog .form-grid > *,
+dialog .form-grid-2 > * {
     min-width: 0 !important;
+
     max-width: 100% !important;
 }
+
 
 dialog .pm-field-full,
 dialog .full-span,
 dialog .form-full {
-    grid-column: 1 / -1;
+    grid-column:
+        1 / -1 !important;
 }
 
-/* --------------------------------------------------------------------------
-   9. MEETING ATTENDEE / REPEATABLE ROWS
-   -------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   ATTENDEES / REPEATABLE ROWS
+   ========================================================================== */
 
 dialog .participant-row,
 dialog .attendee-row,
-dialog .repeatable-row {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-}
-
-dialog .participant-row input,
-dialog .attendee-row input,
-dialog .repeatable-row input {
-    flex: 1 1 auto !important;
-    min-width: 0 !important;
-}
-
-/* --------------------------------------------------------------------------
-   10. EXPENSE ITEM ROWS
-   -------------------------------------------------------------------------- */
-
+dialog .repeatable-row,
 dialog .pm-expense-item-row {
     width: 100% !important;
+
     min-width: 0 !important;
     max-width: 100% !important;
 }
 
-/* --------------------------------------------------------------------------
-   11. TABLES / FILE PREVIEWS / SIGNATURES
-   -------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   TABLES / MEDIA
+   ========================================================================== */
 
 dialog .table-responsive,
 dialog .overflow-x-auto {
     width: 100% !important;
+
     min-width: 0 !important;
     max-width: 100% !important;
 
     overflow-x: auto !important;
+
     -webkit-overflow-scrolling: touch;
-    border-radius: 12px !important;
 }
 
+
 dialog table {
-    max-width: none;
+    width: max-content;
+
+    min-width: 100%;
 }
+
 
 dialog img,
 dialog video,
@@ -737,110 +685,123 @@ dialog object {
     max-width: 100% !important;
 }
 
+
 dialog img,
 dialog video,
 dialog canvas {
     height: auto !important;
-    border-radius: 10px;
 }
+
 
 dialog iframe,
 dialog embed,
 dialog object {
     width: 100% !important;
-    min-height: 280px;
+
+    min-height: 260px;
+
     border: 0;
-    border-radius: 10px;
 }
 
-/* --------------------------------------------------------------------------
-   12. FOOTER
-   -------------------------------------------------------------------------- */
+
+/* ==========================================================================
+   FOOTER
+   ========================================================================== */
 
 dialog .pm-modal-footer,
 dialog .modal-footer,
 .modal-dialog-footer,
 .app-modal-footer,
 .ajax-modal-footer,
-.church-modal-footer,
-dialog footer.sticky,
-dialog .sticky.bottom-0 {
+.church-modal-footer {
     position: relative !important;
+
     top: auto !important;
     right: auto !important;
     bottom: auto !important;
     left: auto !important;
 
-    z-index: 4;
-
-    flex: 0 0 auto;
+    flex: 0 0 auto !important;
 
     display: flex !important;
+
     align-items: center !important;
     justify-content: flex-end !important;
+
     flex-wrap: wrap !important;
 
     gap: 10px !important;
 
     width: 100% !important;
+
     min-width: 0 !important;
     max-width: 100% !important;
 
-    margin: 0 !important;
-    padding: clamp(12px, 2vw, 16px) clamp(16px, 3vw, 24px) max(12px, env(safe-area-inset-bottom)) !important;
+    padding:
+        12px
+        20px
+        max(
+            12px,
+            env(safe-area-inset-bottom)
+        ) !important;
 
-    background: var(--pm-modal-soft) !important;
-    border-top: 1px solid var(--pm-modal-border) !important;
+    background:
+        var(--pm-modal-soft) !important;
+
+    border-top:
+        1px
+        solid
+        var(--pm-modal-border) !important;
+
+    z-index: 5;
 }
+
 
 dialog .pm-modal-footer button,
 dialog .pm-modal-footer a,
 dialog .modal-footer button,
 dialog .modal-footer a {
-    min-height: 42px !important;
+    min-height: 44px !important;
+
     max-width: 100% !important;
+
     margin: 0 !important;
-    padding: 10px 18px !important;
+
+    padding:
+        10px
+        18px !important;
 
     border-radius: 12px !important;
-    font-weight: 600 !important;
+
     font-size: 13.5px !important;
 
-    cursor: pointer;
-    transition: background-color var(--pm-duration) var(--pm-ease),
-                border-color var(--pm-duration) var(--pm-ease),
-                box-shadow var(--pm-duration) var(--pm-ease),
-                transform 0.15s var(--pm-ease);
+    font-weight: 600 !important;
+
+    touch-action: manipulation;
 }
 
-dialog .pm-modal-footer button:active,
-dialog .pm-modal-footer a:active,
-dialog .modal-footer button:active,
-dialog .modal-footer a:active {
-    transform: scale(0.97);
-}
 
-/* --------------------------------------------------------------------------
-   13. LEGACY OVERLAY MODALS
-   -------------------------------------------------------------------------- */
+/* ==========================================================================
+   LEGACY OVERLAY MODALS
+   ========================================================================== */
 
 .modal-overlay,
 .app-modal,
 .ajax-modal,
 .member-modal-overlay,
 .church-modal,
-.birds-modal {
+.birds-modal,
+.dp-modal-backdrop,
+.sc-modal,
+[data-modal-overlay] {
     position: fixed !important;
-    inset: 0 !important;
-    z-index: var(--pm-modal-z) !important;
 
-    box-sizing: border-box !important;
+    inset: 0 !important;
 
     width: 100vw !important;
     height: 100dvh !important;
-    max-width: 100vw !important;
 
-    padding: 20px 14px !important;
+    padding: 20px !important;
 
     overflow-x: hidden !important;
     overflow-y: auto !important;
@@ -848,10 +809,16 @@ dialog .modal-footer a:active {
     align-items: center !important;
     justify-content: center !important;
 
-    background: rgba(15, 23, 42, .58);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    background:
+        rgba(15, 23, 42, 0.58);
+
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+
+    z-index:
+        var(--pm-overlay-z) !important;
 }
+
 
 .modal-overlay:not(.show):not(.open):not(.is-open),
 .app-modal:not(.show):not(.open):not(.is-open),
@@ -861,6 +828,7 @@ dialog .modal-footer a:active {
 .birds-modal:not(.show):not(.open):not(.is-open) {
     display: none;
 }
+
 
 .modal-overlay.show,
 .modal-overlay.open,
@@ -879,10 +847,12 @@ dialog .modal-footer a:active {
 .church-modal.is-open,
 .birds-modal.show,
 .birds-modal.open,
-.birds-modal.is-open {
+.birds-modal.is-open,
+.dp-modal-backdrop.is-open,
+.sc-modal.open {
     display: flex !important;
-    animation: pm-backdrop-in var(--pm-duration) var(--pm-ease) both;
 }
+
 
 .modal-overlay .modal,
 .modal-overlay .modal-dialog,
@@ -890,446 +860,115 @@ dialog .modal-footer a:active {
 .ajax-modal .ajax-dialog,
 .member-modal-overlay .modal,
 .church-modal .church-modal-dialog,
-.birds-modal .birds-modal-dialog {
+.birds-modal .birds-modal-dialog,
+.dp-modal-backdrop .dp-modal-panel,
+.sc-modal .sc-modal-panel {
     position: relative !important;
-    inset: auto !important;
-    transform: none !important;
+
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: auto !important;
 
     display: flex !important;
+
     flex-direction: column !important;
 
-    width: clamp(300px, 92vw, 680px) !important;
-    min-width: 0 !important;
-    max-width: min(680px, 100%) !important;
+    width:
+        min(
+            680px,
+            100%
+        ) !important;
 
-    max-height: calc(100dvh - 40px) !important;
+    min-width: 0 !important;
+
+    max-width: 100% !important;
+
+    max-height:
+        calc(
+            100dvh - 40px
+        ) !important;
 
     margin: auto !important;
 
-    overflow: hidden !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
 
-    border-radius: var(--pm-modal-radius) !important;
     background: #ffffff !important;
-    box-shadow: var(--pm-modal-shadow) !important;
 
-    animation: pm-modal-pop var(--pm-duration) var(--pm-ease) both;
+    border-radius:
+        var(--pm-modal-radius) !important;
+
+    box-shadow:
+        var(--pm-modal-shadow) !important;
+
+    transform: none !important;
 }
 
-@keyframes pm-modal-pop {
-    from {
-        opacity: 0;
-        transform: scale(0.97);
-    }
-    to {
-        opacity: 1;
-        transform: scale(1);
-    }
-}
-
-/* --------------------------------------------------------------------------
-   14. TABLET
-   -------------------------------------------------------------------------- */
-
-@media (max-width: 767.98px) {
-    dialog[open] {
-        width: calc(100vw - 20px) !important;
-        max-width: calc(100vw - 20px) !important;
-        max-height: calc(100dvh - 20px) !important;
-    }
-
-    dialog[open] > form,
-    dialog[open] > .pm-modal-content,
-    dialog[open] > .pm-modal-panel,
-    dialog[open] .pm-modal-form,
-    dialog[open] .pm-modal-content {
-        max-height: calc(100dvh - 20px) !important;
-    }
-
-    dialog .pm-modal-body .grid,
-    dialog .pm-modal-body [class*="grid-cols-"],
-    dialog .pm-form-grid,
-    dialog .form-grid,
-    dialog .form-grid-2,
-    dialog .modal-form-grid {
-        grid-template-columns: minmax(0, 1fr) !important;
-    }
-
-    dialog [class*="col-span-"] {
-        grid-column: 1 / -1 !important;
-    }
-
-    .modal-overlay,
-    .app-modal,
-    .ajax-modal,
-    .member-modal-overlay,
-    .church-modal,
-    .birds-modal {
-        padding: 10px !important;
-    }
-}
-
-/* --------------------------------------------------------------------------
-   15. PHONES
-   -------------------------------------------------------------------------- */
-
-@media (max-width: 640px) {
-    /*
-     * Phone positioning uses explicit viewport gutters.
-     * This removes all dependence on sidebar width, main-content margin,
-     * old inset rules, and browser dialog default margins.
-     */
-    dialog[open] {
-        position: fixed !important;
-
-        top: 8px !important;
-        right: 8px !important;
-        bottom: 8px !important;
-        left: 8px !important;
-        inset: 8px !important;
-
-        transform: none !important;
-
-        width: auto !important;
-        min-width: 0 !important;
-        max-width: none !important;
-
-        height: auto !important;
-        max-height: none !important;
-
-        margin: 0 !important;
-        padding: 0 !important;
-
-        border-radius: 18px !important;
-
-        /*
-         * Safety net: if a particular modal's markup doesn't cleanly
-         * match the header/body/footer flex structure below (a custom
-         * modal with its own layout, or a direct child that isn't
-         * wrapped how the rest of the system expects), the DIALOG
-         * ITSELF still scrolls so nothing — including the footer's
-         * submit/cancel buttons — is ever unreachable on a phone.
-         */
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch;
-        overscroll-behavior: contain;
-    }
-
-    @keyframes pm-modal-in {
-        from { opacity: 0; transform: translateY(10px) scale(0.98) !important; }
-        to   { opacity: 1; transform: translateY(0) scale(1) !important; }
-    }
-
-    dialog[open] > form,
-    dialog[open] > .pm-modal-content,
-    dialog[open] > .pm-modal-panel,
-    dialog[open] .pm-modal-form,
-    dialog[open] .pm-modal-content {
-        width: 100% !important;
-        max-width: 100% !important;
-
-        height: 100% !important;
-        max-height: 100% !important;
-
-        /* Lets this flex column actually shrink instead of being
-           forced to its content's intrinsic height — the #1 reason a
-           tall form pushes its footer off-screen on phones instead of
-           scrolling internally to reach it. */
-        min-height: 0 !important;
-    }
-
-    dialog .pm-modal-header,
-    dialog .modal-header {
-        padding: 13px 14px !important;
-        gap: 8px !important;
-    }
-
-    dialog .pm-modal-heading {
-        gap: 9px !important;
-    }
-
-    dialog .pm-modal-icon {
-        width: 34px !important;
-        height: 34px !important;
-        min-width: 34px !important;
-        flex-basis: 34px !important;
-    }
-
-    dialog .pm-modal-title,
-    dialog .modal-header h1,
-    dialog .modal-header h2,
-    dialog .modal-header h3 {
-        font-size: 15.5px !important;
-    }
-
-    dialog .pm-modal-description,
-    dialog .pm-modal-subtitle,
-    dialog .pm-modal-header p {
-        font-size: 11px !important;
-        line-height: 1.4 !important;
-    }
-
-    dialog .pm-modal-close,
-    dialog .modal-close,
-    dialog button[data-modal-close],
-    dialog button[data-close-modal] {
-        width: 32px !important;
-        height: 32px !important;
-        min-width: 32px !important;
-        flex-basis: 32px !important;
-    }
-
-    dialog .pm-modal-body,
-    dialog .modal-body,
-    dialog form > .overflow-y-auto,
-    dialog > .overflow-y-auto {
-        padding: 14px 14px 16px !important;
-    }
-
-    /*
-     * Every modal form becomes one column on phones.
-     * These selectors intentionally beat Tailwind sm/md/lg grid utilities.
-     */
-    dialog .pm-modal-body .grid,
-    dialog .pm-modal-body [class*="grid-cols-"],
-    dialog .pm-form-grid,
-    dialog .form-grid,
-    dialog .form-grid-2,
-    dialog .modal-form-grid,
-    dialog .member-form-grid,
-    dialog .sm\:grid-cols-2,
-    dialog .md\:grid-cols-2,
-    dialog .lg\:grid-cols-2,
-    dialog .lg\:grid-cols-3 {
-        display: grid !important;
-        grid-template-columns: minmax(0, 1fr) !important;
-
-        width: 100% !important;
-        min-width: 0 !important;
-        max-width: 100% !important;
-        gap: 14px !important;
-    }
-
-    dialog [class*="col-span-"] {
-        grid-column: 1 / -1 !important;
-    }
-
-    dialog input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
-    dialog select,
-    dialog .pm-input {
-        min-height: var(--pm-field-height-sm) !important;
-        padding: 9px 12px !important;
-        font-size: 14px !important;
-    }
-
-    dialog textarea {
-        min-height: 88px !important;
-        padding: 10px 12px !important;
-        font-size: 14px !important;
-    }
-
-    /* Meeting attendee row: field + compact remove button. */
-    dialog .participant-row,
-    dialog .attendee-row {
-        display: grid !important;
-        grid-template-columns: minmax(0, 1fr) 36px !important;
-        gap: 8px !important;
-        align-items: center !important;
-    }
-
-    dialog .participant-row button,
-    dialog .attendee-row button {
-        width: 36px !important;
-        min-width: 36px !important;
-        max-width: 36px !important;
-        padding: 0 !important;
-        border-radius: 10px !important;
-    }
-
-    /* Expense item rows stay readable while using phone width efficiently. */
-    dialog .pm-expense-item-row {
-        display: grid !important;
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-        gap: 10px !important;
-    }
-
-    dialog .pm-expense-item-row .pm-expense-desc {
-        grid-column: 1 / -1 !important;
-    }
-
-    dialog .pm-modal-footer,
-    dialog .modal-footer {
-        display: grid !important;
-        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-
-        gap: 10px !important;
-
-        padding:
-            12px
-            14px
-            max(12px, env(safe-area-inset-bottom))
-            !important;
-    }
-
-    dialog .pm-modal-footer > *,
-    dialog .modal-footer > * {
-        width: 100% !important;
-        min-width: 0 !important;
-        max-width: 100% !important;
-        justify-content: center !important;
-
-        white-space: normal !important;
-        overflow-wrap: anywhere !important;
-    }
-
-    dialog .pm-modal-footer > :only-child,
-    dialog .modal-footer > :only-child {
-        grid-column: 1 / -1 !important;
-    }
-
-    dialog small,
-    dialog .text-xs,
-    dialog .pm-help,
-    dialog p {
-        max-width: 100% !important;
-        white-space: normal !important;
-        overflow-wrap: anywhere !important;
-    }
-
-    .modal-overlay,
-    .app-modal,
-    .ajax-modal,
-    .member-modal-overlay,
-    .church-modal,
-    .birds-modal {
-        padding: 8px !important;
-    }
-
-    .modal-overlay .modal,
-    .modal-overlay .modal-dialog,
-    .app-modal .app-dialog,
-    .ajax-modal .ajax-dialog,
-    .member-modal-overlay .modal,
-    .church-modal .church-modal-dialog,
-    .birds-modal .birds-modal-dialog {
-        width: 100% !important;
-        max-width: 100% !important;
-        max-height: calc(100dvh - 16px) !important;
-        border-radius: 18px !important;
-
-        min-height: 0 !important;
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch;
-    }
-}
-
-/* --------------------------------------------------------------------------
-   16. VERY SMALL PHONES
-   -------------------------------------------------------------------------- */
-
-@media (max-width: 380px) {
-    dialog[open] {
-        top: 5px !important;
-        right: 5px !important;
-        bottom: 5px !important;
-        left: 5px !important;
-        inset: 5px !important;
-
-        border-radius: 15px !important;
-    }
-
-    dialog .pm-modal-header,
-    dialog .modal-header,
-    dialog .pm-modal-body,
-    dialog .modal-body {
-        padding-left: 12px !important;
-        padding-right: 12px !important;
-    }
-
-    dialog .pm-modal-footer,
-    dialog .modal-footer {
-        grid-template-columns: minmax(0, 1fr) !important;
-        padding-left: 12px !important;
-        padding-right: 12px !important;
-    }
-
-    dialog .pm-expense-item-row {
-        grid-template-columns: minmax(0, 1fr) !important;
-    }
-
-    dialog .pm-expense-item-row > * {
-        grid-column: 1 / -1 !important;
-    }
-}
-
-/* --------------------------------------------------------------------------
-   17. LANDSCAPE / SHORT PHONES
-   -------------------------------------------------------------------------- */
-
-@media (max-height: 560px) and (orientation: landscape) {
-    dialog[open] {
-        top: 4px !important;
-        right: 4px !important;
-        bottom: 4px !important;
-        left: 4px !important;
-        inset: 4px !important;
-    }
-
-    dialog .pm-modal-header,
-    dialog .modal-header {
-        padding-top: 8px !important;
-        padding-bottom: 8px !important;
-    }
-
-    dialog .pm-modal-body,
-    dialog .modal-body {
-        padding-top: 10px !important;
-        padding-bottom: 10px !important;
-    }
-
-    dialog .pm-modal-footer,
-    dialog .modal-footer {
-        padding-top: 8px !important;
-        padding-bottom: 8px !important;
-    }
-}
-
-/* --------------------------------------------------------------------------
-   18. REDUCED MOTION
-   -------------------------------------------------------------------------- */
-
-@media (prefers-reduced-motion: reduce) {
-    dialog,
-    dialog[open],
-    dialog::backdrop,
-    .modal-overlay,
-    .modal-overlay .modal,
-    .modal-overlay .modal-dialog,
-    .app-modal .app-dialog,
-    .ajax-modal .ajax-dialog,
-    .modal-overlay.show,
-    .modal-overlay.open,
-    .modal-overlay.is-open,
-    dialog .pm-modal-close,
-    dialog .modal-close,
-    dialog .pm-modal-footer button,
-    dialog .modal-footer button,
-    dialog input,
-    dialog select,
-    dialog textarea,
-    dialog .pm-input {
-        animation: none !important;
-        transition: none !important;
-    }
-}
 
 /* ==========================================================================
-   FINAL DESKTOP MODAL CENTRING GUARD
-   This block intentionally comes last.
-   It covers native <dialog> plus older modal panels that may be absolutely
-   positioned by module-specific CSS.
+   TABLETS
    ========================================================================== */
 
-@media (min-width: 641px) {
+@media
+    (min-width: 641px)
+    and
+    (max-width: 1023.98px) {
+
+    dialog[open] {
+        width:
+            min(
+                92vw,
+                840px
+            ) !important;
+
+        max-width:
+            calc(
+                100vw - 36px
+            ) !important;
+
+        max-height:
+            calc(
+                100dvh - 36px
+            ) !important;
+    }
+
+
+    dialog[open] > form,
+    dialog[open] > .pm-modal-content,
+    dialog[open] > .pm-modal-panel,
+    dialog[open] > .modal-content,
+    dialog[open] .pm-modal-form {
+        max-height:
+            calc(
+                100dvh - 36px
+            ) !important;
+    }
+}
+
+
+/* ==========================================================================
+   PHONES
+   ========================================================================== */
+
+@media (max-width: 640px) {
+
+    /*
+    |--------------------------------------------------------------------------
+    | IMPORTANT
+    |--------------------------------------------------------------------------
+    | Do not centre phone dialogs using top:50% / translate(-50%).
+    | Give the dialog four viewport edges instead.
+    |
+    | This behaves much better with:
+    | - Chrome address bar
+    | - Android keyboard
+    | - iPhone Safari
+    | - short phones
+    | - landscape
+    |--------------------------------------------------------------------------
+    */
+
     html body dialog[open],
     html body dialog.pm-modal-shell[open],
     html body dialog[class*="pm-dialog"][open],
@@ -1339,579 +978,901 @@ dialog .modal-footer a:active {
     html body #meeting-modal[open],
     html body #expense-modal[open],
     html body #annualPlanModal[open],
-    html body #reminder-alarm-modal[open],
     html body #confirm-modal[open] {
+
         position: fixed !important;
 
-        top: 50% !important;
-        left: 50% !important;
-        right: auto !important;
-        bottom: auto !important;
+        top:
+            max(
+                8px,
+                env(safe-area-inset-top)
+            ) !important;
 
-        /* Never use inset shorthand here. */
-        margin: 0 !important;
-        transform: translate3d(-50%, -50%, 0) !important;
-        transform-origin: 50% 50% !important;
+        right:
+            max(
+                8px,
+                env(safe-area-inset-right)
+            ) !important;
 
-        z-index: 2147483000 !important;
-    }
+        bottom:
+            max(
+                8px,
+                env(safe-area-inset-bottom)
+            ) !important;
 
-    /* Legacy overlay containers always cover the viewport. */
-    html body .modal-overlay.show,
-    html body .modal-overlay.open,
-    html body .modal-overlay.is-open,
-    html body .app-modal.show,
-    html body .app-modal.open,
-    html body .app-modal.is-open,
-    html body .ajax-modal.show,
-    html body .ajax-modal.open,
-    html body .ajax-modal.is-open,
-    html body .member-modal-overlay.show,
-    html body .member-modal-overlay.open,
-    html body .member-modal-overlay.is-open,
-    html body .church-modal.show,
-    html body .church-modal.open,
-    html body .church-modal.is-open,
-    html body .birds-modal.show,
-    html body .birds-modal.open,
-    html body .birds-modal.is-open {
-        position: fixed !important;
-        inset: 0 !important;
+        left:
+            max(
+                8px,
+                env(safe-area-inset-left)
+            ) !important;
 
-        width: 100vw !important;
-        height: 100dvh !important;
-
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-
-        padding: 24px !important;
-        overflow: auto !important;
-
-        z-index: 2147482990 !important;
-    }
-
-    /* Legacy modal cards must not inherit top/left coordinates. */
-    html body .modal-overlay.show > .modal,
-    html body .modal-overlay.open > .modal,
-    html body .modal-overlay.is-open > .modal,
-    html body .modal-overlay.show > .modal-dialog,
-    html body .modal-overlay.open > .modal-dialog,
-    html body .modal-overlay.is-open > .modal-dialog,
-    html body .app-modal.show > .app-dialog,
-    html body .app-modal.open > .app-dialog,
-    html body .app-modal.is-open > .app-dialog,
-    html body .ajax-modal.show > .ajax-dialog,
-    html body .ajax-modal.open > .ajax-dialog,
-    html body .ajax-modal.is-open > .ajax-dialog,
-    html body .member-modal-overlay.show > .modal,
-    html body .member-modal-overlay.open > .modal,
-    html body .member-modal-overlay.is-open > .modal,
-    html body .church-modal.show > .church-modal-dialog,
-    html body .church-modal.open > .church-modal-dialog,
-    html body .church-modal.is-open > .church-modal-dialog,
-    html body .birds-modal.show > .birds-modal-dialog,
-    html body .birds-modal.open > .birds-modal-dialog,
-    html body .birds-modal.is-open > .birds-modal-dialog {
-        position: relative !important;
-
-        top: auto !important;
-        right: auto !important;
-        bottom: auto !important;
-        left: auto !important;
-        inset: auto !important;
-
-        margin: auto !important;
-        transform: none !important;
-    }
-}
-
-/* ==========================================================================
-   REMINDER / NOTIFICATION DIALOG
-   The reminder alarm uses direct children instead of .pm-modal-body/footer,
-   so it needs its own internal padding contract.
-   ========================================================================== */
-
-#reminder-alarm-modal[open] {
-    width: clamp(300px, 90vw, 440px) !important;
-
-    padding: 22px !important;
-
-    overflow: hidden !important;
-
-    border-radius: 18px !important;
-
-    background: #ffffff !important;
-}
-
-/* Header row */
-#reminder-alarm-modal[open] > .flex.items-center {
-    width: 100% !important;
-    max-width: 100% !important;
-
-    margin: 0 0 12px !important;
-
-    padding: 0 !important;
-}
-
-/* Reminder text */
-#reminder-alarm-modal[open] #reminder-alarm-message {
-    display: block !important;
-
-    width: 100% !important;
-    max-width: 100% !important;
-
-    margin: 0 0 18px !important;
-    padding: 0 !important;
-
-    color: #475569 !important;
-
-    line-height: 1.55 !important;
-
-    white-space: normal !important;
-    overflow-wrap: anywhere !important;
-}
-
-/* Action area */
-#reminder-alarm-modal[open] > .flex.justify-end {
-    display: flex !important;
-
-    width: 100% !important;
-    max-width: 100% !important;
-
-    justify-content: flex-end !important;
-    align-items: center !important;
-
-    margin: 0 !important;
-
-    /*
-     * A couple of pixels of internal breathing room protects rounded
-     * button shadows/focus rings from the dialog's overflow boundary.
-     */
-    padding: 2px 2px 1px !important;
-
-    overflow: visible !important;
-}
-
-/* Dismiss button */
-#reminder-alarm-modal[open] #reminder-alarm-dismiss {
-    position: relative !important;
-
-    flex: 0 0 auto !important;
-
-    width: auto !important;
-    min-width: 108px !important;
-    max-width: calc(100% - 4px) !important;
-
-    min-height: 44px !important;
-
-    margin: 0 !important;
-
-    padding: 10px 18px !important;
-
-    border-radius: 12px !important;
-
-    font-weight: 600 !important;
-
-    white-space: nowrap !important;
-
-    overflow: visible !important;
-
-    cursor: pointer;
-    transition: transform 0.15s var(--pm-ease), box-shadow var(--pm-duration) var(--pm-ease);
-}
-
-#reminder-alarm-modal[open] #reminder-alarm-dismiss:active {
-    transform: scale(0.97);
-}
-
-/* Phone */
-@media (max-width: 640px) {
-    #reminder-alarm-modal[open] {
-        top: 8px !important;
-        right: 8px !important;
-        bottom: auto !important;
-        left: 8px !important;
-        inset: auto 8px auto 8px !important;
-
-        transform: none !important;
 
         width: auto !important;
+
+        min-width: 0 !important;
+
         max-width: none !important;
+
+
         height: auto !important;
-        max-height: calc(100dvh - 16px) !important;
 
-        margin: auto 0 !important;
+        min-height: 0 !important;
 
-        padding: 18px !important;
+        max-height: none !important;
 
-        /*
-         * Put short reminder dialogs around the upper-middle of a phone
-         * without using content/sidebar offsets.
-         */
-        top: 50% !important;
-        transform: translateY(-50%) !important;
-    }
-
-    #reminder-alarm-modal[open] #reminder-alarm-message {
-        margin-bottom: 16px !important;
-    }
-
-    #reminder-alarm-modal[open] > .flex.justify-end {
-        padding: 2px !important;
-    }
-
-    #reminder-alarm-modal[open] #reminder-alarm-dismiss {
-        min-width: 112px !important;
-        min-height: 44px !important;
-        padding: 10px 16px !important;
-    }
-}
-
-/* Very small phones */
-@media (max-width: 380px) {
-    #reminder-alarm-modal[open] {
-        right: 5px !important;
-        left: 5px !important;
-
-        padding: 15px !important;
-    }
-
-    #reminder-alarm-modal[open] #reminder-alarm-dismiss {
-        width: 100% !important;
-        max-width: 100% !important;
-    }
-}
-
-
-/* ==========================================================================
-   19. UNIVERSAL SCROLLABLE MODAL CONTRACT — v3 (2026-08-20)
-   --------------------------------------------------------------------------
-   Final safety layer for every application modal on desktop, tablet and phone.
-   Structured modals scroll their body. Older/custom modals scroll as a whole.
-   This section intentionally comes last so page-level modal CSS cannot clip
-   fields or hide the action buttons below the viewport.
-   ========================================================================== */
-
-:root {
-    --pm-modal-vh: 100dvh;
-    --pm-modal-edge: 20px;
-    --pm-modal-max-height: calc(var(--pm-modal-vh) - (var(--pm-modal-edge) * 2));
-}
-
-/* Native <dialog>: always viewport-bounded and always has a scrolling fallback. */
-html body dialog[open] {
-    min-height: 0 !important;
-    max-height: var(--pm-modal-max-height) !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    overscroll-behavior: contain !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-gutter: stable;
-}
-
-/* A structured modal becomes a three-row flex layout. */
-html body dialog[open] > form,
-html body dialog[open] > .pm-modal-content,
-html body dialog[open] > .pm-modal-panel,
-html body dialog[open] > .modal-content,
-html body dialog[open] .pm-modal-form {
-    display: flex !important;
-    flex-direction: column !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    min-height: 0 !important;
-    max-width: 100% !important;
-    max-height: var(--pm-modal-max-height) !important;
-    overflow: hidden !important;
-}
-
-/* Header and footer never consume the scrolling allowance. */
-html body dialog[open] .pm-modal-header,
-html body dialog[open] .modal-header,
-html body dialog[open] .pm-modal-footer,
-html body dialog[open] .modal-footer {
-    flex: 0 0 auto !important;
-}
-
-/* Main scrolling region for modern modals. */
-html body dialog[open] .pm-modal-body,
-html body dialog[open] .modal-body,
-html body dialog[open] .modal-scroll-body,
-html body dialog[open] [data-modal-scroll],
-html body dialog[open] form > .overflow-y-auto,
-html body dialog[open] > .overflow-y-auto {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    max-height: none !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    overscroll-behavior-y: contain !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-gutter: stable;
-}
-
-/* Sticky action bars are allowed, but never cover the final field. */
-html body dialog[open] .pm-modal-footer,
-html body dialog[open] .modal-footer {
-    position: relative !important;
-    inset: auto !important;
-    z-index: 8 !important;
-    background: var(--pm-modal-soft, #f8fafc) !important;
-}
-
-/* Generic / legacy overlay containers. */
-html body .modal-overlay.show,
-html body .modal-overlay.open,
-html body .modal-overlay.is-open,
-html body .app-modal.show,
-html body .app-modal.open,
-html body .app-modal.is-open,
-html body .ajax-modal.show,
-html body .ajax-modal.open,
-html body .ajax-modal.is-open,
-html body .member-modal-overlay.show,
-html body .member-modal-overlay.open,
-html body .member-modal-overlay.is-open,
-html body .church-modal.show,
-html body .church-modal.open,
-html body .church-modal.is-open,
-html body .birds-modal.show,
-html body .birds-modal.open,
-html body .birds-modal.is-open,
-html body .dp-modal-backdrop.is-open,
-html body .sc-modal.open,
-html body [data-modal-overlay].show,
-html body [data-modal-overlay].open,
-html body [data-modal-overlay].is-open {
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    overscroll-behavior: contain !important;
-    -webkit-overflow-scrolling: touch !important;
-}
-
-/* Page-specific overlays use the same visual viewport and scrolling contract. */
-html body .dp-modal-backdrop.is-open,
-html body .sc-modal.open {
-    height: var(--pm-modal-vh) !important;
-    box-sizing: border-box !important;
-}
-
-html body .modal-overlay.show > .modal,
-html body .modal-overlay.open > .modal,
-html body .modal-overlay.is-open > .modal,
-html body .modal-overlay.show > .modal-dialog,
-html body .modal-overlay.open > .modal-dialog,
-html body .modal-overlay.is-open > .modal-dialog,
-html body .app-modal.show > .app-dialog,
-html body .app-modal.open > .app-dialog,
-html body .app-modal.is-open > .app-dialog,
-html body .ajax-modal.show > .ajax-dialog,
-html body .ajax-modal.open > .ajax-dialog,
-html body .ajax-modal.is-open > .ajax-dialog,
-html body .member-modal-overlay.show > .modal,
-html body .member-modal-overlay.open > .modal,
-html body .member-modal-overlay.is-open > .modal,
-html body .church-modal.show > .church-modal-dialog,
-html body .church-modal.open > .church-modal-dialog,
-html body .church-modal.is-open > .church-modal-dialog,
-html body .birds-modal.show > .birds-modal-dialog,
-html body .birds-modal.open > .birds-modal-dialog,
-html body .birds-modal.is-open > .birds-modal-dialog,
-html body .dp-modal-backdrop.is-open > .dp-modal-panel,
-html body .sc-modal.open > .sc-modal-panel,
-html body .pm-component-modal-panel {
-    min-height: 0 !important;
-    max-height: var(--pm-modal-max-height) !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    overscroll-behavior: contain !important;
-    -webkit-overflow-scrolling: touch !important;
-}
-
-/* If a legacy panel contains recognisable body/header/footer sections, upgrade it
-   to body-only scrolling while keeping the whole-panel fallback above. */
-html body .modal-overlay .modal-content,
-html body .modal-overlay .modal-dialog,
-html body .app-modal .app-dialog,
-html body .ajax-modal .ajax-dialog,
-html body .member-modal-overlay .modal,
-html body .church-modal .church-modal-dialog,
-html body .birds-modal .birds-modal-dialog {
-    min-height: 0 !important;
-}
-
-html body .modal-overlay .modal-body,
-html body .app-modal .app-modal-body,
-html body .ajax-modal .ajax-modal-body,
-html body .church-modal .church-modal-body,
-html body .birds-modal .birds-modal-body,
-html body .pm-component-modal-body {
-    min-height: 0 !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    -webkit-overflow-scrolling: touch !important;
-}
-
-/* Desktop: centred, spacious, but still bounded on short laptop screens. */
-@media (min-width: 1024px) {
-    :root {
-        --pm-modal-edge: 28px;
-    }
-
-    html body dialog[open] {
-        max-height: calc(var(--pm-modal-vh) - 56px) !important;
-    }
-
-    html body dialog[open] > form,
-    html body dialog[open] > .pm-modal-content,
-    html body dialog[open] > .pm-modal-panel,
-    html body dialog[open] > .modal-content,
-    html body dialog[open] .pm-modal-form {
-        max-height: calc(var(--pm-modal-vh) - 56px) !important;
-    }
-}
-
-/* Tablets: maintain margins on all four edges, including landscape. */
-@media (min-width: 641px) and (max-width: 1023.98px) {
-    :root {
-        --pm-modal-edge: 18px;
-    }
-
-    html body dialog[open] {
-        width: min(92vw, 840px) !important;
-        max-width: calc(100vw - 36px) !important;
-        max-height: calc(var(--pm-modal-vh) - 36px) !important;
-    }
-
-    html body dialog[open] > form,
-    html body dialog[open] > .pm-modal-content,
-    html body dialog[open] > .pm-modal-panel,
-    html body dialog[open] > .modal-content,
-    html body dialog[open] .pm-modal-form {
-        max-height: calc(var(--pm-modal-vh) - 36px) !important;
-    }
-}
-
-/* Phones: center within the usable viewport while retaining safe gutters. */
-@media (max-width: 640px) {
-    :root {
-        --pm-modal-edge: 8px;
-    }
-
-    html body dialog[open] {
-        top: 50% !important;
-        right: auto !important;
-        bottom: auto !important;
-        left: 50% !important;
-
-        width: calc(100vw - 16px) !important;
-        height: auto !important;
-        max-width: calc(100vw - 16px) !important;
-        max-height: calc(var(--pm-modal-vh) - 16px) !important;
 
         margin: 0 !important;
-        transform: translate(-50%, -50%) !important;
+
+        padding: 0 !important;
+
+
+        overflow-x: hidden !important;
+
+        overflow-y: auto !important;
+
+
+        border-radius:
+            var(
+                --pm-modal-radius-mobile
+            ) !important;
+
+
+        transform: none !important;
+
+
+        overscroll-behavior:
+            contain !important;
+
+        -webkit-overflow-scrolling:
+            touch !important;
     }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | STRUCTURED MODAL
+    |--------------------------------------------------------------------------
+    */
 
     html body dialog[open] > form,
     html body dialog[open] > .pm-modal-content,
     html body dialog[open] > .pm-modal-panel,
     html body dialog[open] > .modal-content,
-    html body dialog[open] .pm-modal-form {
-        max-height: calc(var(--pm-modal-vh) - 16px) !important;
-        height: auto !important;
+    html body dialog[open] .pm-modal-form,
+    html body #crud-modal[open] > #crud-modal-form {
+
+        display: flex !important;
+
+        flex-direction:
+            column !important;
+
+
+        width: 100% !important;
+
+
+        min-width: 0 !important;
+
+        max-width: 100% !important;
+
+
+        height: 100% !important;
+
+
+        min-height: 0 !important;
+
+        max-height: 100% !important;
+
+
+        overflow:
+            hidden !important;
     }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | HEADER
+    |--------------------------------------------------------------------------
+    */
+
+    html body dialog[open] .pm-modal-header,
+    html body dialog[open] .modal-header {
+
+        flex:
+            0 0 auto !important;
+
+
+        padding:
+            12px
+            14px !important;
+
+
+        gap:
+            8px !important;
+    }
+
+
+    html body dialog[open] .pm-modal-icon {
+
+        width: 34px !important;
+
+        height: 34px !important;
+
+        min-width:
+            34px !important;
+
+        flex:
+            0 0 34px !important;
+    }
+
+
+    html body dialog[open] .pm-modal-title,
+    html body dialog[open] .modal-header h1,
+    html body dialog[open] .modal-header h2,
+    html body dialog[open] .modal-header h3 {
+
+        font-size:
+            15px !important;
+
+        line-height:
+            1.3 !important;
+    }
+
+
+    html body dialog[open] .pm-modal-close,
+    html body dialog[open] .modal-close,
+    html body dialog[open] button[data-modal-close],
+    html body dialog[open] button[data-close-modal] {
+
+        width: 38px !important;
+
+        height: 38px !important;
+
+
+        min-width:
+            38px !important;
+
+
+        max-width:
+            38px !important;
+
+
+        flex:
+            0 0 38px !important;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | SCROLLABLE BODY
+    |--------------------------------------------------------------------------
+    */
 
     html body dialog[open] .pm-modal-body,
     html body dialog[open] .modal-body,
     html body dialog[open] .modal-scroll-body,
-    html body dialog[open] [data-modal-scroll] {
-        padding-bottom: max(20px, env(safe-area-inset-bottom)) !important;
-    }
+    html body dialog[open] [data-modal-scroll],
+    html body dialog[open] form > .overflow-y-auto,
+    html body dialog[open] > .overflow-y-auto {
 
-    html body .pm-component-modal-shell {
+        flex:
+            1 1 0 !important;
+
+
+        min-height:
+            0 !important;
+
+
+        max-height:
+            none !important;
+
+
+        width:
+            100% !important;
+
+
         padding:
-            max(8px, env(safe-area-inset-top))
-            max(8px, env(safe-area-inset-right))
-            max(8px, env(safe-area-inset-bottom))
-            max(8px, env(safe-area-inset-left)) !important;
+            14px
+            14px
+            max(
+                18px,
+                env(safe-area-inset-bottom)
+            ) !important;
+
+
+        overflow-x:
+            hidden !important;
+
+
+        overflow-y:
+            auto !important;
+
+
+        overscroll-behavior:
+            contain !important;
+
+
+        -webkit-overflow-scrolling:
+            touch !important;
     }
 
-    html body .pm-component-modal-panel {
-        width: 100% !important;
-        max-width: 100% !important;
-        max-height: calc(var(--pm-modal-vh) - 16px) !important;
-        margin: auto !important;
+
+    /*
+    |--------------------------------------------------------------------------
+    | FORCE SINGLE COLUMN
+    |--------------------------------------------------------------------------
+    */
+
+    html body dialog[open] .pm-modal-body .grid,
+    html body dialog[open] .pm-modal-body [class*="grid-cols-"],
+    html body dialog[open] .pm-form-grid,
+    html body dialog[open] .form-grid,
+    html body dialog[open] .form-grid-2,
+    html body dialog[open] .modal-form-grid,
+    html body dialog[open] .member-form-grid,
+    html body dialog[open] .sm\:grid-cols-2,
+    html body dialog[open] .md\:grid-cols-2,
+    html body dialog[open] .lg\:grid-cols-2,
+    html body dialog[open] .lg\:grid-cols-3,
+    html body dialog[open] .xl\:grid-cols-2,
+    html body dialog[open] .xl\:grid-cols-3,
+    html body dialog[open] .xl\:grid-cols-4 {
+
+        display:
+            grid !important;
+
+
+        grid-template-columns:
+            minmax(
+                0,
+                1fr
+            ) !important;
+
+
+        width:
+            100% !important;
+
+
+        min-width:
+            0 !important;
+
+
+        max-width:
+            100% !important;
+
+
+        gap:
+            12px !important;
     }
+
+
+    html body dialog[open] [class*="col-span-"] {
+
+        grid-column:
+            1 / -1 !important;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | CONTROLS
+    |--------------------------------------------------------------------------
+    */
+
+    html body dialog[open]
+    input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+
+    html body dialog[open] select,
+
+    html body dialog[open] textarea,
+
+    html body dialog[open] .pm-input {
+
+        width:
+            100% !important;
+
+
+        min-width:
+            0 !important;
+
+
+        max-width:
+            100% !important;
+
+
+        font-size:
+            16px !important;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | ATTENDEE ROW
+    |--------------------------------------------------------------------------
+    */
+
+    html body dialog[open] .participant-row,
+    html body dialog[open] .attendee-row {
+
+        display:
+            grid !important;
+
+
+        grid-template-columns:
+            minmax(0, 1fr)
+            40px !important;
+
+
+        gap:
+            8px !important;
+
+
+        align-items:
+            center !important;
+    }
+
+
+    html body dialog[open] .participant-row button,
+    html body dialog[open] .attendee-row button {
+
+        width:
+            40px !important;
+
+
+        min-width:
+            40px !important;
+
+
+        max-width:
+            40px !important;
+
+
+        min-height:
+            40px !important;
+
+
+        padding:
+            0 !important;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | EXPENSE / REPEATABLE ROWS
+    |--------------------------------------------------------------------------
+    */
+
+    html body dialog[open] .repeatable-row,
+    html body dialog[open] .pm-expense-item-row {
+
+        display:
+            grid !important;
+
+
+        grid-template-columns:
+            minmax(
+                0,
+                1fr
+            ) !important;
+
+
+        gap:
+            10px !important;
+    }
+
+
+    html body dialog[open]
+    .pm-expense-item-row > * {
+
+        grid-column:
+            1 / -1 !important;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | FOOTER
+    |--------------------------------------------------------------------------
+    */
+
+    html body dialog[open] .pm-modal-footer,
+    html body dialog[open] .modal-footer {
+
+        flex:
+            0 0 auto !important;
+
+
+        display:
+            grid !important;
+
+
+        grid-template-columns:
+            minmax(
+                0,
+                1fr
+            ) !important;
+
+
+        gap:
+            8px !important;
+
+
+        width:
+            100% !important;
+
+
+        padding:
+            10px
+            14px
+            max(
+                10px,
+                env(safe-area-inset-bottom)
+            ) !important;
+    }
+
+
+    html body dialog[open] .pm-modal-footer > *,
+    html body dialog[open] .modal-footer > * {
+
+        width:
+            100% !important;
+
+
+        min-width:
+            0 !important;
+
+
+        max-width:
+            100% !important;
+
+
+        min-height:
+            44px !important;
+
+
+        margin:
+            0 !important;
+
+
+        justify-content:
+            center !important;
+
+
+        white-space:
+            normal !important;
+
+
+        overflow-wrap:
+            anywhere !important;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | LEGACY OVERLAYS
+    |--------------------------------------------------------------------------
+    */
+
+    html body .modal-overlay.show,
+    html body .modal-overlay.open,
+    html body .modal-overlay.is-open,
+
+    html body .app-modal.show,
+    html body .app-modal.open,
+    html body .app-modal.is-open,
+
+    html body .ajax-modal.show,
+    html body .ajax-modal.open,
+    html body .ajax-modal.is-open,
+
+    html body .member-modal-overlay.show,
+    html body .member-modal-overlay.open,
+    html body .member-modal-overlay.is-open,
+
+    html body .church-modal.show,
+    html body .church-modal.open,
+    html body .church-modal.is-open,
+
+    html body .birds-modal.show,
+    html body .birds-modal.open,
+    html body .birds-modal.is-open,
 
     html body .dp-modal-backdrop.is-open,
+
     html body .sc-modal.open {
+
         padding:
-            max(8px, env(safe-area-inset-top))
-            max(8px, env(safe-area-inset-right))
-            max(8px, env(safe-area-inset-bottom))
-            max(8px, env(safe-area-inset-left)) !important;
+            max(
+                8px,
+                env(safe-area-inset-top)
+            )
+
+            max(
+                8px,
+                env(safe-area-inset-right)
+            )
+
+            max(
+                8px,
+                env(safe-area-inset-bottom)
+            )
+
+            max(
+                8px,
+                env(safe-area-inset-left)
+            ) !important;
+
+
+        align-items:
+            flex-start !important;
+    }
+
+
+    html body .modal-overlay .modal,
+    html body .modal-overlay .modal-dialog,
+    html body .app-modal .app-dialog,
+    html body .ajax-modal .ajax-dialog,
+    html body .member-modal-overlay .modal,
+    html body .church-modal .church-modal-dialog,
+    html body .birds-modal .birds-modal-dialog,
+    html body .dp-modal-backdrop .dp-modal-panel,
+    html body .sc-modal .sc-modal-panel {
+
+        width:
+            100% !important;
+
+
+        min-width:
+            0 !important;
+
+
+        max-width:
+            100% !important;
+
+
+        max-height:
+            calc(
+                100dvh - 16px
+            ) !important;
+
+
+        margin:
+            auto !important;
+
+
+        border-radius:
+            var(
+                --pm-modal-radius-mobile
+            ) !important;
+
+
+        overflow-y:
+            auto !important;
     }
 }
 
-/* Very short screens and landscape phones/tablets: scrolling is more important
-   than vertical centring. Keep the modal inside the viewport from the top. */
-@media (max-height: 620px) {
+
+/* ==========================================================================
+   VERY SMALL PHONES
+   ========================================================================== */
+
+@media (max-width: 380px) {
+
     html body dialog[open] {
-        top: max(6px, env(safe-area-inset-top)) !important;
-        bottom: max(6px, env(safe-area-inset-bottom)) !important;
-        transform: none !important;
+
+        top:
+            max(
+                5px,
+                env(safe-area-inset-top)
+            ) !important;
+
+
+        right:
+            max(
+                5px,
+                env(safe-area-inset-right)
+            ) !important;
+
+
+        bottom:
+            max(
+                5px,
+                env(safe-area-inset-bottom)
+            ) !important;
+
+
+        left:
+            max(
+                5px,
+                env(safe-area-inset-left)
+            ) !important;
+
+
+        border-radius:
+            14px !important;
     }
 
-    @media (min-width: 641px) {
-        html body dialog[open] {
-            left: 50% !important;
-            right: auto !important;
-            width: min(92vw, 840px) !important;
-            height: auto !important;
-            max-height: calc(var(--pm-modal-vh) - 12px) !important;
-            transform: translateX(-50%) !important;
-        }
+
+    dialog .pm-modal-header,
+    dialog .modal-header,
+    dialog .pm-modal-body,
+    dialog .modal-body,
+    dialog .pm-modal-footer,
+    dialog .modal-footer {
+
+        padding-left:
+            12px !important;
+
+
+        padding-right:
+            12px !important;
     }
 }
 
-/* The shared CRUD create/edit form can contain many fields. On phones it
-   needs a definite viewport-bounded height so its flex body scrolls rather
-   than expanding below the screen and taking the footer with it. */
+
+/* ==========================================================================
+   LANDSCAPE / SHORT PHONES
+   ========================================================================== */
+
+@media
+    (max-width: 640px)
+    and
+    (max-height: 620px) {
+
+    html body dialog[open],
+    html body #crud-modal[open],
+    html body #meeting-modal[open],
+    html body #expense-modal[open],
+    html body #annualPlanModal[open],
+    html body #confirm-modal[open] {
+
+        top:
+            max(
+                4px,
+                env(safe-area-inset-top)
+            ) !important;
+
+
+        right:
+            max(
+                4px,
+                env(safe-area-inset-right)
+            ) !important;
+
+
+        bottom:
+            max(
+                4px,
+                env(safe-area-inset-bottom)
+            ) !important;
+
+
+        left:
+            max(
+                4px,
+                env(safe-area-inset-left)
+            ) !important;
+
+
+        transform:
+            none !important;
+    }
+
+
+    dialog .pm-modal-header,
+    dialog .modal-header {
+
+        padding-top:
+            8px !important;
+
+
+        padding-bottom:
+            8px !important;
+    }
+
+
+    dialog .pm-modal-body,
+    dialog .modal-body {
+
+        padding-top:
+            10px !important;
+
+
+        padding-bottom:
+            10px !important;
+    }
+}
+
+
+/* ==========================================================================
+   REMINDER MODAL
+   ========================================================================== */
+
+#reminder-alarm-modal[open] {
+
+    width:
+        clamp(
+            300px,
+            90vw,
+            440px
+        ) !important;
+
+
+    padding:
+        20px !important;
+
+
+    overflow-y:
+        auto !important;
+
+
+    border-radius:
+        18px !important;
+}
+
+
+#reminder-alarm-modal[open]
+#reminder-alarm-message {
+
+    display:
+        block !important;
+
+
+    width:
+        100% !important;
+
+
+    max-width:
+        100% !important;
+
+
+    margin:
+        0 0 16px !important;
+
+
+    color:
+        #475569 !important;
+
+
+    line-height:
+        1.55 !important;
+
+
+    overflow-wrap:
+        anywhere !important;
+}
+
+
+#reminder-alarm-modal[open]
+#reminder-alarm-dismiss {
+
+    min-height:
+        44px !important;
+
+
+    padding:
+        10px
+        18px !important;
+
+
+    border-radius:
+        12px !important;
+}
+
+
 @media (max-width: 640px) {
-    html body #crud-modal[open] {
-        top: 50% !important;
-        right: auto !important;
-        bottom: auto !important;
-        left: 50% !important;
-        width: calc(100vw - 16px) !important;
-        max-width: calc(100vw - 16px) !important;
-        height: calc(var(--pm-modal-vh) - 16px) !important;
-        max-height: calc(var(--pm-modal-vh) - 16px) !important;
-        margin: 0 !important;
-        overflow: hidden !important;
-        transform: translate(-50%, -50%) !important;
+
+    #reminder-alarm-modal[open] {
+
+        top:
+            50% !important;
+
+
+        right:
+            max(
+                8px,
+                env(safe-area-inset-right)
+            ) !important;
+
+
+        bottom:
+            auto !important;
+
+
+        left:
+            max(
+                8px,
+                env(safe-area-inset-left)
+            ) !important;
+
+
+        width:
+            auto !important;
+
+
+        max-width:
+            none !important;
+
+
+        max-height:
+            calc(
+                100dvh - 16px
+            ) !important;
+
+
+        margin:
+            0 !important;
+
+
+        padding:
+            18px !important;
+
+
+        transform:
+            translateY(
+                -50%
+            ) !important;
     }
 
-    html body #crud-modal[open] > #crud-modal-form {
-        height: 100% !important;
-        max-height: 100% !important;
-        min-height: 0 !important;
-        overflow: hidden !important;
-    }
 
-    html body #crud-modal[open] .pm-modal-body {
-        flex: 1 1 0 !important;
-        min-height: 0 !important;
-        max-height: none !important;
-        overflow-x: hidden !important;
-        overflow-y: auto !important;
-        overscroll-behavior: contain !important;
-        -webkit-overflow-scrolling: touch !important;
-    }
+    #reminder-alarm-modal[open]
+    #reminder-alarm-dismiss {
 
-    html body #crud-modal[open] .pm-modal-footer {
-        flex: 0 0 auto !important;
+        width:
+            100% !important;
+
+
+        min-width:
+            0 !important;
+
+
+        max-width:
+            100% !important;
+    }
+}
+
+
+/* ==========================================================================
+   REDUCED MOTION
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+
+    dialog,
+    dialog[open],
+    dialog::backdrop,
+
+    .modal-overlay,
+
+    dialog input,
+    dialog select,
+    dialog textarea,
+    dialog button {
+
+        animation:
+            none !important;
+
+
+        transition:
+            none !important;
     }
 }
