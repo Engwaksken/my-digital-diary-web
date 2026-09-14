@@ -8,6 +8,7 @@ use App\Services\ExternalCalendarSyncService;
 use App\Services\DailyInsightService;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 
 /**
@@ -43,15 +44,29 @@ class MeetingController extends ApiCrudController
      * lets the app request compact pages without changing pagination defaults
      * for every other mobile module.
      */
-    public function index(Request $request): JsonResponse
+       public function index(Request $request): JsonResponse
     {
         $perPage = max(5, min(50, (int) $request->integer('per_page', 10)));
 
-        $items = Meeting::where('user_id', $request->user()->id)
-            ->where('is_archived', false)
-            ->orderBy('start_at')
-            ->paginate($perPage)
-            ->withQueryString();
+        $query = Meeting::where('user_id', $request->user()->id)
+            ->where('is_archived', false);
+
+        // Search across title, location, attendees, notes
+        if ($search = trim((string) $request->query('search', ''))) {
+            $query->where(function (Builder $q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                  ->orWhere('location', 'like', "%{$search}%")
+                  ->orWhere('attendees', 'like', "%{$search}%")
+                  ->orWhere('notes', 'like', "%{$search}%");
+            });
+        }
+
+        // Status filter
+        if (in_array($request->query('status'), ['scheduled', 'completed', 'cancelled'], true)) {
+            $query->where('status', $request->query('status'));
+        }
+
+        $items = $query->orderBy('start_at')->paginate($perPage)->withQueryString();
 
         return response()->json($items);
     }
