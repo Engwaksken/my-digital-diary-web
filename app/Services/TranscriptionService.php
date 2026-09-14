@@ -47,6 +47,11 @@ class TranscriptionService
     ];
 
     /**
+     * OpenAI maximum upload size: 25 MB.
+     */
+    private const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+
+    /**
      * Transcribe a stored meeting recording.
      *
      * @return array{
@@ -383,6 +388,22 @@ class TranscriptionService
             $extension
         );
 
+        /*
+         * Validate file size for OpenAI's 25 MB limit.
+         * Without FFmpeg, large files cannot be compressed further.
+         */
+        $fileSize = filesize($sourcePath);
+
+        if ($fileSize > self::MAX_FILE_SIZE_BYTES) {
+            $sizeMb = round($fileSize / (1024 * 1024), 1);
+
+            throw new RuntimeException(
+                "The recording is too large ({$sizeMb} MB) for transcription. "
+                . 'The server needs FFmpeg installed to compress recordings, '
+                . 'or upload a shorter recording under 25 MB.'
+            );
+        }
+
         return [
             'path' =>
                 $sourcePath,
@@ -514,6 +535,72 @@ class TranscriptionService
         $this->validateWithFfprobe(
             $destinationPath
         );
+
+        /*
+         * If the compressed MP3 still exceeds OpenAI's 25 MB limit,
+         * re-encode at an even lower bitrate to fit under the threshold.
+         */
+        if (filesize($destinationPath) > self::MAX_FILE_SIZE_BYTES) {
+            $ultraPath =
+                $temporaryDirectory
+                . DIRECTORY_SEPARATOR
+                . Str::uuid()
+                . '-lowbitrate.mp3';
+
+            $ultraCommand =
+                'ffmpeg'
+                . ' -hide_banner'
+                . ' -loglevel error'
+                . ' -y'
+                . ' -i '
+                . escapeshellarg(
+                    $destinationPath
+                )
+                . ' -vn'
+                . ' -ac 1'
+                . ' -ar 16000'
+                . ' -codec:a libmp3lame'
+                . ' -b:a 32k '
+                . escapeshellarg(
+                    $ultraPath
+                )
+                . ' 2>&1';
+
+            $ultraOutput = [];
+            $ultraExit = 1;
+
+            @exec(
+                $ultraCommand,
+                $ultraOutput,
+                $ultraExit
+            );
+
+            if (
+                $ultraExit === 0
+                && is_file($ultraPath)
+                && filesize($ultraPath) > 1024
+                && filesize($ultraPath) <= self::MAX_FILE_SIZE_BYTES
+            ) {
+                @unlink($destinationPath);
+                $destinationPath = $ultraPath;
+            } else {
+                @unlink($ultraPath);
+
+                /*
+                 * Last resort: if the low-bitrate pass still failed
+                 * or produced a file that is somehow still too large,
+                 * throw a clear error.
+                 */
+                if (filesize($destinationPath) > self::MAX_FILE_SIZE_BYTES) {
+                    $sizeMb = round(filesize($destinationPath) / (1024 * 1024), 1);
+
+                    throw new RuntimeException(
+                        "The recording is too large ({$sizeMb} MB) even after compression. "
+                        . 'Please upload a shorter recording under 25 MB.'
+                    );
+                }
+            }
+        }
 
         return [
             'path' =>
