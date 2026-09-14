@@ -17,6 +17,11 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(DeviceToken::class);
     }
 
+    public function extraRequests()
+    {
+        return $this->hasMany(UserExtraRequest::class);
+    }
+
     /**
      * Seeded once at self-registration (web AND mobile — see
      * RegisteredUserController and Api\AuthController), not for

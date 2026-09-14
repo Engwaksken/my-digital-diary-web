@@ -391,6 +391,8 @@ Route::middleware(['auth:sanctum', 'mobile.idempotent'])->name('api.')->group(fu
     'month',
 ]);
 
+    Route::apiResource('extra-requests', \App\Http\Controllers\Api\ExtraRequestController::class)->except(['update', 'destroy']);
+    Route::post('extra-requests/{extra_request}/pay', [\App\Http\Controllers\Api\ExtraRequestController::class, 'pay']);
 
 });
 

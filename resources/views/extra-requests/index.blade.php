@@ -1,0 +1,80 @@
+@extends('layouts.app')
+
+@section('title', 'Extra Recording Quota Requests')
+
+@section('content')
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">Extra Recording Quota Requests</h1>
+            <p class="text-sm text-slate-600">Request and manage additional transcription and recording minutes.</p>
+        </div>
+        <a href="{{ route('extra-requests.create') }}" class="inline-flex items-center px-4 py-2 bg-[var(--brand-1)] text-white text-sm font-medium rounded-lg shadow hover:opacity-90">
+            <i class="fa-solid fa-plus mr-2"></i> Request Extra Quota
+        </a>
+    </div>
+
+    @if (session('success'))
+        <div class="p-4 mb-4 text-sm text-emerald-700 bg-emerald-100 rounded-lg">
+            {{ session('success') }}
+        </div>
+    @endif
+
+    <div class="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
+        <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+            <span class="text-sm font-semibold text-slate-700">Your Current Quota: {{ auth()->user()->extra_recording_quota_minutes ?? 0 }} minutes</span>
+            @if(auth()->user()->extra_quota_expires_at)
+                <span class="text-xs text-slate-500">Expires: {{ auth()->user()->extra_quota_expires_at->format('M d, Y H:i') }}</span>
+            @endif
+        </div>
+        @if($requests->isEmpty())
+            <div class="p-8 text-center text-slate-500">
+                <i class="fa-solid fa-microphone-slash text-4xl mb-3 text-slate-300"></i>
+                <p>No extra quota requests found.</p>
+            </div>
+        @else
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider border-b border-slate-200">
+                            <th class="p-4">ID</th>
+                            <th class="p-4">Description</th>
+                            <th class="p-4">Minutes</th>
+                            <th class="p-4">Amount</th>
+                            <th class="p-4">Status</th>
+                            <th class="p-4">Date</th>
+                            <th class="p-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 text-sm">
+                        @foreach($requests as $req)
+                            <tr>
+                                <td class="p-4 font-medium">#{{ $req->id }}</td>
+                                <td class="p-4">{{ $req->description }}</td>
+                                <td class="p-4 font-semibold text-[var(--brand-1)]">+{{ $req->quota_amount }} min</td>
+                                <td class="p-4">{{ number_format($req->amount, 2) }} {{ $req->currency }}</td>
+                                <td class="p-4">
+                                    <span class="px-2.5 py-1 text-xs rounded-full font-medium
+                                        @if($req->status === 'applied') bg-emerald-100 text-emerald-800
+                                        @elseif($req->status === 'approved') bg-blue-100 text-blue-800
+                                        @elseif($req->status === 'rejected') bg-red-100 text-red-800
+                                        @else bg-amber-100 text-amber-800 @endif">
+                                        {{ ucfirst($req->status) }}
+                                    </span>
+                                </td>
+                                <td class="p-4 text-slate-500 text-xs">{{ $req->created_at->format('M d, Y') }}</td>
+                                <td class="p-4 text-right">
+                                    <a href="{{ route('extra-requests.show', $req) }}" class="text-[var(--brand-1)] hover:underline font-medium text-xs">View</a>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            <div class="p-4 border-t border-slate-200">
+                {{ $requests->links() }}
+            </div>
+        @endif
+    </div>
+</div>
+@endsection

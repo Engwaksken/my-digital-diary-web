@@ -653,4 +653,10 @@ Route::middleware([
             [AdminSocialMediaProviderController::class, 'destroy']
         )->whereNumber('provider')
           ->name('social-media-providers.destroy');
+
+        Route::get('extra-requests', [\App\Http\Controllers\Admin\ExtraRequestController::class, 'index'])->name('extra-requests.index');
+        Route::get('extra-requests/{extra_request}', [\App\Http\Controllers\Admin\ExtraRequestController::class, 'show'])->name('extra-requests.show');
+        Route::post('extra-requests/{extra_request}/approve', [\App\Http\Controllers\Admin\ExtraRequestController::class, 'approve'])->name('extra-requests.approve');
+        Route::post('extra-requests/{extra_request}/reject', [\App\Http\Controllers\Admin\ExtraRequestController::class, 'reject'])->name('extra-requests.reject');
+        Route::post('extra-requests/{extra_request}/apply', [\App\Http\Controllers\Admin\ExtraRequestController::class, 'apply'])->name('extra-requests.apply');
     });

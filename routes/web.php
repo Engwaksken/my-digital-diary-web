@@ -499,6 +499,8 @@ Route::middleware(['auth', 'verified', \App\Http\Middleware\EnsureSubscribedOrOr
     // Full cross-module "Personal Report" as a downloadable PDF (DomPDF).
     Route::get('report/pdf', [ReportController::class, 'download'])->name('report.download');
     
+    Route::resource('extra-requests', \App\Http\Controllers\ExtraRequestController::class)->except(['edit', 'update', 'destroy']);
+    Route::post('extra-requests/{extra_request}/pay', [\App\Http\Controllers\ExtraRequestController::class, 'pay'])->name('extra-requests.pay');
     
 });
 
