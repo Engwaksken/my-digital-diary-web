@@ -19,6 +19,16 @@
             @if ($meeting->notes)
                 <div class="mt-4 whitespace-pre-line text-slate-700">{{ $meeting->notes }}</div>
             @endif
+            @if (!empty($externalUrl))
+                <div class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-slate-700">
+                    <h2 class="font-semibold text-slate-900">You’re leaving My Digital Diary</h2>
+                    <p class="mt-1 text-sm">This meeting is hosted at <strong>{{ parse_url($externalUrl, PHP_URL_HOST) }}</strong>.</p>
+                    <p class="mt-1 break-all text-sm text-slate-600">{{ $externalUrl }}</p>
+                    <a href="{{ $externalUrl }}" target="_blank" rel="noopener noreferrer" class="mt-4 inline-flex rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700">
+                        Continue to external meeting
+                    </a>
+                </div>
+            @endif
             <a href="{{ route('meetings.index') }}" class="mt-6 inline-flex rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700">
                 Open my meetings
             </a>

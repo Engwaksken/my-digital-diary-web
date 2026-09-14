@@ -49,6 +49,29 @@ class MeetingJoinLinkTest extends TestCase
         $this->actingAs($stranger)->get($meeting->diary_join_url)->assertForbidden();
     }
 
+    public function test_authorized_internal_join_shows_an_external_destination_interstitial(): void
+    {
+        $owner = User::factory()->create(['email' => 'owner@example.com']);
+        $attendee = User::factory()->create(['email' => 'attendee@example.com']);
+        $meeting = Meeting::create([
+            'user_id' => $owner->id,
+            'title' => 'Hosted meeting',
+            'start_at' => now()->addDay(),
+            'status' => 'scheduled',
+            'attendees' => 'attendee@example.com',
+            'location' => 'https://meet.example.test/room',
+        ]);
+
+        $this->actingAs($owner)->get($meeting->diary_join_url)
+            ->assertOk()
+            ->assertSee('You’re leaving My Digital Diary')
+            ->assertSee('meet.example.test')
+            ->assertSee('https://meet.example.test/room', false);
+        $this->actingAs($attendee)->get($meeting->diary_join_url)
+            ->assertOk()
+            ->assertSee('You’re leaving My Digital Diary');
+    }
+
     public function test_external_meeting_has_no_diary_join_link_and_join_route_is_not_found(): void
     {
         $owner = User::factory()->create();
@@ -211,7 +234,62 @@ class MeetingJoinLinkTest extends TestCase
             'external_id' => 'event',
         ]);
 
-        $this->assertStringContainsString(route('meetings.join', $internal), (new MeetingInvitationMail($internal, 'Owner'))->render());
-        $this->assertStringNotContainsString('Join in My Digital Diary', (new MeetingInvitationMail($external, 'Owner'))->render());
+        $internalMail = (new MeetingInvitationMail($internal, 'Owner'))->render();
+        $externalMail = (new MeetingInvitationMail($external, 'Owner'))->render();
+
+        $this->assertStringContainsString(route('meetings.join', $internal), $internalMail);
+        $this->assertStringNotContainsString('Join meeting', $externalMail);
+        $this->assertStringNotContainsString('href="https://meet.example.test/existing-link"', $externalMail);
     }
+
+    public function test_meeting_ui_join_links_use_the_protected_route_and_not_an_external_url(): void
+    {
+        $owner = User::factory()->create(['email' => 'owner@example.com']);
+        $meeting = Meeting::create([
+            'user_id' => $owner->id,
+            'title' => 'Hosted meeting',
+            'start_at' => now()->addDay(),
+            'status' => 'scheduled',
+            'location' => 'https://meet.example.test/room',
+        ]);
+
+        $this->actingAs($owner);
+        $calendar = view('crud.extras.meetings-top', [
+            'nearestMeeting' => $meeting,
+            'statusFilter' => null,
+        ])->render();
+
+        $this->assertStringContainsString(route('meetings.join', $meeting), $calendar);
+        $this->assertStringNotContainsString('href="https://meet.example.test/room"', $calendar);
+        $this->assertStringContainsString('href="{{ $item->diary_join_url }}"', file_get_contents(resource_path('views/crud/index.blade.php')));
+        $this->assertStringNotContainsString('href="{{ $meetingSafeExternalUrl }}"', file_get_contents(resource_path('views/crud/index.blade.php')));
+    }
+
+    public function test_join_feature_does_not_expose_recording_stream_to_invitees(): void
+    {
+        $middleware = app('router')->getRoutes()->getByName('meeting-recordings.audio.stream')->gatherMiddleware();
+
+        $this->assertContains(\App\Http\Middleware\EnsureSubscribedOrOrganizationMember::class, $middleware);
+        $this->assertStringNotContainsString(
+            'meeting-recordings.audio.stream',
+            file_get_contents(resource_path('views/meetings/join.blade.php'))
+        );
+    }
+    
+    public function test_invitation_email_for_internal_meeting_with_external_url_does_not_expose_raw_url(): void
+{
+    $owner = User::factory()->create();
+    $meeting = Meeting::create([
+        'user_id' => $owner->id,
+        'title' => 'Hosted meeting',
+        'start_at' => now()->addDay(),
+        'status' => 'scheduled',
+        'location' => 'https://meet.example.test/room',
+    ]);
+
+    $html = (new MeetingInvitationMail($meeting, 'Owner'))->render();
+
+    $this->assertStringNotContainsString('https://meet.example.test/room', $html);
+    $this->assertStringContainsString(route('meetings.join', $meeting), $html);
+}
 }

@@ -220,21 +220,11 @@
                         word-break:break-word;
                     "
                 >
-                    @if(
-                        filter_var(
-                            $meeting->location,
-                            FILTER_VALIDATE_URL
-                        )
-                    )
-                        <a
-                            href="{{ $meeting->location }}"
-                            style="color:#0f766e;"
-                        >
-                            {{ $meeting->location }}
-                        </a>
-                    @else
-                        {{ $meeting->location }}
-                    @endif
+                   @if ($meeting->diary_join_url)
+<a href="{{ $meeting->diary_join_url }}">{{ e($meeting->location) }}</a>
+@else
+{{ e($meeting->location) }}
+@endif
                 </td>
             </tr>
         @endif

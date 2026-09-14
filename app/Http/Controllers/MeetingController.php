@@ -611,6 +611,17 @@ class MeetingController extends CrudController
         abort_unless($meeting->isInternallyCreated(), 404);
         abort_unless($meeting->canBeJoinedBy($request->user()), 403);
 
+        // A diary-created meeting can still be configured with a host's
+        // meeting URL. Present its validated destination only after the
+        // protected join check, so this route cannot be used as an open
+        // redirect or phishing link.
+        if ($externalUrl = $meeting->safe_external_url) {
+            return view('meetings.join', [
+                'meeting' => $meeting,
+                'externalUrl' => $externalUrl,
+            ]);
+        }
+
         return view('meetings.join', ['meeting' => $meeting]);
     }
 

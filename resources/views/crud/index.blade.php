@@ -562,12 +562,12 @@
                                     @endphp
                                     @if ($meetingLinkValue === '')
                                         <span class="text-slate-400"></span>
-                                    @elseif ($meetingSafeExternalUrl)
-                                        <a href="{{ $meetingSafeExternalUrl }}" target="_blank" rel="noopener noreferrer"
+                                    @elseif ($meetingSafeExternalUrl && $item->canBeJoinedBy(auth()->user()))
+                                        <a href="{{ $item->diary_join_url }}"
                                             class="inline-flex items-center gap-1 text-[var(--brand-1)] hover:underline font-medium"
-                                           title="{{ $meetingSafeExternalUrl }}">
-                                            <i class="fa-solid fa-arrow-up-right-from-square text-[10px]" aria-hidden="true"></i>
-                                            View link
+                                           title="Join meeting">
+                                            <i class="fa-solid fa-arrow-right-to-bracket text-[10px]" aria-hidden="true"></i>
+                                            Join meeting
                                         </a>
                                     @else
                                         <span title="{{ $meetingLinkValue }}">{{ \Illuminate\Support\Str::limit($meetingLinkValue, 34) }}</span>

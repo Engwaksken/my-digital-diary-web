@@ -9,13 +9,17 @@
 **Ends:** {{ $meeting->end_at->format('g:i A') }}
 @endif
 @if ($meeting->location)
-**Location / Link:** {{ $meeting->location }}
+@if ($meeting->diary_join_url)
+**Location / Link:** [View in My Digital Diary]({{ $meeting->diary_join_url }})
+@else
+**Location:** {{ e($meeting->location) }}
+@endif
 @endif
 @endcomponent
 
 @if ($meeting->diary_join_url)
 @component('mail::button', ['url' => $meeting->diary_join_url])
-Join in My Digital Diary
+Join meeting
 @endcomponent
 
 This link requires you to sign in with the email address that received this invitation.

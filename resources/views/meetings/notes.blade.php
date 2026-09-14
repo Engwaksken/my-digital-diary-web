@@ -113,21 +113,13 @@
 
         <div class="flex flex-wrap items-center gap-2">
 
-            @if(
-                $meeting->location
-                && filter_var(
-                    $meeting->location,
-                    FILTER_VALIDATE_URL
-                )
-            )
+            @if($meeting->diary_join_url)
                 <a
-                    href="{{ $meeting->location }}"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href="{{ $meeting->diary_join_url }}"
                     class="btn-primary inline-flex items-center rounded-xl px-4 py-2.5 text-sm font-bold text-white"
                 >
                     <i class="fa-solid fa-video mr-1"></i>
-                    Join Meeting
+                    Join meeting
                 </a>
             @endif
 
