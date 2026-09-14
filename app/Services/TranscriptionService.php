@@ -64,6 +64,17 @@ class TranscriptionService
         string $audioPath,
         string $language = 'auto'
     ): array {
+        $hasActive = $user->hasActiveAccess();
+        $extraMinutes = (int) ($user->extra_recording_quota_minutes ?? 0);
+        $extraExpires = $user->extra_quota_expires_at;
+        $hasExtraQuota = $extraMinutes > 0 && (is_null($extraExpires) || $extraExpires->isFuture());
+
+        if (! $hasActive && ! $hasExtraQuota) {
+            throw new RuntimeException(
+                'Transcription requires an active subscription or valid extra recording quota minutes.'
+            );
+        }
+
         $apiKey =
             $this->resolveOpenAiApiKey(
                 $user
