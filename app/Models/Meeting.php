@@ -25,6 +25,7 @@ class Meeting extends Model
         'calendar_provider', 'external_calendar_id', 'external_event_id', 'external_series_id',
         'calendar_synced_at', 'calendar_sync_from_date', 'calendar_sync_to_date',
     ];
+    protected $appends = ['diary_join_url'];
 
     protected $casts = [
         'start_at' => 'datetime',
