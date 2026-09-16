@@ -11,6 +11,7 @@
         .row { font-size: 12px; color: #334155; margin: 4px 0; }
         .qr { margin-top: 20px; }
         img.photo { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; }
+        img.logo { max-height: 50px; max-width: 220px; margin: 0 auto 14px; object-fit: contain; }
     </style>
 </head>
 <body>
@@ -19,6 +20,9 @@
          historically unreliable, so a solid color is the safer choice
          here even though the web/public page can use one freely. --}}
     <div class="card" style="border: 2px solid {{ $card->cardColor() }};">
+        @if ($card->logoDataUri())
+            <img src="{{ $card->logoDataUri() }}" class="logo" alt="">
+        @endif
         @if ($card->photoDataUri())
             <img src="{{ $card->photoDataUri() }}" class="photo" alt="">
         @endif

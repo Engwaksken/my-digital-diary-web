@@ -34,6 +34,8 @@ class BusinessCardController extends Controller
             'address' => ['nullable', 'string', 'max:255'],
             'bio' => ['nullable', 'string', 'max:1000'],
             'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'remove_logo' => ['nullable', 'boolean'],
             'social_facebook' => ['nullable', 'string', 'max:255'],
             'social_twitter' => ['nullable', 'string', 'max:255'],
             'social_linkedin' => ['nullable', 'string', 'max:255'],
@@ -46,13 +48,20 @@ class BusinessCardController extends Controller
         $card = BusinessCard::where('user_id', $user->id)->first();
         $newPhotoPath = null;
         $oldPhotoPath = $card?->photo_path;
+        $newLogoPath = null;
+        $oldLogoPath = $card?->logo_path;
+        $removeLogo = (bool) ($data['remove_logo'] ?? false);
 
         try {
             if ($request->hasFile('photo')) {
                 $newPhotoPath = $request->file('photo')->store('business-cards', 'public');
             }
 
-            $card = DB::transaction(function () use ($data, $user, $card, $newPhotoPath) {
+            if ($request->hasFile('logo')) {
+                $newLogoPath = $request->file('logo')->store('business-cards/logos', 'public');
+            }
+
+            $card = DB::transaction(function () use ($data, $user, $card, $newPhotoPath, $newLogoPath, $removeLogo) {
                 $payload = [
                     'name' => $data['name'],
                     'title' => $data['title'] ?? null,
@@ -80,6 +89,13 @@ class BusinessCardController extends Controller
                 if ($newPhotoPath) {
                     $payload['photo_path'] = $newPhotoPath;
                 }
+                if (Schema::hasColumn('business_cards', 'logo_path')) {
+                    if ($newLogoPath) {
+                        $payload['logo_path'] = $newLogoPath;
+                    } elseif ($removeLogo) {
+                        $payload['logo_path'] = null;
+                    }
+                }
 
                 if ($card) {
                     if (! $card->slug) {
@@ -99,6 +115,10 @@ class BusinessCardController extends Controller
                 Storage::disk('public')->delete($oldPhotoPath);
             }
 
+            if ($oldLogoPath && ($removeLogo || ($newLogoPath && $oldLogoPath !== $newLogoPath))) {
+                Storage::disk('public')->delete($oldLogoPath);
+            }
+
             return response()->json([
                 'message' => 'Business card saved successfully.',
                 'data' => $this->transform($card),
@@ -106,6 +126,9 @@ class BusinessCardController extends Controller
         } catch (Throwable $e) {
             if ($newPhotoPath) {
                 Storage::disk('public')->delete($newPhotoPath);
+            }
+            if ($newLogoPath) {
+                Storage::disk('public')->delete($newLogoPath);
             }
             report($e);
 
@@ -137,6 +160,7 @@ class BusinessCardController extends Controller
             'bio' => $card->bio,
             'social_links' => $card->social_links ?? [],
             'photo_url' => $card->photoUrl(),
+            'logo_url' => $card->logoUrl(),
             'public_url' => $card->publicUrl(),
             'qr_code_url' => $card->qrCodeUrl(),
             'is_published' => (bool) $card->is_published,
@@ -158,6 +182,25 @@ class BusinessCardController extends Controller
         $mime = $disk->mimeType($card->photo_path) ?: 'image/jpeg';
 
         return response($disk->get($card->photo_path), 200, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline',
+            'Cache-Control' => 'private, max-age=300',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    public function logo(Request $request)
+    {
+        $card = BusinessCard::where('user_id', $request->user()->id)->firstOrFail();
+
+        if (! $card->logo_path || ! Storage::disk('public')->exists($card->logo_path)) {
+            abort(404, 'Business card logo not found.');
+        }
+
+        $disk = Storage::disk('public');
+        $mime = $disk->mimeType($card->logo_path) ?: 'image/png';
+
+        return response($disk->get($card->logo_path), 200, [
             'Content-Type' => $mime,
             'Content-Disposition' => 'inline',
             'Cache-Control' => 'private, max-age=300',

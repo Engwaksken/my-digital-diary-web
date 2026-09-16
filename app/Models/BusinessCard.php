@@ -9,7 +9,7 @@ use Illuminate\Support\Str;
 class BusinessCard extends Model
 {
     protected $fillable = [
-        'user_id', 'slug', 'photo_path', 'name', 'title', 'company', 'phone',
+        'user_id', 'slug', 'photo_path', 'logo_path', 'name', 'title', 'company', 'phone',
         'whatsapp_phone', 'email', 'website', 'address', 'bio', 'social_links', 'is_published',
         'card_color', 'card_color_secondary',
     ];
@@ -82,6 +82,27 @@ class BusinessCard extends Model
     public function photoUrl(): ?string
     {
         return $this->photo_path ? Storage::disk('public')->url($this->photo_path) : null;
+    }
+
+    public function logoUrl(): ?string
+    {
+        return $this->logo_path ? Storage::disk('public')->url($this->logo_path) : null;
+    }
+
+    /**
+     * Same DomPDF-blocks-remote-images reasoning as photoDataUri() —
+     * the logo needs a base64 data URI to render inside the PDF card.
+     */
+    public function logoDataUri(): ?string
+    {
+        if (! $this->logo_path || ! Storage::disk('public')->exists($this->logo_path)) {
+            return null;
+        }
+
+        $contents = Storage::disk('public')->get($this->logo_path);
+        $mimeType = Storage::disk('public')->mimeType($this->logo_path) ?: 'image/png';
+
+        return 'data:' . $mimeType . ';base64,' . base64_encode($contents);
     }
 
     /**

@@ -23,6 +23,19 @@
                     <input type="file" id="photo" name="photo" accept="image/*" class="block w-full text-sm">
                 </div>
 
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Company Logo</label>
+                    @if ($card?->logoDataUri())
+                        <img src="{{ $card->logoDataUri() }}" alt="" class="h-10 mb-2">
+                        <label class="flex items-center gap-2 text-xs text-slate-500 mb-1 cursor-pointer">
+                            <input type="checkbox" name="remove_logo" value="1" class="rounded border-slate-300">
+                            Remove existing logo
+                        </label>
+                    @endif
+                    <input type="file" name="logo" accept="image/png,image/jpeg,image/webp" class="block w-full text-sm">
+                    <p class="text-xs text-slate-400 mt-1">Shows at the top of your public card page. Max 2 MB.</p>
+                </div>
+
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label for="name" class="block text-sm font-medium text-slate-700 mb-1">Name <span class="text-rose-500" aria-hidden="true">*</span></label>

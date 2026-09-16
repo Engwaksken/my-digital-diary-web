@@ -62,6 +62,8 @@ class BusinessCardController extends Controller
             'address' => ['nullable', 'string', 'max:255'],
             'bio' => ['nullable', 'string', 'max:1000'],
             'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'remove_logo' => ['nullable', 'boolean'],
             'social_facebook' => ['nullable', 'string', 'max:255'],
             'social_twitter' => ['nullable', 'string', 'max:255'],
             'social_linkedin' => ['nullable', 'string', 'max:255'],
@@ -74,13 +76,20 @@ class BusinessCardController extends Controller
         $card = BusinessCard::where('user_id', $user->id)->first();
         $newPhotoPath = null;
         $oldPhotoPath = $card?->photo_path;
+        $newLogoPath = null;
+        $oldLogoPath = $card?->logo_path;
+        $removeLogo = (bool) ($data['remove_logo'] ?? false);
 
         try {
             if ($request->hasFile('photo')) {
                 $newPhotoPath = $request->file('photo')->store('business-cards', 'public');
             }
 
-            $card = DB::transaction(function () use ($data, $user, $card, $newPhotoPath) {
+            if ($request->hasFile('logo')) {
+                $newLogoPath = $request->file('logo')->store('business-cards/logos', 'public');
+            }
+
+            $card = DB::transaction(function () use ($data, $user, $card, $newPhotoPath, $newLogoPath, $removeLogo) {
                 $socialLinks = array_filter([
                     'facebook' => $data['social_facebook'] ?? null,
                     'twitter' => $data['social_twitter'] ?? null,
@@ -101,8 +110,6 @@ class BusinessCardController extends Controller
                     'social_links' => $socialLinks,
                 ];
 
-                // Keep the page usable even if the optional color migration
-                // has not yet been run on an older production database.
                 if (Schema::hasColumn('business_cards', 'card_color')) {
                     $payload['card_color'] = $data['card_color'] ?? null;
                 }
@@ -111,6 +118,13 @@ class BusinessCardController extends Controller
                 }
                 if ($newPhotoPath) {
                     $payload['photo_path'] = $newPhotoPath;
+                }
+                if (Schema::hasColumn('business_cards', 'logo_path')) {
+                    if ($newLogoPath) {
+                        $payload['logo_path'] = $newLogoPath;
+                    } elseif ($removeLogo) {
+                        $payload['logo_path'] = null;
+                    }
                 }
 
                 if ($card) {
@@ -131,12 +145,19 @@ class BusinessCardController extends Controller
                 Storage::disk('public')->delete($oldPhotoPath);
             }
 
+            if ($oldLogoPath && ($removeLogo || ($newLogoPath && $oldLogoPath !== $newLogoPath))) {
+                Storage::disk('public')->delete($oldLogoPath);
+            }
+
             return redirect()
                 ->route('business-card.edit')
                 ->with('success', 'Business card saved successfully. Your public page and QR code are ready.');
         } catch (Throwable $e) {
             if ($newPhotoPath) {
                 Storage::disk('public')->delete($newPhotoPath);
+            }
+            if ($newLogoPath) {
+                Storage::disk('public')->delete($newLogoPath);
             }
             report($e);
 

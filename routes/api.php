@@ -298,6 +298,7 @@ Route::middleware(['auth:sanctum', 'mobile.idempotent'])->name('api.')->group(fu
     // Business Card
     Route::get('business-card', [\App\Http\Controllers\Api\BusinessCardController::class, 'show']);
     Route::get('business-card/photo', [\App\Http\Controllers\Api\BusinessCardController::class, 'photo']);
+    Route::get('business-card/logo', [\App\Http\Controllers\Api\BusinessCardController::class, 'logo']);
     Route::post('business-card', [\App\Http\Controllers\Api\BusinessCardController::class, 'update']);
     Route::post('business-card/toggle-published', [\App\Http\Controllers\Api\BusinessCardController::class, 'togglePublished']);
     Route::get('business-card/pdf', [\App\Http\Controllers\Api\BusinessCardController::class, 'downloadPdf']);

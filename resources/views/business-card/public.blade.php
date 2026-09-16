@@ -19,6 +19,9 @@
 <body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
     <div class="w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden">
         <div class="px-6 pt-8 pb-16 text-center relative" style="background: linear-gradient(135deg, {{ $card->cardColor() }}, {{ $card->cardColorSecondary() }});">
+            @if ($card->logoDataUri())
+                <img src="{{ $card->logoDataUri() }}" alt="" class="max-h-16 mb-4 mx-auto object-contain">
+            @endif
             @if ($card->photoDataUri())
                 <img src="{{ $card->photoDataUri() }}" alt="{{ $card->name }}"
                      class="w-24 h-24 rounded-full object-cover border-4 border-white shadow-lg absolute left-1/2 -translate-x-1/2" style="bottom: -3rem;">
