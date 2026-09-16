@@ -280,13 +280,14 @@
 
             <div
                 style="
-                    max-height:600px;
                     padding:14px;
                     background:#f8fafc;
                     border-radius:10px;
                     font-size:13px;
                     line-height:1.7;
                     white-space:pre-line;
+                    overflow-wrap:break-word;
+                    word-break:break-word;
                 "
             >{{ $recording->transcript }}</div>
         </div>
