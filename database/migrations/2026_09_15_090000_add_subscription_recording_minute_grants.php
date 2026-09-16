@@ -30,7 +30,7 @@ return new class extends Migration
                 $table->timestamp('expires_at')->nullable()->index();
                 $table->timestamps();
 
-                $table->index(['user_id', 'subscription_plan_id']);
+                $table->index(['user_id', 'subscription_plan_id'], 'extra_grants_user_plan_index');
             });
         }
     }
