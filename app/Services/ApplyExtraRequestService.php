@@ -132,29 +132,66 @@ class ApplyExtraRequestService
     public function applyQuota(UserExtraRequest $request): UserExtraRequest
     {
         return DB::transaction(function () use ($request) {
+            /*
+             * Re-fetch the request inside the transaction with a row lock
+             * so concurrent webhook deliveries or a webhook + admin "apply"
+             * cannot both pass the outer status check and double-grant.
+             */
+            /** @var UserExtraRequest $lockedRequest */
+            $lockedRequest = UserExtraRequest::query()
+                ->lockForUpdate()
+                ->findOrFail($request->getKey());
+
+            if ($lockedRequest->status === 'applied') {
+                return $lockedRequest->fresh();
+            }
+
             /** @var User $user */
-            $user = User::query()->lockForUpdate()->findOrFail($request->user_id);
+            $user = User::query()->lockForUpdate()->findOrFail($lockedRequest->user_id);
 
             $currentQuota = (int) ($user->extra_recording_quota_minutes ?? 0);
-            $newQuota = $currentQuota + $request->remainingQuota();
+            $newQuota = $currentQuota + $lockedRequest->remainingQuota();
 
-            $baseExpires = $user->extra_quota_expires_at && $user->extra_quota_expires_at->isFuture()
-                ? $user->extra_quota_expires_at
-                : now();
-            $expiresAt = $request->expires_at ?? $baseExpires->addDays(30);
+            /*
+             * Determine the new extra_quota_expires_at value.
+             *
+             * When the user's current expiry is null the account is in a
+             * "never-expires" / lifetime state — keep it null so this
+             * purchased extra request does not shrink the entitlement to
+             * only 30 days.
+             *
+             * When the current expiry is in the future, extend to the
+             * later of current expiry / request expiry.
+             *
+             * When the current expiry is in the past (stale), adopt the
+             * request's expiry.
+             */
+            if (is_null($user->extra_quota_expires_at)) {
+                // Never-expires / lifetime — preserve null.
+                $expiresAt = null;
+            } elseif ($user->extra_quota_expires_at->isFuture()) {
+                // Future expiry — take whichever is later.
+                $expiresAt = $lockedRequest->expires_at
+                    && $lockedRequest->expires_at->gt($user->extra_quota_expires_at)
+                    ? $lockedRequest->expires_at
+                    : $user->extra_quota_expires_at;
+            } else {
+                // Past / stale expiry — adopt the request expiry.
+                $expiresAt = $lockedRequest->expires_at ?? now()->addDays(30);
+            }
 
             $user->forceFill([
                 'extra_recording_quota_minutes' => $newQuota,
                 'extra_quota_expires_at' => $expiresAt,
             ])->save();
 
-            $request->update([
+            $lockedRequest->update([
                 'status' => 'applied',
                 'applied_at' => now(),
                 'quota_used' => 0,
             ]);
 
-            return $request->fresh();
+            return $lockedRequest->fresh();
         });
     }
 }

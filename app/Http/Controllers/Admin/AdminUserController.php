@@ -670,6 +670,28 @@ class AdminUserController extends Controller
                         ]);
                 }
 
+                /*
+                 * Grant the plan's included recording minutes when
+                 * an admin activates a subscription. The key is
+                 * deterministic so repeat saves won't double-grant.
+                 */
+                if (
+                    $status === 'active'
+                    && $plan !== null
+                    && class_exists(\App\Services\SubscriptionRecordingQuotaGrantService::class)
+                    && Schema::hasTable('subscription_recording_extra_grants')
+                ) {
+                    $grantService = app(\App\Services\SubscriptionRecordingQuotaGrantService::class);
+                    $grantService->grantIncludedMinutes(
+                        $user,
+                        $plan,
+                        $grantService->key('admin', $user->id, $planId, $startedAt->toDateString()),
+                        $expiresAt,
+                        null,
+                        'admin_activation'
+                    );
+                }
+
                 if (
                     $plan !== null
                     && class_exists(\App\Models\Organization::class)

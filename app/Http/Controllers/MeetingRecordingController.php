@@ -18,6 +18,9 @@ use Illuminate\Support\Str;
 
 class MeetingRecordingController extends Controller
 {
+    private const TRANSCRIPTION_FAILURE_MESSAGE =
+        'We could not transcribe this recording. Please try again with a supported audio file under 25 MB.';
+
     private function authorizeMeeting(Request $request, Meeting $meeting): void
     {
         abort_unless(
@@ -436,12 +439,12 @@ class MeetingRecordingController extends Controller
                     'failed',
 
                 'transcription_error' =>
-                    $e->getMessage(),
+                    self::TRANSCRIPTION_FAILURE_MESSAGE,
             ]);
 
             return back()->withErrors([
                 'transcription' =>
-                    $e->getMessage(),
+                    self::TRANSCRIPTION_FAILURE_MESSAGE,
             ]);
         }
     }
@@ -683,8 +686,9 @@ class MeetingRecordingController extends Controller
                         'failed',
 
                     'transcription_error' =>
-                        $e->getMessage(),
+                        self::TRANSCRIPTION_FAILURE_MESSAGE,
                 ]);
+                $message = self::TRANSCRIPTION_FAILURE_MESSAGE;
             } else {
                 $recording->update([
                     'summary_status' =>
@@ -693,11 +697,12 @@ class MeetingRecordingController extends Controller
                     'summary_error' =>
                         $e->getMessage(),
                 ]);
+                $message = $e->getMessage();
             }
 
             return back()->withErrors([
                 'processing' =>
-                    $e->getMessage(),
+                    $message,
             ]);
         }
     }

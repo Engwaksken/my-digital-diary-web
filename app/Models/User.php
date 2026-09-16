@@ -22,6 +22,11 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(UserExtraRequest::class);
     }
 
+    public function subscriptionRecordingExtraGrants()
+    {
+        return $this->hasMany(SubscriptionRecordingExtraGrant::class);
+    }
+
     /**
      * Seeded once at self-registration (web AND mobile — see
      * RegisteredUserController and Api\AuthController), not for
@@ -76,6 +81,8 @@ class User extends Authenticatable implements MustVerifyEmail
         'hydration_reminders_enabled',
         'subscription_plan_id',
         'subscription_expires_at',
+        'extra_recording_quota_minutes',
+        'extra_quota_expires_at',
         'last_expiry_reminder_days',
         'last_expiry_reminder_at',
         'preferred_currency_code',
@@ -101,6 +108,8 @@ class User extends Authenticatable implements MustVerifyEmail
             'daily_digest_enabled' => 'boolean',
             'hydration_reminders_enabled' => 'boolean',
             'subscription_expires_at' => 'datetime',
+            'extra_recording_quota_minutes' => 'integer',
+            'extra_quota_expires_at' => 'datetime',
             'deletion_requested_at' => 'datetime',
             'scheduled_deletion_at' => 'datetime',
             'last_expiry_reminder_at' => 'datetime',
@@ -200,6 +209,15 @@ class User extends Authenticatable implements MustVerifyEmail
     public function subscriptionPlan()
     {
         return $this->belongsTo(SubscriptionPlan::class);
+    }
+
+    public function availableExtraRecordingQuotaMinutes(): int
+    {
+        if ($this->extra_quota_expires_at && $this->extra_quota_expires_at->isPast()) {
+            return 0;
+        }
+
+        return max(0, (int) $this->extra_recording_quota_minutes);
     }
 
     public function isAdmin(): bool

@@ -21,6 +21,9 @@ use Illuminate\Support\Facades\Storage;
  */
 class MeetingRecordingController extends Controller
 {
+    private const TRANSCRIPTION_FAILURE_MESSAGE =
+        'We could not transcribe this recording. Please try again with a supported audio file under 25 MB.';
+
     private function authorizeMeeting(Request $request, Meeting $meeting): void
     {
         abort_unless($meeting->user_id === $request->user()->id || $request->user()->isAdmin(), 403);
@@ -123,9 +126,14 @@ class MeetingRecordingController extends Controller
 
             return response()->json(['data' => $this->transform($recording->fresh())]);
         } catch (\Throwable $e) {
-            $recording->update(['transcription_status' => 'failed', 'transcription_error' => $e->getMessage()]);
+            report($e);
 
-            return response()->json(['message' => $e->getMessage()], 422);
+            $recording->update([
+                'transcription_status' => 'failed',
+                'transcription_error' => self::TRANSCRIPTION_FAILURE_MESSAGE,
+            ]);
+
+            return response()->json(['message' => self::TRANSCRIPTION_FAILURE_MESSAGE], 422);
         }
     }
 
@@ -233,7 +241,9 @@ class MeetingRecordingController extends Controller
             'transcript' => $recording->transcript,
             'transcript_segments' => $recording->transcript_segments,
             'transcription_status' => $recording->transcription_status,
-            'transcription_error' => $recording->transcription_error,
+            'transcription_error' => $recording->transcription_status === 'failed'
+                ? self::TRANSCRIPTION_FAILURE_MESSAGE
+                : $recording->transcription_error,
             'summary' => $recording->summary,
             'summary_status' => $recording->summary_status,
             'summary_error' => $recording->summary_error,

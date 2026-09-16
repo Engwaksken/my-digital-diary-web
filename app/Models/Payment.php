@@ -39,6 +39,11 @@ class Payment extends Model
         return $this->hasMany(PaymentTransactionLog::class);
     }
 
+    public function subscriptionRecordingExtraGrant()
+    {
+        return $this->hasOne(SubscriptionRecordingExtraGrant::class);
+    }
+
     /**
      * The most recent gateway transaction recorded for this payment.
      *

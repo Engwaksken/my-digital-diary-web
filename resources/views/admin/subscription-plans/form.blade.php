@@ -124,6 +124,13 @@
                     <p class="text-xs text-slate-400 mt-1">Per-member cost beyond the included limit — leave blank to disallow overage (must upgrade tier instead).</p>
                 </div>
             </div>
+            <div>
+                <label for="included_extra_recording_minutes" class="block text-sm font-medium text-slate-700 mb-1">Included Recording Minutes</label>
+                <input type="number" id="included_extra_recording_minutes" name="included_extra_recording_minutes" min="0" value="{{ old('included_extra_recording_minutes', $plan->included_extra_recording_minutes ?? 0) }}" class="pm-input">
+                @error('included_extra_recording_minutes')
+                    <p role="alert" class="text-sm text-rose-600 mt-1">{{ $message }}</p>
+                @enderror
+            </div>
         </div>
 
         <div class="border-t pt-4">

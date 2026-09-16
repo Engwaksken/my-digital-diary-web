@@ -18,7 +18,7 @@ class SubscriptionPlan extends Model
 {
     protected $fillable = [
         'key', 'name', 'category', 'duration_months', 'discount_percent', 'flat_price',
-        'included_seats', 'additional_user_price', 'is_enabled', 'sort_order', 'features',
+        'included_seats', 'additional_user_price', 'included_extra_recording_minutes', 'is_enabled', 'sort_order', 'features',
         'color', 'badge', 'is_recommended', 'is_best_value',
     ];
 
@@ -27,6 +27,7 @@ class SubscriptionPlan extends Model
         'discount_percent' => 'decimal:2',
         'flat_price' => 'decimal:2',
         'additional_user_price' => 'decimal:2',
+        'included_extra_recording_minutes' => 'integer',
         'features' => 'array',
         'is_recommended' => 'boolean',
         'is_best_value' => 'boolean',
@@ -35,6 +36,11 @@ class SubscriptionPlan extends Model
     public function isIndividual(): bool
     {
         return $this->category === 'individual';
+    }
+
+    public function includedExtraRecordingMinutes(): int
+    {
+        return max(0, (int) ($this->included_extra_recording_minutes ?? 0));
     }
 
     public function isFamilyTeam(): bool
@@ -147,5 +153,10 @@ class SubscriptionPlan extends Model
     public function payments()
     {
         return $this->hasMany(Payment::class);
+    }
+
+    public function recordingExtraGrants()
+    {
+        return $this->hasMany(SubscriptionRecordingExtraGrant::class, 'subscription_plan_id');
     }
 }
