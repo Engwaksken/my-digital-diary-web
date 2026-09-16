@@ -24,73 +24,8 @@ class MeetingController extends CrudController
     protected array $fields = [
         ['name' => 'title', 'label' => 'Title', 'type' => 'text', 'required' => true],
 
-        ['name' => 'start_date', 'label' => 'Start Date', 'type' => 'date', 'required' => true],
-        ['name' => 'start_hour', 'label' => 'Start Hour', 'type' => 'select', 'required' => true, 'options' => [
-                '1' => '1',
-                '2' => '2',
-                '3' => '3',
-                '4' => '4',
-                '5' => '5',
-                '6' => '6',
-                '7' => '7',
-                '8' => '8',
-                '9' => '9',
-                '10' => '10',
-                '11' => '11',
-                '12' => '12',
-            ]],
-        ['name' => 'start_minute', 'label' => 'Start Minute', 'type' => 'select', 'required' => true, 'options' => [
-                '00' => '00',
-                '05' => '05',
-                '10' => '10',
-                '15' => '15',
-                '20' => '20',
-                '25' => '25',
-                '30' => '30',
-                '35' => '35',
-                '40' => '40',
-                '45' => '45',
-                '50' => '50',
-                '55' => '55',
-            ]],
-        ['name' => 'start_meridiem', 'label' => 'Start AM / PM', 'type' => 'select', 'required' => true, 'options' => [
-            'AM' => 'AM',
-            'PM' => 'PM',
-        ]],
-
-        ['name' => 'end_date', 'label' => 'End Date', 'type' => 'date'],
-        ['name' => 'end_hour', 'label' => 'End Hour', 'type' => 'select', 'options' => [
-                '1' => '1',
-                '2' => '2',
-                '3' => '3',
-                '4' => '4',
-                '5' => '5',
-                '6' => '6',
-                '7' => '7',
-                '8' => '8',
-                '9' => '9',
-                '10' => '10',
-                '11' => '11',
-                '12' => '12',
-            ]],
-        ['name' => 'end_minute', 'label' => 'End Minute', 'type' => 'select', 'options' => [
-                '00' => '00',
-                '05' => '05',
-                '10' => '10',
-                '15' => '15',
-                '20' => '20',
-                '25' => '25',
-                '30' => '30',
-                '35' => '35',
-                '40' => '40',
-                '45' => '45',
-                '50' => '50',
-                '55' => '55',
-            ]],
-        ['name' => 'end_meridiem', 'label' => 'End AM / PM', 'type' => 'select', 'options' => [
-            'AM' => 'AM',
-            'PM' => 'PM',
-        ]],
+        ['name' => 'start_at', 'label' => 'Start Date & Time', 'type' => 'datetime-native', 'required' => true],
+        ['name' => 'end_at', 'label' => 'End Date & Time', 'type' => 'datetime-native', 'hint' => 'Optional. Leave blank if the end time is not fixed.'],
 
         ['name' => 'location', 'label' => 'Location / Video Link', 'type' => 'text', 'placeholder' => 'e.g. Conference Room B, or a Zoom/Meet link'],
         ['name' => 'attendees', 'label' => 'Attendees', 'type' => 'text', 'placeholder' => 'name@example.com, colleague@example.com', 'hint' => 'Optional. Add comma-separated email addresses. No Google, Zoom, or other platform is required.'],
@@ -210,15 +145,8 @@ class MeetingController extends CrudController
         return [
             'title' => ['required','string','max:255'],
 
-            'start_date' => ['required','date_format:Y-m-d'],
-            'start_hour' => ['required','integer','between:1,12'],
-            'start_minute' => ['required','integer','between:0,59'],
-            'start_meridiem' => ['required','in:AM,PM'],
-
-            'end_date' => ['nullable','date_format:Y-m-d'],
-            'end_hour' => ['nullable','integer','between:1,12'],
-            'end_minute' => ['nullable','integer','between:0,59'],
-            'end_meridiem' => ['nullable','in:AM,PM'],
+            'start_at' => ['required','date'],
+            'end_at' => ['nullable','date'],
 
             'location' => ['nullable','string','max:255'],
             'attendees' => ['nullable','string'],
@@ -231,102 +159,36 @@ class MeetingController extends CrudController
         ];
     }
 
-    private function twelveHourTo24(
-        int $hour,
-        int $minute,
-        string $meridiem
-    ): string {
-        $hour24 = $hour;
-
-        if ($meridiem === 'AM') {
-            $hour24 = $hour === 12 ? 0 : $hour;
-        } else {
-            $hour24 = $hour === 12 ? 12 : $hour + 12;
-        }
-
-        return sprintf('%02d:%02d', $hour24, $minute);
-    }
-
-    private function combineMeetingDateTime(Request $request, ?string $date, ?string $time, bool $required = false): ?string
+    /**
+     * <input type="datetime-local"> submits "Y-m-d\TH:i". Convert that
+     * wall-clock string (in the user's timezone) to the same stored format
+     * the rest of the module uses.
+     */
+    private function parseMeetingDateTime(Request $request, string $value, string $field): ?string
     {
-        $date = trim((string) $date);
-        $time = trim((string) $time);
-        if ($date === '' && $time === '' && ! $required) return null;
-        if ($date === '' || $time === '') {
-            throw ValidationException::withMessages([
-                $required ? 'start_date' : 'end_date' => $required
-                    ? 'Choose both Start Date and Start Time.'
-                    : 'Choose both End Date and End Time, or leave both blank.',
-            ]);
-        }
         $timezone = $request->user()?->timezone ?: config('app.timezone', 'Africa/Kampala');
+
         try {
-            return Carbon::createFromFormat('Y-m-d H:i', $date.' '.$time, $timezone)->format('Y-m-d H:i:s');
+            return Carbon::createFromFormat('Y-m-d H:i', str_replace('T', ' ', $value), $timezone)
+                ->format('Y-m-d H:i:s');
         } catch (\Throwable) {
-            throw ValidationException::withMessages(['start_date' => 'The selected meeting date or time is invalid.']);
+            throw ValidationException::withMessages([$field => 'The selected meeting date or time is invalid.']);
         }
     }
 
     private function normaliseMeetingForm(Request $request): array
     {
-        $this->normalizeMeetingClockFields($request);
-
         $form = $request->validate($this->meetingFormRules());
 
-        $startTime = $this->twelveHourTo24(
-            (int) $form['start_hour'],
-            (int) $form['start_minute'],
-            $form['start_meridiem']
-        );
-
-        $startAt = $this->combineMeetingDateTime(
-            $request,
-            $form['start_date'],
-            $startTime,
-            true
-        );
-
-        $hasAnyEnd =
-            ! empty($form['end_date'])
-            || ! empty($form['end_hour'])
-            || isset($form['end_minute']) && $form['end_minute'] !== ''
-            || ! empty($form['end_meridiem']);
+        $startAt = $this->parseMeetingDateTime($request, $form['start_at'], 'start_at');
 
         $endAt = null;
 
-        if ($hasAnyEnd) {
-            if (
-                empty($form['end_date'])
-                || empty($form['end_hour'])
-                || ! isset($form['end_minute'])
-                || $form['end_minute'] === ''
-                || empty($form['end_meridiem'])
-            ) {
-                throw ValidationException::withMessages([
-                    'end_date' =>
-                        'Complete all End date/time fields or leave End blank.',
-                ]);
-            }
+        if (! empty($form['end_at'])) {
+            $endAt = $this->parseMeetingDateTime($request, $form['end_at'], 'end_at');
 
-            $endTime = $this->twelveHourTo24(
-                (int) $form['end_hour'],
-                (int) $form['end_minute'],
-                $form['end_meridiem']
-            );
-
-            $endAt = $this->combineMeetingDateTime(
-                $request,
-                $form['end_date'],
-                $endTime
-            );
-
-            if (
-                Carbon::parse($endAt)
-                    ->lessThanOrEqualTo(Carbon::parse($startAt))
-            ) {
-                throw ValidationException::withMessages([
-                    'end_hour' => 'End must be after Start.',
-                ]);
+            if (Carbon::parse($endAt)->lessThanOrEqualTo(Carbon::parse($startAt))) {
+                throw ValidationException::withMessages(['end_at' => 'End must be after Start.']);
             }
         }
 

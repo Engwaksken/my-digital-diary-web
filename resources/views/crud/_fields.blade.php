@@ -23,7 +23,7 @@
         // seconds (e.g. 21:00:00). The global 12-hour control then presents
         // 9:00 PM while Laravel still receives H:i safely.
         if (is_object($old) && method_exists($old, 'format')) {
-            if ($field['type'] === 'datetime-local') {
+            if (in_array($field['type'], ['datetime-local', 'datetime-native'], true)) {
                 $old = $old->format('Y-m-d\TH:i');
             } elseif ($field['type'] === 'time') {
                 $old = $old->format('H:i');
@@ -32,7 +32,7 @@
             }
         } elseif ($field['type'] === 'time' && is_string($old) && $old !== '') {
             $old = substr($old, 0, 5);
-        } elseif ($field['type'] === 'datetime-local' && is_string($old) && $old !== '') {
+        } elseif (in_array($field['type'], ['datetime-local', 'datetime-native'], true) && is_string($old) && $old !== '') {
             try {
                 $old = \Illuminate\Support\Carbon::parse($old)->format('Y-m-d\TH:i');
             } catch (\Throwable $e) {
@@ -213,6 +213,16 @@
                 })();
             </script>
 
+        @elseif ($field['type'] === 'datetime-native')
+            <input
+                type="datetime-local"
+                id="{{ $fieldId }}"
+                name="{{ $name }}"
+                value="{{ $old }}"
+                @if ($isRequired) required aria-required="true" @endif
+                @if ($hasError) aria-invalid="true" @endif @if ($describedBy) aria-describedby="{{ $describedBy }}" @endif
+                class="{{ $inputClasses }}"
+            >
         @elseif ($field['type'] === 'sleep-range')
             @php
                 $normaliseTime = function ($value) {

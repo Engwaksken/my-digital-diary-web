@@ -512,18 +512,6 @@
 </script>
 
 <style>
-/*
- * Normal New/Edit Meeting:
- * the form now contains NO input[type=time], so the global datetime enhancer
- * has nothing to duplicate.
- */
-.meeting-normal-12h-group {
-    display: grid;
-    grid-template-columns: minmax(78px, 1fr) minmax(78px, 1fr) minmax(84px, .9fr);
-    gap: 8px;
-    align-items: end;
-}
-
 .meeting-reminder-control {
     position: relative;
     overflow: hidden;
@@ -558,12 +546,6 @@
     color: #0d9488;
     pointer-events: none;
 }
-
-@media (max-width: 640px) {
-    .meeting-normal-12h-group {
-        grid-template-columns: 1fr 1fr 90px;
-    }
-}
 </style>
 
 <script>
@@ -585,63 +567,6 @@
     }
 
     function enhanceNormalMeetingForm() {
-        /*
-         * Defensive cleanup: no normal Meeting input[type=time] should exist
-         * after this package. If an old cached modal still contains one,
-         * remove it instead of allowing the global enhancer to duplicate it.
-         */
-        document
-            .querySelectorAll(
-                'form input[type="time"][name^="start_"], ' +
-                'form input[type="time"][name^="end_"]'
-            )
-            .forEach((input) => {
-                const wrapper = fieldWrapper(input);
-                if (wrapper) wrapper.style.display = 'none';
-            });
-
-        const startHour = findField('start_hour');
-        const startMinute = findField('start_minute');
-        const startMeridiem = findField('start_meridiem');
-
-        const endHour = findField('end_hour');
-        const endMinute = findField('end_minute');
-        const endMeridiem = findField('end_meridiem');
-
-        /*
-         * Keep the generic CRUD labels/validation intact but visually group
-         * the three selectors into one obvious 12-hour clock row.
-         */
-        [
-            [startHour, startMinute, startMeridiem],
-            [endHour, endMinute, endMeridiem],
-        ].forEach((group) => {
-            const wrappers = group
-                .map(fieldWrapper)
-                .filter(Boolean);
-
-            if (
-                wrappers.length !== 3
-                || wrappers[0].dataset.meetingGrouped === '1'
-            ) {
-                return;
-            }
-
-            const row = document.createElement('div');
-            row.className = 'meeting-normal-12h-group';
-            row.dataset.meeting12hRow = '1';
-
-            wrappers[0].parentElement?.insertBefore(
-                row,
-                wrappers[0]
-            );
-
-            wrappers.forEach((wrapper) => {
-                wrapper.dataset.meetingGrouped = '1';
-                row.appendChild(wrapper);
-            });
-        });
-
         const reminder = findField('set_reminder');
         const reminderWrapper = fieldWrapper(reminder);
 

@@ -374,7 +374,7 @@
                     foreach ($fields as $fieldConfig) {
                         $value = data_get($item, $fieldConfig['name']);
                         if (is_object($value) && method_exists($value, 'format')) {
-                            if ($fieldConfig['type'] === 'datetime-local') {
+                            if (in_array($fieldConfig['type'], ['datetime-local', 'datetime-native'], true)) {
                                 $value = $value->format('Y-m-d\TH:i');
                             } elseif ($fieldConfig['type'] === 'time') {
                                 $value = $value->format('H:i');
@@ -525,7 +525,7 @@
                         foreach ($fields as $f) {
                             $v = $item->{$f['name']} ?? null;
                             if (is_object($v) && method_exists($v, 'format')) {
-                                if ($f['type'] === 'datetime-local') {
+                                if (in_array($f['type'], ['datetime-local', 'datetime-native'], true)) {
                                     $v = $v->format('Y-m-d\TH:i');
                                 } elseif ($f['type'] === 'time') {
                                     $v = $v->format('H:i');
@@ -643,7 +643,7 @@
                                     @endphp
                                     {{ $displayTime }}
                                 @elseif (is_object($value) && method_exists($value, 'format'))
-                                    <span class="block">{{ $field['type'] === 'datetime-local' ? $value->format('d M Y, g:i A') : $value->format('Y-m-d') }}</span>
+                                    <span class="block">{{ in_array($field['type'], ['datetime-local', 'datetime-native'], true) ? $value->format('d M Y, g:i A') : $value->format('Y-m-d') }}</span>
                                     @if ($field['name'] === $countdownField && !($routeName === 'debts' && $item->status === 'paid'))
                                         <x-countdown :date="$value" :status="$item->status ?? null" />
                                     @endif
@@ -1140,7 +1140,7 @@
                         value = hour12 + ':' + parts[2] + ' ' + (hour24 >= 12 ? 'PM' : 'AM');
                     }
                 }
-                if (field.type === 'datetime-local' && value) {
+                if ((field.type === 'datetime-local' || field.type === 'datetime-native') && value) {
                     var dtMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})/);
                     if (dtMatch) {
                         var dtHour24 = Number(dtMatch[4]);
