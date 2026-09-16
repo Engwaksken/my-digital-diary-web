@@ -23,7 +23,4 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
-RewriteCond %{HTTP_HOST} ^diary\.kemmytech\.com$ [OR]
-RewriteCond %{HTTP_HOST} ^www\.diary\.kemmytech\.com$
-RewriteRule ^diary\.kemmytech\.com$ "https\:\/\/my\-digital\-diary\.com\/" [R=301,L]
 
