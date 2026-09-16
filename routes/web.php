@@ -248,6 +248,8 @@ Route::middleware(['auth', 'verified', \App\Http\Middleware\EnsureSubscribedOrOr
     Route::get('/dashboard', DashboardController::class . '@index')->name('dashboard');
     Route::post('/dashboard/today-insight/refresh', [DashboardController::class, 'refreshTodayInsight'])->name('dashboard.today-insight.refresh');
     Route::get('/activity', DashboardController::class . '@activity')->name('activity');
+    Route::get('wellbeing/steps', [\App\Http\Controllers\DailyStepController::class, 'show'])->name('wellbeing.steps');
+    Route::get('wellbeing/steps/live', [\App\Http\Controllers\DailyStepController::class, 'live'])->name('wellbeing.steps.live');
     Route::get('/monthly-review', \App\Http\Controllers\MonthlyReviewController::class)->name('monthly-review');
 
     /*
