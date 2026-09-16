@@ -41,6 +41,7 @@
             </thead>
             <tbody class="divide-y divide-slate-100">
                 @forelse ($plans as $plan)
+                    @php $includedMinutes = $plan->includedExtraRecordingMinutes(); @endphp
                     <tr class="hover:bg-slate-50 transition-colors">
                         <td class="px-4 py-3 text-slate-700 font-medium">
                             {{ $plan->name }}
@@ -54,6 +55,9 @@
                             </span>
                             @if ($plan->category !== 'individual')
                                 <span class="block text-xs text-slate-400 mt-1">{{ $plan->included_seats }} members</span>
+                                @if ($includedMinutes)
+                                    <span class="block text-xs text-slate-400 mt-1">{{ $includedMinutes }} min recording</span>
+                                @endif
                             @endif
                         </td>
                         <td class="px-4 py-3 text-slate-600">

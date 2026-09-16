@@ -7,6 +7,7 @@ use App\Models\BillingEventLog;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentGateway;
+use App\Models\SubscriptionPlan;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -65,6 +66,27 @@ class SubscriptionPaymentActivationService
             }
 
             $transaction->forceFill($transactionUpdates)->save();
+
+            /*
+             * Grant the plan's included recording minutes. The
+             * activation_event_key is unique so replaying the same
+             * transaction id is idempotent.
+             */
+            if (
+                class_exists(\App\Services\SubscriptionRecordingQuotaGrantService::class)
+                && Schema::hasTable('subscription_recording_extra_grants')
+            ) {
+                $grantService = app(\App\Services\SubscriptionRecordingQuotaGrantService::class);
+                $plan = SubscriptionPlan::query()->find($transaction->subscription_plan_id);
+                $grantService->grantIncludedMinutes(
+                    $user,
+                    $plan,
+                    $grantService->key('payment', $transaction->id),
+                    $expiresAt,
+                    $payment,
+                    'payment_activation'
+                );
+            }
 
             app(SubscriptionAdminNotificationService::class)->notify($user);
 
@@ -195,10 +217,20 @@ class SubscriptionPaymentActivationService
         return $gateway?->id;
     }
 
+    /**
+     * Resolve the subscription expiry for the given user and plan.
+     *
+     * Returns null for lifetime plans (duration_months is null and no
+     * term-based billing cycle), meaning the subscription never expires.
+     * For term-based plans, returns a Carbon date at end-of-day after
+     * adding the plan's duration to the base date.
+     *
+     * @return Carbon|null null when the plan is a lifetime plan
+     */
     private function resolveExpiry(
         User $user,
         ?int $planId
-    ): Carbon {
+    ): ?Carbon {
         $base = now();
 
         /*
@@ -252,6 +284,24 @@ class SubscriptionPaymentActivationService
                         'semiannual', 'semi-annual', 'half-year' => 6,
                         default => 1,
                     };
+                }
+
+                // Lifetime plan: no fixed duration and no billing cycle
+                // that indicates a term-based subscription.
+                $hasDuration = (int) ($plan->duration_months ?? 0) > 0;
+
+                $hasTermCycle = false;
+                if (Schema::hasColumn('subscription_plans', 'billing_cycle') && isset($plan->billing_cycle)) {
+                    $cycle = strtolower((string) $plan->billing_cycle);
+                    $hasTermCycle = in_array($cycle, [
+                        'monthly', 'annual', 'yearly', 'year',
+                        'quarterly', 'quarter', 'semiannual',
+                        'semi-annual', 'half-year',
+                    ], true);
+                }
+
+                if (! $hasDuration && ! $hasTermCycle) {
+                    return null;
                 }
             }
         }
