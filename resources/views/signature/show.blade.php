@@ -417,6 +417,9 @@
                                 <td class="px-4 py-3 align-top whitespace-nowrap">{{ $doc->placements->pluck('page_number')->unique()->sort()->implode(', ') ?: '—' }}</td>
                                 <td class="px-4 py-3 align-top whitespace-nowrap">{{ $doc->signed_at?->format('Y-m-d H:i') ?? $doc->created_at->format('Y-m-d H:i') }}</td>
                                 <td class="px-4 py-3 align-top text-right whitespace-nowrap">
+                                    <a href="{{ route('signature.documents.view', $doc->id) }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-[var(--brand-1)] hover:underline mr-3">
+                                        <i class="fa-solid fa-eye" aria-hidden="true"></i> View
+                                    </a>
                                     <a href="{{ route('signature.documents.download', $doc->id) }}" class="inline-flex items-center gap-1 text-[var(--brand-1)] hover:underline mr-3">
                                         <i class="fa-solid fa-download" aria-hidden="true"></i> Download
                                     </a>

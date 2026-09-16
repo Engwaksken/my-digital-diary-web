@@ -283,6 +283,22 @@ class SignatureController extends Controller
         return Storage::disk('public')->download($path, $signedDocument->original_filename);
     }
 
+    /**
+     * Streams the signed file inline (not as an attachment) so the owner
+     * can VIEW it in the browser — PDFs render in the tab, images show
+     * directly — rather than only ever downloading it. Same inline
+     * disposition the public shared route uses, but gated to the owner.
+     */
+    public function viewDocument(Request $request, SignedDocument $signedDocument)
+    {
+        abort_unless($signedDocument->user_id === $request->user()->id, 403);
+
+        $path = $signedDocument->signed_file_path ?? $signedDocument->original_file_path;
+        abort_unless($path && Storage::disk('public')->exists($path), 404);
+
+        return Storage::disk('public')->response($path, $signedDocument->original_filename, ['Content-Disposition' => 'inline']);
+    }
+
     public function destroyDocument(Request $request, SignedDocument $signedDocument): RedirectResponse
     {
         abort_unless($signedDocument->user_id === $request->user()->id, 403);

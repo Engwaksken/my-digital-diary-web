@@ -472,6 +472,7 @@ Route::middleware(['auth', 'verified', \App\Http\Middleware\EnsureSubscribedOrOr
     Route::post('signature/documents/confirm', [SignatureController::class, 'confirmDocument'])->name('signature.documents.confirm');
     Route::post('signature/documents/cancel', [SignatureController::class, 'cancelPreview'])->name('signature.documents.cancel');
     Route::get('signature/documents/{signedDocument}/download', [SignatureController::class, 'downloadDocument'])->name('signature.documents.download');
+    Route::get('signature/documents/{signedDocument}/view', [SignatureController::class, 'viewDocument'])->name('signature.documents.view');
     Route::post('signature/documents/bulk-destroy', [SignatureController::class, 'bulkDestroyDocuments'])->name('signature.documents.bulk-destroy');
     Route::delete('signature/documents/{signedDocument}', [SignatureController::class, 'destroyDocument'])->name('signature.documents.destroy');
 
