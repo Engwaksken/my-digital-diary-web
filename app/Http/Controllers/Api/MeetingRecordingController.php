@@ -24,6 +24,9 @@ class MeetingRecordingController extends Controller
     private const TRANSCRIPTION_FAILURE_MESSAGE =
         'We could not transcribe this recording. Please try again with a supported audio file under 25 MB.';
 
+    private const TRANSCRIPTION_TOO_LARGE_MESSAGE =
+        'This recording is too large to transcribe. Please top up your extra recording quota or record a shorter meeting under 25 MB.';
+
     private function authorizeMeeting(Request $request, Meeting $meeting): void
     {
         abort_unless($meeting->user_id === $request->user()->id || $request->user()->isAdmin(), 403);
@@ -128,12 +131,21 @@ class MeetingRecordingController extends Controller
         } catch (\Throwable $e) {
             report($e);
 
+            $tooLarge = str_contains(strtolower((string) $e->getMessage()), 'too large');
+
+            $message = $tooLarge
+                ? self::TRANSCRIPTION_TOO_LARGE_MESSAGE
+                : self::TRANSCRIPTION_FAILURE_MESSAGE;
+
             $recording->update([
                 'transcription_status' => 'failed',
-                'transcription_error' => self::TRANSCRIPTION_FAILURE_MESSAGE,
+                'transcription_error' => $message,
             ]);
 
-            return response()->json(['message' => self::TRANSCRIPTION_FAILURE_MESSAGE], 422);
+            return response()->json([
+                'message' => $message,
+                'error_code' => $tooLarge ? 'recording_too_large' : 'transcription_failed',
+            ], 422);
         }
     }
 
