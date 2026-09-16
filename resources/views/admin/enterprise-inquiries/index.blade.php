@@ -90,7 +90,7 @@
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">About</th>
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Status</th>
                     <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">Date</th>
-                    <th scope="col" class="px-4 py-3"><span class="sr-only">Documents</span></th>
+                    <th scope="col" class="px-4 py-3"><span class="sr-only">Actions</span></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
@@ -122,12 +122,45 @@
                         </td>
                         <td class="px-4 py-3 whitespace-nowrap">{{ $inquiry->created_at->format('Y-m-d H:i') }}</td>
                         <td class="px-4 py-3 whitespace-nowrap">
-                            <button type="button" onclick="document.getElementById('pm-docs-modal-{{ $inquiry->id }}').showModal()" class="text-[var(--brand-1)] hover:underline">
+                            <button type="button" onclick="document.getElementById('pm-reply-modal-{{ $inquiry->id }}').showModal()" class="text-[var(--brand-1)] hover:underline">
+                                <i class="fa-solid fa-reply" aria-hidden="true"></i> Reply
+                            </button>
+
+                            <button type="button" onclick="document.getElementById('pm-docs-modal-{{ $inquiry->id }}').showModal()" class="text-[var(--brand-1)] hover:underline ms-3">
                                 <i class="fa-solid fa-file-invoice" aria-hidden="true"></i> Documents
                                 @if ($inquiry->invoices->isNotEmpty())
                                     ({{ $inquiry->invoices->count() }})
                                 @endif
                             </button>
+
+                            <dialog id="pm-reply-modal-{{ $inquiry->id }}" class="rounded-2xl p-0 pm-dialog shadow-2xl backdrop:bg-slate-900/50">
+                                <div class="p-6 text-left max-h-[85vh] overflow-y-auto">
+                                    <div class="flex items-center justify-between mb-1">
+                                        <h3 class="text-lg font-bold text-slate-800">Reply — {{ $inquiry->email }}</h3>
+                                        <button type="button" onclick="document.getElementById('pm-reply-modal-{{ $inquiry->id }}').close()" class="text-slate-400 hover:text-slate-600" aria-label="Close">
+                                            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                                        </button>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mb-4">
+                                        Sends an email to the lead. Their original request: “{{ $inquiry->about }}”
+                                    </p>
+
+                                    <form method="POST" action="{{ route('admin.enterprise-inquiries.reply', $inquiry->id) }}" class="space-y-3">
+                                        @csrf
+                                        <div>
+                                            <label for="reply_subject_{{ $inquiry->id }}" class="block text-xs font-medium text-slate-700 mb-1">Subject</label>
+                                            <input type="text" id="reply_subject_{{ $inquiry->id }}" name="subject" maxlength="255" placeholder="Re: your Digital Diary enquiry" class="pm-input text-sm" required>
+                                        </div>
+                                        <div>
+                                            <label for="reply_body_{{ $inquiry->id }}" class="block text-xs font-medium text-slate-700 mb-1">Message</label>
+                                            <textarea id="reply_body_{{ $inquiry->id }}" name="body" rows="6" class="pm-input text-sm" placeholder="Write your reply here..." required></textarea>
+                                        </div>
+                                        <button type="submit" class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium">
+                                            <i class="fa-solid fa-paper-plane" aria-hidden="true"></i> Send Reply
+                                        </button>
+                                    </form>
+                                </div>
+                            </dialog>
 
                             <dialog id="pm-docs-modal-{{ $inquiry->id }}" class="rounded-2xl p-0 pm-dialog shadow-2xl backdrop:bg-slate-900/50">
                                 <div class="p-6 text-left max-h-[85vh] overflow-y-auto">

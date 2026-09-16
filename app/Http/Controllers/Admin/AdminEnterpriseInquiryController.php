@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Mail\EnterpriseInquiryReplyMail;
 use App\Mail\InvoiceMail;
 use App\Mail\PaymentReceiptMail;
 use App\Models\EnterpriseInquiry;
@@ -148,6 +149,20 @@ class AdminEnterpriseInquiryController extends Controller
         Mail::to($enterpriseInquiry->email)->send(new InvoiceMail($invoice));
 
         return back()->with('success', ($invoice->isQuote() ? 'Quotation' : 'Invoice') . ' resent to ' . $enterpriseInquiry->email . '.');
+    }
+
+    public function replyToInquiry(Request $request, EnterpriseInquiry $enterpriseInquiry): RedirectResponse
+    {
+        $data = $request->validate([
+            'subject' => ['required', 'string', 'max:255'],
+            'body'    => ['required', 'string'],
+        ]);
+
+        Mail::to($enterpriseInquiry->email)->send(
+            new EnterpriseInquiryReplyMail($enterpriseInquiry, $data['subject'], $data['body'])
+        );
+
+        return back()->with('success', 'Reply sent to ' . $enterpriseInquiry->email . '.');
     }
 
     /**

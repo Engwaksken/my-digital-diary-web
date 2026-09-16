@@ -527,6 +527,14 @@ Route::middleware([
             ]
         )->name('enterprise-inquiries.receipt');
 
+        Route::post(
+            'enterprise-inquiries/{enterpriseInquiry}/reply',
+            [
+                \App\Http\Controllers\Admin\AdminEnterpriseInquiryController::class,
+                'replyToInquiry',
+            ]
+        )->name('enterprise-inquiries.reply');
+
         /*
         |--------------------------------------------------------------------------
         | Invoices / Receipts
