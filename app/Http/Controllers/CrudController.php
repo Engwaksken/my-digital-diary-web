@@ -41,6 +41,9 @@ abstract class CrudController extends Controller
      */
     protected array $fields = [];
 
+    /** Optional index columns; forms and detail modals still use all fields. */
+    protected array $tableColumns = [];
+
     /** Laravel validation rules for store/update */
     protected array $rules = [];
 
@@ -148,6 +151,7 @@ abstract class CrudController extends Controller
         return view('crud.index', array_merge([
             'items' => $items,
             'fields' => $this->fields,
+            'tableColumns' => $this->tableColumns ?: $this->fields,
             'title' => $this->title,
             'routeName' => $this->routeName,
             'stats' => $this->stats($request),

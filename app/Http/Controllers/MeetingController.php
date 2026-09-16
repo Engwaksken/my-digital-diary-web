@@ -58,6 +58,19 @@ class MeetingController extends CrudController
         ['name' => 'recurrence_ends_at', 'label' => 'Repeat until (optional)', 'type' => 'date'],
     ];
 
+    protected array $tableColumns = [
+        ['name' => 'title', 'label' => 'Title', 'type' => 'text'],
+        ['name' => 'start_at', 'label' => 'Start Date & Time', 'type' => 'datetime-native'],
+        ['name' => 'end_at', 'label' => 'End Date & Time', 'type' => 'datetime-native'],
+        ['name' => 'location', 'label' => 'Location / Video Link', 'type' => 'text'],
+        ['name' => 'attendees', 'label' => 'Attendees', 'type' => 'text'],
+        ['name' => 'status', 'label' => 'Status', 'type' => 'select', 'options' => [
+            'scheduled' => 'Scheduled',
+            'completed' => 'Completed',
+            'cancelled' => 'Cancelled',
+        ]],
+    ];
+
     protected array $rules = [
         'title' => 'required|string|max:255',
         'start_at' => 'required|date',

@@ -500,7 +500,7 @@
                             <input type="checkbox" id="pm-crud-select-all" onchange="pmToggleAllCrudRows(this)" class="rounded border-slate-300 text-[var(--brand-1)] focus:ring-[var(--brand-2)]" aria-label="Select all {{ strtolower($title) }} records">
                         </th>
                     @endif
-                    @foreach ($fields as $field)
+                    @foreach ($tableColumns as $field)
                         <th scope="col" class="px-4 py-3 font-semibold text-slate-500 text-xs uppercase tracking-wide">{{ $field['label'] }}</th>
                     @endforeach
                     @if ($routeName === 'expenses')
@@ -546,7 +546,7 @@
                                 @endif
                             </td>
                         @endif
-                        @foreach ($fields as $field)
+                        @foreach ($tableColumns as $field)
                             <td class="px-4 py-3 align-top text-slate-700 {{ $routeName === 'personal-goals' && in_array($field['name'], ['description', 'notes'], true) ? 'pm-table-wrap-text' : '' }}">
                                 @php
                                     $value = $item->{$field['name']};
@@ -758,7 +758,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="{{ count($fields) + 1 + ($routeName === 'expenses' ? 1 : 0) + ($pmHasBulkDelete ? 1 : 0) }}" class="px-4 py-10 text-center text-slate-400">
+                        <td colspan="{{ count($tableColumns) + 1 + ($routeName === 'expenses' ? 1 : 0) + ($pmHasBulkDelete ? 1 : 0) }}" class="px-4 py-10 text-center text-slate-400">
                             <i class="{{ $icon }} text-3xl mb-2 block opacity-30" aria-hidden="true"></i>
                             No {{ strtolower($title) }}s yet.
                         </td>
