@@ -18,13 +18,24 @@ class DailyEngagementService {
    'close_day'=>['completed'=>$this->hasCheckin($user,$today,'close_day'),'available'=>true],
    'tomorrow'=>['date'=>$today->copy()->addDay()->toDateString(),'focus'=>$this->topFocus($user,$today->copy()->addDay())]];
  }
- public function saveCheckin(User $user,string $type,array $data): array {
-  abort_unless(in_array($type,['start_day','close_day'],true),422); $today=$this->today($user);
-  DB::table('daily_checkins')->updateOrInsert(['user_id'=>$user->id,'checkin_date'=>$today->toDateString(),'type'=>$type],
-   ['mood'=>$data['mood']??null,'reflection'=>$data['reflection']??null,'gratitude'=>$data['gratitude']??null,
-    'tomorrow_focus'=>$data['tomorrow_focus']??null,'meta'=>isset($data['meta'])?json_encode($data['meta']):null,'updated_at'=>now(),'created_at'=>now()]);
-  return ['type'=>$type,'date'=>$today->toDateString(),'streak'=>$this->markMeaningfulAction($user,$type)];
- }
+public function saveCheckin(User $user,string $type,array $data): array {
+   abort_unless(in_array($type,['start_day','close_day'],true),422); $today=$this->today($user);
+   DB::table('daily_checkins')->updateOrInsert(['user_id'=>$user->id,'checkin_date'=>$today->toDateString(),'type'=>$type],
+    ['mood'=>$data['mood']??null,'reflection'=>$data['reflection']??null,'gratitude'=>$data['gratitude']??null,
+     'tomorrow_focus'=>$data['tomorrow_focus']??null,'meta'=>isset($data['meta'])?json_encode($data['meta']):null,'updated_at'=>now(),'created_at'=>now()]);
+   $this->syncWellbeingCheckin($user,$today,$data);
+   return ['type'=>$type,'date'=>$today->toDateString(),'streak'=>$this->markMeaningfulAction($user,$type)];
+  }
+  private function syncWellbeingCheckin(User $user,Carbon $today,array $data): void {
+   if(!Schema::hasTable('daily_wellbeing_logs')||!Schema::hasColumn('daily_wellbeing_logs','mood'))return;
+   try {
+    $log=app(DailyWellbeingSyncService::class)->sync($user,$today);
+    $mood=isset($data['mood'])?(int)$data['mood']:null;
+    $map=[1=>'low',2=>'okay',3=>'good',4=>'great',5=>'great'];
+    $wellbeingMood=$mood!==null?($map[$mood]??null):null;
+    if($wellbeingMood&&$log)$log->forceFill(['mood'=>$wellbeingMood])->save();
+   } catch(\Throwable $exception){ report($exception); }
+  }
  public function markMeaningfulAction(User $user,string $eventType,?string $sourceType=null,?int $sourceId=null,array $meta=[]): array {
   $today=$this->today($user);
   DB::table('engagement_events')->insert(['user_id'=>$user->id,'event_date'=>$today->toDateString(),'event_type'=>$eventType,
