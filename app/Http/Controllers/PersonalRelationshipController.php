@@ -22,28 +22,16 @@ class PersonalRelationshipController extends CrudController
         ]],
         ['name'=>'relation_label','label'=>'Relationship','type'=>'text'],
         ['name'=>'priority','label'=>'Priority','type'=>'select','required'=>true,'options'=>['high'=>'High','medium'=>'Medium','low'=>'Low']],
-        ['name'=>'email','label'=>'Email','type'=>'text'],
-        ['name'=>'phone','label'=>'Phone','type'=>'text'],
-        ['name'=>'birthday','label'=>'Birthday','type'=>'date'],
-        ['name'=>'anniversary','label'=>'Anniversary','type'=>'date'],
         ['name'=>'last_meaningful_interaction','label'=>'Last Interaction','type'=>'date'],
         ['name'=>'next_planned_interaction','label'=>'Next Call / Meeting / Check-in','type'=>'date'],
         ['name'=>'interaction_notes','label'=>'Previous Interaction / Conversation Notes','type'=>'textarea'],
-        ['name'=>'interests','label'=>'Interests / Things They Care About','type'=>'textarea'],
-        ['name'=>'commitments','label'=>'Commitments / Promises','type'=>'textarea'],
-        ['name'=>'follow_up_items','label'=>'Follow-up Items','type'=>'textarea'],
-        ['name'=>'strengthening_goal','label'=>'How I Will Strengthen This Relationship','type'=>'textarea'],
-        ['name'=>'notes','label'=>'Personal Notes','type'=>'textarea'],
     ];
 
     protected array $rules = [
         'name'=>'required|string|max:255','category'=>'required|in:family,friend,colleague,mentor,partner,client,professional,other',
         'relation_label'=>'nullable|string|max:255','priority'=>'required|in:high,medium,low',
-        'email'=>'nullable|email|max:255','phone'=>'nullable|string|max:40',
-        'birthday'=>'nullable|date','anniversary'=>'nullable|date',
         'last_meaningful_interaction'=>'nullable|date','next_planned_interaction'=>'nullable|date',
-        'interaction_notes'=>'nullable|string','interests'=>'nullable|string','commitments'=>'nullable|string',
-        'follow_up_items'=>'nullable|string','strengthening_goal'=>'nullable|string','notes'=>'nullable|string',
+        'interaction_notes'=>'nullable|string',
     ];
 
     public function index(Request $request)

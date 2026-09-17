@@ -19,7 +19,7 @@ use Illuminate\Support\Str;
 class MeetingRecordingController extends Controller
 {
     private const TRANSCRIPTION_FAILURE_MESSAGE =
-        'We could not transcribe this recording. Please try again with a supported audio file under 25 MB.';
+        'We could not transcribe this recording. Please try again with a supported audio file under 30 MB.';
 
     private function authorizeMeeting(Request $request, Meeting $meeting): void
     {

@@ -22,10 +22,10 @@ use Illuminate\Support\Facades\Storage;
 class MeetingRecordingController extends Controller
 {
     private const TRANSCRIPTION_FAILURE_MESSAGE =
-        'We could not transcribe this recording. Please try again with a supported audio file under 25 MB.';
+        'We could not transcribe this recording. Please try again with a supported audio file under 30 MB.';
 
     private const TRANSCRIPTION_TOO_LARGE_MESSAGE =
-        'This recording is too large to transcribe. Please top up your extra recording quota or record a shorter meeting under 25 MB.';
+        'This recording is too large to transcribe. Please top up your extra recording quota or record a shorter meeting under 30 MB.';
 
     private function authorizeMeeting(Request $request, Meeting $meeting): void
     {
