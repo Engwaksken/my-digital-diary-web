@@ -888,14 +888,17 @@ class AdminSettingsController extends Controller
 
     public function testAiConnection(Request $request): RedirectResponse
     {
-        $user = $request->user();
-
         try {
-            app(ActiveAiClient::class)->testConnection($user);
+            app(ActiveAiClient::class)->testConnection();
+
+            $note = '';
+            if ($this->usesPersonalOpenAiKey($request->user())) {
+                $note = ' Note: your profile has an active personal API key, which takes priority over the shared key for your own requests.';
+            }
 
             return redirect()
                 ->route('admin.settings.edit', ['tab' => 'ai'])
-                ->with('success', 'OpenAI connection successful.');
+                ->with('success', 'OpenAI connection successful.' . $note);
         } catch (Throwable $e) {
             Log::warning('Admin AI connection test failed', [
                 'exception' => get_class($e),
@@ -904,7 +907,7 @@ class AdminSettingsController extends Controller
 
             return redirect()
                 ->route('admin.settings.edit', ['tab' => 'ai'])
-                ->withErrors(['ai_connection' => $this->describeAiConnectionFailure($e, $user)]);
+                ->withErrors(['ai_connection' => $this->describeAiConnectionFailure($e)]);
         }
     }
 

@@ -159,12 +159,40 @@ class TranscriptionService
             $prepared['temporary'];
 
         try {
-            return $this->sendToOpenAi(
-                $apiKey,
-                $preparedPath,
-                $preparedName,
-                $language
-            );
+            try {
+                return $this->sendToOpenAi(
+                    $apiKey,
+                    $preparedPath,
+                    $preparedName,
+                    $language
+                );
+            } catch (RuntimeException $e) {
+                /*
+                 * A personal key that is out of credits (429) or rejected
+                 * (401/403) must not block transcription. Fall back to the
+                 * shared administrator key when it differs from the key that
+                 * just failed.
+                 */
+                $sharedKey =
+                    $this->resolveSharedOpenAiApiKey();
+
+                if (
+                    $sharedKey !== ''
+                    && $sharedKey !== $apiKey
+                    && $this->isAccountKeyRejection(
+                        $e->getMessage()
+                    )
+                ) {
+                    return $this->sendToOpenAi(
+                        $sharedKey,
+                        $preparedPath,
+                        $preparedName,
+                        $language
+                    );
+                }
+
+                throw $e;
+            }
         } finally {
             if (
                 $temporary
@@ -301,6 +329,15 @@ class TranscriptionService
         |
         */
 
+        return $this->resolveSharedOpenAiApiKey();
+    }
+
+    /**
+     * Resolve only the administrator's shared OpenAI key, ignoring any
+     * user-specific credential.
+     */
+    private function resolveSharedOpenAiApiKey(): string
+    {
         try {
             $settings =
                 SiteSetting::current();
@@ -344,6 +381,19 @@ class TranscriptionService
 
             return '';
         }
+    }
+
+    /**
+     * Whether a transcription failure was caused by the API key itself
+     * (rejected or out of credits) rather than the recording content.
+     */
+    private function isAccountKeyRejection(
+        string $message
+    ): bool {
+        return preg_match(
+            '/API error \((401|403|429)\):?/i',
+            $message
+        ) === 1;
     }
 
     /**
@@ -839,7 +889,7 @@ class TranscriptionService
             }
 
             throw new RuntimeException(
-                $message
+                'OpenAI API error (' . $response->status() . '): ' . $message
             );
         }
 

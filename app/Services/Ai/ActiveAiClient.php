@@ -284,7 +284,8 @@ class ActiveAiClient
     private function isAuthenticationFailure(RuntimeException $exception): bool
     {
         return str_contains($exception->getMessage(), ' API error (401)')
-            || str_contains($exception->getMessage(), ' API error (403)');
+            || str_contains($exception->getMessage(), ' API error (403)')
+            || str_contains($exception->getMessage(), ' API error (429)');
     }
 
     private function decodeJson(string $content): array
