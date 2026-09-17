@@ -938,6 +938,14 @@ class AdminSettingsController extends Controller
             return 'The provider refused the request (HTTP 403). The API key may lack permission or the account may be restricted. Check it in AI Configuration, then retry.';
         }
 
+        if (str_contains($message, 'api error (429)')) {
+            return 'The OpenAI account for the shared API key has no credits remaining (HTTP 429). Add credits at https://platform.openai.com/settings/organization/billing, then retry.';
+        }
+
+        if (preg_match('/api error \((\d+)\)/', $message, $statusMatches) === 1) {
+            return 'The AI provider returned an error (HTTP ' . $statusMatches[1] . '). See the server logs for full details, then retry.';
+        }
+
         if (str_contains($message, 'timed out')) {
             return 'The connection to the AI provider timed out. Make sure this server can reach the provider endpoint (network/firewall), then retry.';
         }
