@@ -47,7 +47,7 @@ class TranscriptionService
     ];
 
     /**
-     * OpenAI maximum upload size: 25 MB.
+     * Upload size supported for transcription: 30 MB.
      */
     private const MAX_FILE_SIZE_BYTES = 30 * 1024 * 1024;
 
@@ -566,7 +566,7 @@ class TranscriptionService
         );
 
         /*
-         * If the compressed MP3 still exceeds OpenAI's 25 MB limit,
+         * If the compressed MP3 still exceeds the 30 MB upload limit,
          * re-encode at an even lower bitrate to fit under the threshold.
          */
         if (filesize($destinationPath) > self::MAX_FILE_SIZE_BYTES) {
@@ -625,7 +625,7 @@ class TranscriptionService
 
                     throw new RuntimeException(
                         "The recording is too large ({$sizeMb} MB) even after compression. "
-                        . 'Please upload a shorter recording under 25 MB.'
+                        . 'Please upload a shorter recording under 30 MB.'
                     );
                 }
             }
