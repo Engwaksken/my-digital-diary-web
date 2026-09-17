@@ -143,15 +143,28 @@ class SiteSetting extends Model
 
     public function currencyOptions(): array
     {
-        $options = [[
+        $options = [];
+        $seen = [];
+
+        $push = function (array $entry) use (&$options, &$seen) {
+            $code = strtoupper(trim((string) ($entry['code'] ?? '')));
+            if ($code === '' || isset($seen[$code])) {
+                return;
+            }
+            $seen[$code] = true;
+            $entry['code'] = $code;
+            $options[] = $entry;
+        };
+
+        $push([
             'code' => strtoupper($this->default_currency_code ?: 'UGX'),
             'symbol' => $this->default_currency_symbol ?: 'UGX',
             'rate' => 1.0,
-        ]];
+        ]);
 
         foreach ($this->supported_currencies ?? [] as $currency) {
             if (! empty($currency['code']) && (float) ($currency['rate'] ?? 0) > 0) {
-                $options[] = $currency;
+                $push($currency);
             }
         }
 
