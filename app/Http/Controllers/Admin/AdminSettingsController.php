@@ -902,8 +902,56 @@ class AdminSettingsController extends Controller
 
             return redirect()
                 ->route('admin.settings.edit', ['tab' => 'ai'])
-                ->withErrors(['ai_connection' => 'OpenAI connection could not be verified. Check the server logs for details.']);
+                ->withErrors(['ai_connection' => $this->describeAiConnectionFailure($e)]);
         }
+    }
+
+    private function describeAiConnectionFailure(Throwable $e): string
+    {
+        $message = mb_strtolower(trim((string) $e->getMessage()));
+
+        if (str_contains($message, 'no default ai provider')) {
+            return 'No shared AI provider or API key is configured. Select a Default Provider and enter the Shared API Key in AI Configuration, then retry.';
+        }
+
+        if (str_contains($message, 'incomplete')) {
+            return 'The AI configuration is incomplete. Choose the Default Provider and enter the Shared API Key above, then retry.';
+        }
+
+        if (str_contains($message, 'is disabled')) {
+            return 'The selected AI provider is disabled. Enable it in AI Providers, then retry.';
+        }
+
+        if (str_contains($message, 'missing from ai providers')) {
+            return 'The selected Default Provider is not in the AI Providers list. Choose a provider that is listed and enabled, then retry.';
+        }
+
+        if (str_contains($message, 'no api endpoint') || str_contains($message, 'no default model')) {
+            return 'The selected provider is missing its API endpoint or default model. Edit it in AI Providers, then retry.';
+        }
+
+        if (str_contains($message, 'api error (401)')) {
+            return 'The shared API key was rejected (HTTP 401). Check the key saved in AI Configuration, then retry.';
+        }
+
+        if (str_contains($message, 'api error (403)')) {
+            return 'The provider refused the request (HTTP 403). The API key may lack permission or the account may be restricted. Check it in AI Configuration, then retry.';
+        }
+
+        if (str_contains($message, 'timed out')) {
+            return 'The connection to the AI provider timed out. Make sure this server can reach the provider endpoint (network/firewall), then retry.';
+        }
+
+        if (str_contains($message, 'did not return valid insight json')) {
+            return 'The provider responded, but the reply was not valid JSON. The selected model or endpoint may not support JSON mode; check it in AI Providers, then retry.';
+        }
+
+        $summary = trim((string) preg_replace('/\s+/', ' ', strip_tags((string) $e->getMessage())));
+        if ($summary !== '') {
+            return 'OpenAI connection could not be verified: ' . mb_substr($summary, 0, 300) . ' See the server logs for full details.';
+        }
+
+        return 'OpenAI connection could not be verified. Check the server logs for details.';
     }
 
     /**
