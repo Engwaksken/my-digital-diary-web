@@ -27,6 +27,9 @@ class MeetingRecordingController extends Controller
     private const TRANSCRIPTION_TOO_LARGE_MESSAGE =
         'This recording is too large to transcribe. Please top up your extra recording quota or record a shorter meeting under 30 MB.';
 
+    private const TRANSCRIPTION_QUOTA_REQUIRED_MESSAGE =
+        'Transcription needs an active subscription or extra recording minutes. Please top up your extra recording quota to continue.';
+
     private function authorizeMeeting(Request $request, Meeting $meeting): void
     {
         abort_unless($meeting->user_id === $request->user()->id || $request->user()->isAdmin(), 403);
@@ -131,11 +134,20 @@ class MeetingRecordingController extends Controller
         } catch (\Throwable $e) {
             report($e);
 
-            $tooLarge = str_contains(strtolower((string) $e->getMessage()), 'too large');
+            $raw = strtolower((string) $e->getMessage());
+            $tooLarge = str_contains($raw, 'too large');
+            $quotaRequired = str_contains($raw, 'requires an active subscription or valid extra recording quota');
 
-            $message = $tooLarge
-                ? self::TRANSCRIPTION_TOO_LARGE_MESSAGE
-                : self::TRANSCRIPTION_FAILURE_MESSAGE;
+            if ($tooLarge) {
+                $message = self::TRANSCRIPTION_TOO_LARGE_MESSAGE;
+                $errorCode = 'recording_too_large';
+            } elseif ($quotaRequired) {
+                $message = self::TRANSCRIPTION_QUOTA_REQUIRED_MESSAGE;
+                $errorCode = 'recording_quota_required';
+            } else {
+                $message = self::TRANSCRIPTION_FAILURE_MESSAGE;
+                $errorCode = 'transcription_failed';
+            }
 
             $recording->update([
                 'transcription_status' => 'failed',
@@ -144,7 +156,7 @@ class MeetingRecordingController extends Controller
 
             return response()->json([
                 'message' => $message,
-                'error_code' => $tooLarge ? 'recording_too_large' : 'transcription_failed',
+                'error_code' => $errorCode,
             ], 422);
         }
     }

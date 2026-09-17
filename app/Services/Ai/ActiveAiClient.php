@@ -107,7 +107,7 @@ class ActiveAiClient
             'Reply with one JSON object only.',
             'Return {"status":"ok"}.',
             null,
-            20
+            40
         );
     }
 
