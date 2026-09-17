@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Meeting;
 use App\Models\MeetingAuditLog;
 use App\Models\MeetingRecording;
+use App\Models\User;
 use App\Services\MeetingSummaryService;
 use App\Services\TranscriptionService;
 use Illuminate\Http\JsonResponse;
@@ -46,7 +47,7 @@ class MeetingRecordingController extends Controller
 
         $recordings = $meeting->recordings()->orderByDesc('id')->get();
 
-        return response()->json(['data' => $recordings->map(fn ($r) => $this->transform($r))]);
+        return response()->json(['data' => $recordings->map(fn ($r) => $this->transform($r, $request->user()))]);
     }
 
     public function store(Request $request, Meeting $meeting): JsonResponse
@@ -62,7 +63,7 @@ class MeetingRecordingController extends Controller
 
         MeetingAuditLog::record($meeting->id, $request->user()->id, 'started_recording');
 
-        return response()->json(['data' => $this->transform($recording)]);
+        return response()->json(['data' => $this->transform($recording, $request->user())]);
     }
 
     public function updateStatus(Request $request, MeetingRecording $recording): JsonResponse
@@ -77,7 +78,7 @@ class MeetingRecordingController extends Controller
         $recording->update($data);
         MeetingAuditLog::record($recording->meeting_id, $request->user()->id, $data['status'] === 'paused' ? 'paused_recording' : 'resumed_recording');
 
-        return response()->json(['data' => $this->transform($recording)]);
+        return response()->json(['data' => $this->transform($recording, $request->user())]);
     }
 
     public function stop(Request $request, MeetingRecording $recording): JsonResponse
@@ -101,7 +102,7 @@ class MeetingRecordingController extends Controller
 
         MeetingAuditLog::record($recording->meeting_id, $request->user()->id, 'stopped_recording', "Duration: {$recording->formattedDuration()}");
 
-        return response()->json(['data' => $this->transform($recording)]);
+        return response()->json(['data' => $this->transform($recording, $request->user())]);
     }
 
     public function transcribe(Request $request, MeetingRecording $recording): JsonResponse
@@ -130,7 +131,7 @@ class MeetingRecordingController extends Controller
 
             MeetingAuditLog::record($recording->meeting_id, $request->user()->id, 'transcribed_recording');
 
-            return response()->json(['data' => $this->transform($recording->fresh())]);
+            return response()->json(['data' => $this->transform($recording->fresh(), $request->user())]);
         } catch (\Throwable $e) {
             report($e);
 
@@ -170,7 +171,7 @@ class MeetingRecordingController extends Controller
 
         MeetingAuditLog::record($recording->meeting_id, $request->user()->id, 'edited_transcript');
 
-        return response()->json(['data' => $this->transform($recording)]);
+        return response()->json(['data' => $this->transform($recording, $request->user())]);
     }
 
     public function generateSummary(Request $request, MeetingRecording $recording): JsonResponse
@@ -189,7 +190,7 @@ class MeetingRecordingController extends Controller
 
             MeetingAuditLog::record($recording->meeting_id, $request->user()->id, 'generated_summary');
 
-            return response()->json(['data' => $this->transform($recording->fresh())]);
+            return response()->json(['data' => $this->transform($recording->fresh(), $request->user())]);
         } catch (\Throwable $e) {
             $recording->update(['summary_status' => 'failed', 'summary_error' => $e->getMessage()]);
 
@@ -253,8 +254,27 @@ class MeetingRecordingController extends Controller
         }
     }
 
-    private function transform(MeetingRecording $recording): array
+    /** Size in bytes of the stored audio, 0 when there is no upload yet. */
+    private function recordingFileSizeBytes(MeetingRecording $recording): int
     {
+        if (! $recording->audio_path) {
+            return 0;
+        }
+
+        $path = Storage::disk('public')->path($recording->audio_path);
+        $size = is_file($path) ? filesize($path) : false;
+
+        return $size === false ? 0 : (int) $size;
+    }
+
+    private function transform(MeetingRecording $recording, User $user): array
+    {
+        $fileSizeBytes = $this->recordingFileSizeBytes($recording);
+        $transcriptionLimitMb = 30;
+        $hasActiveAccess = (bool) $user->hasActiveAccess();
+        $extraMinutes = $user->availableExtraRecordingQuotaMinutes();
+        $canTranscribe = $hasActiveAccess || $extraMinutes > 0;
+
         return [
             'id' => $recording->id,
             'meeting_id' => $recording->meeting_id,
@@ -262,6 +282,10 @@ class MeetingRecordingController extends Controller
             'duration_seconds' => $recording->duration_seconds,
             'formatted_duration' => $recording->formattedDuration(),
             'audio_url' => $recording->audioUrl(),
+            'file_size_bytes' => $fileSizeBytes,
+            'file_size_mb' => round($fileSizeBytes / (1024 * 1024), 1),
+            'transcription_limit_mb' => $transcriptionLimitMb,
+            'is_over_upload_limit' => $fileSizeBytes > ($transcriptionLimitMb * 1024 * 1024),
             'transcript' => $recording->transcript,
             'transcript_segments' => $recording->transcript_segments,
             'transcription_status' => $recording->transcription_status,
@@ -271,6 +295,10 @@ class MeetingRecordingController extends Controller
             'summary' => $recording->summary,
             'summary_status' => $recording->summary_status,
             'summary_error' => $recording->summary_error,
+            'has_active_access' => $hasActiveAccess,
+            'extra_recording_minutes_remaining' => $extraMinutes,
+            'extra_quota_expires_at' => $user->extra_quota_expires_at?->toIso8601String(),
+            'can_transcribe' => $canTranscribe,
             'created_at' => $recording->created_at->toIso8601String(),
         ];
     }
