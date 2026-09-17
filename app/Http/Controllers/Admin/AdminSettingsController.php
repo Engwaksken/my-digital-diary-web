@@ -924,6 +924,21 @@ class AdminSettingsController extends Controller
             && trim((string) $credential->api_key) !== '';
     }
 
+    private function maskApiKey(string $key): string
+    {
+        $key = trim($key);
+
+        if ($key === '') {
+            return '(empty)';
+        }
+
+        if (mb_strlen($key) <= 8) {
+            return str_repeat('•', mb_strlen($key));
+        }
+
+        return mb_substr($key, 0, 4) . '…' . mb_substr($key, -4);
+    }
+
     private function describeAiConnectionFailure(Throwable $e, ?User $user = null): string
     {
         $message = mb_strtolower(trim((string) $e->getMessage()));
@@ -961,9 +976,11 @@ class AdminSettingsController extends Controller
         }
 
         if (str_contains($message, 'api error (429)')) {
-            return $personal
-                ? 'Your personal API key has no credits remaining (HTTP 429). Add credits at https://platform.openai.com/settings/organization/billing, or set a different active key under Profile → API Keys, then retry.'
-                : 'The shared admin API key has no credits remaining (HTTP 429). Add credits at https://platform.openai.com/settings/organization/billing, or enter a key with credits under Admin Settings → AI Configuration → Shared API Key, then retry.';
+            if ($personal) {
+                return 'Your personal API key has no credits remaining (HTTP 429). Add credits at https://platform.openai.com/settings/organization/billing, or set a different active key under Profile → API Keys, then retry.';
+            }
+
+            return 'The shared admin API key has no credits remaining (HTTP 429). Stored key: ' . $this->maskApiKey((string) SiteSetting::current()->default_ai_api_key) . '. This usually means the saved key belongs to a different OpenAI organization or project than the one where the credits were added. Verify the key at https://platform.openai.com/api-keys and check the organization/project it is attached to, confirm the balance under https://platform.openai.com/settings/organization/billing, then save the correct key in Admin Settings → AI Configuration → Shared API Key and retry.';
         }
 
         if (preg_match('/api error \((\d+)\)/', $message, $statusMatches) === 1) {
