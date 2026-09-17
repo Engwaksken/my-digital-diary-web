@@ -434,17 +434,31 @@ class MeetingRecordingController extends Controller
         } catch (\Throwable $e) {
             report($e);
 
+            $errorMessage = self::TRANSCRIPTION_FAILURE_MESSAGE;
+
+            if (
+                str_contains(
+                    strtolower(
+                        (string) $e->getMessage()
+                    ),
+                    'top up'
+                )
+            ) {
+                $errorMessage =
+                    'The recording is too large. Please top up your recording quota to complete full transcription.';
+            }
+
             $recording->update([
                 'transcription_status' =>
                     'failed',
 
                 'transcription_error' =>
-                    self::TRANSCRIPTION_FAILURE_MESSAGE,
+                    $errorMessage,
             ]);
 
             return back()->withErrors([
                 'transcription' =>
-                    self::TRANSCRIPTION_FAILURE_MESSAGE,
+                    $errorMessage,
             ]);
         }
     }

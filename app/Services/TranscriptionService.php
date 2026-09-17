@@ -49,7 +49,7 @@ class TranscriptionService
     /**
      * OpenAI maximum upload size: 25 MB.
      */
-    private const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+    private const MAX_FILE_SIZE_BYTES = 30 * 1024 * 1024;
 
     /**
      * Transcribe a stored meeting recording.
@@ -145,7 +145,8 @@ class TranscriptionService
         $prepared =
             $this->prepareAudioFile(
                 $sourcePath,
-                $audioPath
+                $audioPath,
+                $user
             );
 
         $preparedPath =
@@ -356,7 +357,8 @@ class TranscriptionService
      */
     private function prepareAudioFile(
         string $sourcePath,
-        string $storedPath
+        string $storedPath,
+        ?\App\Models\User $user = null
     ): array {
         $extension =
             strtolower(
@@ -374,7 +376,8 @@ class TranscriptionService
             $this->ffmpegAvailable()
         ) {
             return $this->convertToMp3(
-                $sourcePath
+                $sourcePath,
+                $user
             );
         }
 
@@ -400,18 +403,32 @@ class TranscriptionService
         );
 
         /*
-         * Validate file size for OpenAI's 25 MB limit.
-         * Without FFmpeg, large files cannot be compressed further.
+         * Validate file size for OpenAI's limit.
+         * If the file is too large, check if the user has extra recording quota minutes.
+         * If they do, FFmpeg will attempt to compress it; otherwise, ask them to top up.
          */
         $fileSize = filesize($sourcePath);
 
         if ($fileSize > self::MAX_FILE_SIZE_BYTES) {
+            if (
+                $user
+                && (
+                    $user->extra_recording_quota_minutes ?? 0 > 0
+                )
+            ) {
+                // User has extra minutes; allow FFmpeg compression to proceed
+                return $this->convertToMp3(
+                    $sourcePath,
+                    $user
+                );
+            }
+
             $sizeMb = round($fileSize / (1024 * 1024), 1);
 
             throw new RuntimeException(
                 "The recording is too large ({$sizeMb} MB) for transcription. "
-                . 'The server needs FFmpeg installed to compress recordings, '
-                . 'or upload a shorter recording under 25 MB.'
+                . 'Please top up your recording quota to complete full transcription, '
+                . 'or upload a shorter recording under 30 MB.'
             );
         }
 
@@ -438,7 +455,8 @@ class TranscriptionService
      * }
      */
     private function convertToMp3(
-        string $sourcePath
+        string $sourcePath,
+        ?\App\Models\User $user = null
     ): array {
         $temporaryDirectory =
             storage_path(
