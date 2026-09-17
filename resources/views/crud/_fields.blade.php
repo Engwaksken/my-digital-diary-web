@@ -461,7 +461,7 @@
             'relationships' => [
                 'module' => 'relationships',
                 'trigger_fields' => ['name', 'category', 'relation_label'],
-                'context_fields' => ['name', 'category', 'relation_label', 'priority', 'interests'],
+                'context_fields' => ['name', 'category', 'relation_label', 'priority'],
                 'help' => 'Add the person, relationship type or connection topic, then use AI Generate to prepare follow-up ideas and an editable relationship draft.',
             ],
             'network-contacts' => [

@@ -17,8 +17,6 @@ return new class extends Migration
             $table->enum('priority', ['high', 'medium', 'low'])->default('medium');
             $table->date('last_meaningful_interaction')->nullable();
             $table->date('next_planned_interaction')->nullable();
-            $table->text('strengthening_goal')->nullable();
-            $table->text('notes')->nullable();
             $table->timestamps();
         });
     }

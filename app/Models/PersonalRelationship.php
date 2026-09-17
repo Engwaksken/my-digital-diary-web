@@ -10,15 +10,12 @@ class PersonalRelationship extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id','name','category','relation_label','priority','email','phone','birthday',
-        'anniversary','last_meaningful_interaction','next_planned_interaction',
-        'strengthening_goal','interests','commitments','follow_up_items','interaction_notes',
-        'notes','is_archived',
+        'user_id','name','category','relation_label','priority',
+        'last_meaningful_interaction','next_planned_interaction',
+        'interaction_notes','is_archived',
     ];
 
     protected $casts = [
-        'birthday' => 'date',
-        'anniversary' => 'date',
         'last_meaningful_interaction' => 'date',
         'next_planned_interaction' => 'date',
         'is_archived' => 'boolean',
