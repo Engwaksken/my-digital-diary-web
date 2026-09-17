@@ -101,12 +101,12 @@ class ActiveAiClient
         }
     }
 
-    public function testConnection(): void
+    public function testConnection(?User $user = null): void
     {
         $this->json(
             'Reply with one JSON object only.',
             'Return {"status":"ok"}.',
-            null,
+            $user,
             40
         );
     }

@@ -886,10 +886,12 @@ class AdminSettingsController extends Controller
             );
     }
 
-    public function testAiConnection(): RedirectResponse
+    public function testAiConnection(Request $request): RedirectResponse
     {
+        $user = $request->user();
+
         try {
-            app(ActiveAiClient::class)->testConnection();
+            app(ActiveAiClient::class)->testConnection($user);
 
             return redirect()
                 ->route('admin.settings.edit', ['tab' => 'ai'])
@@ -902,13 +904,28 @@ class AdminSettingsController extends Controller
 
             return redirect()
                 ->route('admin.settings.edit', ['tab' => 'ai'])
-                ->withErrors(['ai_connection' => $this->describeAiConnectionFailure($e)]);
+                ->withErrors(['ai_connection' => $this->describeAiConnectionFailure($e, $user)]);
         }
     }
 
-    private function describeAiConnectionFailure(Throwable $e): string
+    private function usesPersonalOpenAiKey(?User $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        $credential = $user->activeApiCredential();
+
+        return $credential
+            && strtolower(trim((string) $credential->provider)) === 'openai'
+            && trim((string) $credential->api_key) !== '';
+    }
+
+    private function describeAiConnectionFailure(Throwable $e, ?User $user = null): string
     {
         $message = mb_strtolower(trim((string) $e->getMessage()));
+        $personal = $this->usesPersonalOpenAiKey($user);
+        $keyLabel = $personal ? 'Your personal API key' : 'The shared admin API key';
 
         if (str_contains($message, 'no default ai provider')) {
             return 'No shared AI provider or API key is configured. Select a Default Provider and enter the Shared API Key in AI Configuration, then retry.';
@@ -931,15 +948,19 @@ class AdminSettingsController extends Controller
         }
 
         if (str_contains($message, 'api error (401)')) {
-            return 'The shared API key was rejected (HTTP 401). Check the key saved in AI Configuration, then retry.';
+            return $personal
+                ? 'Your personal API key was rejected (HTTP 401). Set a valid active key under Profile → API Keys, then retry.'
+                : $keyLabel . ' was rejected (HTTP 401). Check the key saved in Admin Settings → AI Configuration, then retry.';
         }
 
         if (str_contains($message, 'api error (403)')) {
-            return 'The provider refused the request (HTTP 403). The API key may lack permission or the account may be restricted. Check it in AI Configuration, then retry.';
+            return $keyLabel . ' was refused (HTTP 403). The key may lack permission or the account may be restricted. Check it and retry.';
         }
 
         if (str_contains($message, 'api error (429)')) {
-            return 'The OpenAI account for the shared API key has no credits remaining (HTTP 429). Add credits at https://platform.openai.com/settings/organization/billing, then retry.';
+            return $personal
+                ? 'Your personal API key has no credits remaining (HTTP 429). Add credits at https://platform.openai.com/settings/organization/billing, or set a different active key under Profile → API Keys, then retry.'
+                : 'The shared admin API key has no credits remaining (HTTP 429). Add credits at https://platform.openai.com/settings/organization/billing, or enter a key with credits under Admin Settings → AI Configuration → Shared API Key, then retry.';
         }
 
         if (preg_match('/api error \((\d+)\)/', $message, $statusMatches) === 1) {
