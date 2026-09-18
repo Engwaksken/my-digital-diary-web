@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\HealthProfile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -20,7 +21,9 @@ class DailyStepsApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.steps', 0)
             ->assertJsonPath('data.daily_goal', 5000)
-            ->assertJsonPath('data.is_tracking', false);
+            ->assertJsonPath('data.is_tracking', false)
+            ->assertJsonPath('data.distance_km', 0)
+            ->assertJsonPath('data.distance_m', 0);
 
         $this->postJson('/api/wellbeing/steps/start')
             ->assertOk()
@@ -28,7 +31,9 @@ class DailyStepsApiTest extends TestCase
 
         $this->postJson('/api/wellbeing/steps/sync', ['steps' => 125])
             ->assertOk()
-            ->assertJsonPath('data.steps', 125);
+            ->assertJsonPath('data.steps', 125)
+            ->assertJsonPath('data.distance_km', 0.1)
+            ->assertJsonPath('data.distance_m', 95);
 
         $this->postJson('/api/wellbeing/steps/stop')
             ->assertOk()
@@ -39,5 +44,37 @@ class DailyStepsApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.is_tracking', true)
             ->assertJsonPath('data.steps', 125);
+    }
+
+    public function test_step_payload_uses_height_based_stride_for_distance(): void
+    {
+        $user = User::factory()->create();
+        HealthProfile::create([
+            'user_id' => $user->id,
+            'height_cm' => 170,
+        ]);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/wellbeing/steps/sync', ['steps' => 1000])
+            ->assertOk()
+            ->assertJsonPath('data.distance_m', 706)
+            ->assertJsonPath('data.distance_km', 0.7)
+            ->assertJsonPath('data.stride_m', 0.706);
+    }
+
+    public function test_step_history_includes_distance(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/wellbeing/steps/sync', ['steps' => 2000])
+            ->assertOk();
+
+        $this->getJson('/api/wellbeing/steps/history?days=7')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.steps', 2000)
+            ->assertJsonPath('data.0.distance_m', 1524)
+            ->assertJsonPath('data.0.distance_km', 1.5);
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\DailyStep;
+use App\Models\HealthProfile;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,15 @@ class DailyStepService
     public const STARTING_GOAL = 5000;
     public const GOAL_INCREMENT = 100;
     public const MAX_GOAL = 10000;
+
+    /** Average adult stride length in metres, used when height is unknown. */
+    public const DEFAULT_STRIDE_M = 0.762;
+
+    public const MIN_STRIDE_M = 0.5;
+    public const MAX_STRIDE_M = 1.0;
+
+    /** Common rule of thumb: stride in metres is roughly 41.5% of height in metres. */
+    private const STRIDE_FACTOR = 0.415;
 
     public function forToday(User $user): DailyStep
     {
@@ -115,10 +125,36 @@ class DailyStepService
         });
     }
 
+    public function strideLengthM(User $user): float
+    {
+        $heightCm = optional(
+            HealthProfile::query()->where('user_id', $user->id)->first()
+        )->height_cm;
+
+        $stride = is_numeric($heightCm) && (float) $heightCm > 0
+            ? ((float) $heightCm * self::STRIDE_FACTOR) / 100
+            : self::DEFAULT_STRIDE_M;
+
+        return max(self::MIN_STRIDE_M, min(self::MAX_STRIDE_M, $stride));
+    }
+
+    public function distanceFor(User $user, int $steps): array
+    {
+        $strideM = $this->strideLengthM($user);
+        $distanceM = max(0, $steps) * $strideM;
+
+        return [
+            'stride_m' => round($strideM, 3),
+            'distance_m' => (int) round($distanceM),
+            'distance_km' => round($distanceM / 1000, 1),
+        ];
+    }
+
     public function payload(User $user): array
     {
         $row = $this->forToday($user);
         $nextGoal = $this->currentGoal($user);
+        $distance = $this->distanceFor($user, (int) $row->steps);
 
         return [
             'date' => optional($row->tracking_date)->toDateString(),
@@ -131,6 +167,9 @@ class DailyStepService
                 0,
                 (int) $row->daily_goal - (int) $row->steps
             ),
+            'distance_m' => $distance['distance_m'],
+            'distance_km' => $distance['distance_km'],
+            'stride_m' => $distance['stride_m'],
             'is_tracking' => (bool) $row->is_tracking,
             'tracking_started_at' => optional($row->tracking_started_at)?->toIso8601String(),
             'tracking_stopped_at' => optional($row->tracking_stopped_at)?->toIso8601String(),
@@ -150,13 +189,16 @@ class DailyStepService
     public function history(User $user, int $days = 30): array
     {
         $days = max(7, min(90, $days));
+        $strideM = $this->strideLengthM($user);
 
         return DailyStep::query()
             ->where('user_id', $user->id)
             ->orderByDesc('tracking_date')
             ->limit($days)
             ->get()
-            ->map(function (DailyStep $row): array {
+            ->map(function (DailyStep $row) use ($strideM): array {
+                $distanceM = max(0, (int) $row->steps) * $strideM;
+
                 return [
                     'date' => optional($row->tracking_date)->toDateString(),
                     'tracking_date' => optional($row->tracking_date)->toDateString(),
@@ -167,6 +209,9 @@ class DailyStepService
                     ),
                     'progress_percent' => $row->progressPercent(),
                     'goal_achieved' => (int) $row->steps >= (int) $row->daily_goal,
+                    'stride_m' => round($strideM, 3),
+                    'distance_m' => (int) round($distanceM),
+                    'distance_km' => round($distanceM / 1000, 1),
                     'last_synced_at' => optional($row->last_synced_at)?->toIso8601String(),
                 ];
             })

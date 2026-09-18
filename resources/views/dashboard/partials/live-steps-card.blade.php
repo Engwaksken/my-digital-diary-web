@@ -4,6 +4,7 @@
     $goal = max(1, (int) ($stepData['daily_goal'] ?? 5000));
     $progress = min(100, max(0, (int) ($stepData['progress_percent'] ?? round(($steps / $goal) * 100))));
     $remaining = max(0, (int) ($stepData['remaining_steps'] ?? ($goal - $steps)));
+    $distanceKm = max(0, (float) ($stepData['distance_km'] ?? 0));
     $tracking = (bool) ($stepData['is_tracking'] ?? false);
 @endphp
 
@@ -21,6 +22,12 @@
             <div class="min-w-0">
                 <div class="flex items-end gap-2">
                     <span id="md-step-count" class="text-3xl font-black text-slate-900">{{ number_format($steps) }}</span>
+
+                    <span id="md-step-distance"
+                          class="text-sm font-black text-emerald-700 mb-1 {{ $steps > 0 && $distanceKm > 0 ? '' : 'hidden' }}">
+                        ≈ {{ number_format($distanceKm, 1) }} km
+                    </span>
+
                     <span class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Steps today</span>
                 </div>
 
@@ -75,6 +82,7 @@
 
     const url = card.dataset.url;
     const count = document.getElementById('md-step-count');
+    const distance = document.getElementById('md-step-distance');
     const status = document.getElementById('md-step-status');
     const percent = document.getElementById('md-step-percent');
     const progress = document.getElementById('md-step-progress');
@@ -122,6 +130,15 @@
             percent.textContent = `${pct}%`;
             progress.style.width = `${pct}%`;
             remaining.textContent = `${number(Math.max(0, goal - steps))} remaining`;
+
+            if (distance) {
+                const km = Number(data.distance_km || 0);
+                distance.textContent = `≈ ${km.toLocaleString(undefined, {
+                    minimumFractionDigits: 1,
+                    maximumFractionDigits: 1,
+                })} km`;
+                distance.classList.toggle('hidden', steps === 0 || km <= 0);
+            }
 
             status.textContent = tracking ? 'Tracking your steps' : 'Tracking paused';
             status.className = `text-sm font-bold ${tracking ? 'text-emerald-700' : 'text-slate-500'}`;
