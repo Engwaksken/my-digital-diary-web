@@ -84,7 +84,8 @@
             @if ($user->isSuspended())
                 <p class="text-rose-700 mb-2">Your account has been suspended.</p>
                 <p class="text-sm text-slate-500">Contact support if you believe this is a mistake.</p>
-            @elseif ($user->subscription_status === 'active')
+            @elseif ($user->subscription_status === 'active'
+                && (! $user->subscription_expires_at || $user->subscription_expires_at->isFuture()))
                 <p class="text-emerald-700 mb-2">You're subscribed thanks for being a member!</p>
                 <p class="text-sm text-slate-500 mb-6">
                     @if ($user->subscriptionPlan)
@@ -251,6 +252,19 @@
                     @csrf
                     <button type="submit" class="text-sm text-rose-600 hover:text-rose-700 font-semibold">Cancel subscription</button>
                 </form>
+            @elseif ($user->subscription_status === 'active')
+                <p class="text-rose-700 mb-2">
+                    Your {{ $user->subscriptionPlan?->name ?? 'plan' }} plan lapsed on
+                    <strong>{{ $user->subscription_expires_at?->format('Y-m-d') }}</strong>.
+                </p>
+                <p class="text-sm text-slate-500 mb-6">
+                    Renew to restore full access to your dashboard and all modules.
+                </p>
+
+                @include('subscription.partials.plan-selection', [
+                    'planSelectionTitle' => 'Renew your plan',
+                    'planSelectionSubtitle' => null,
+                ])
             @else
                 @if ($user->onTrial())
                     <p class="text-slate-600 mb-6">

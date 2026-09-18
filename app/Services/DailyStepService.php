@@ -85,13 +85,19 @@ class DailyStepService
         return $goal;
     }
 
-    public function recordSteps(User $user, int $steps): DailyStep
+    public function recordSteps(User $user, int $steps, ?int $distanceM = null): DailyStep
     {
-        return DB::transaction(function () use ($user, $steps): DailyStep {
+        return DB::transaction(function () use ($user, $steps, $distanceM): DailyStep {
             $row = $this->forToday($user);
 
             // Never move the same day's count backwards.
             $row->steps = max((int) $row->steps, max(0, $steps));
+
+            if ($distanceM !== null && (int) $distanceM > 0) {
+                // Prefer the device-measured distance over our stride estimate.
+                $row->distance_m = max((int) $row->distance_m, (int) $distanceM);
+            }
+
             $row->last_synced_at = now();
             $row->save();
 
@@ -138,15 +144,27 @@ class DailyStepService
         return max(self::MIN_STRIDE_M, min(self::MAX_STRIDE_M, $stride));
     }
 
-    public function distanceFor(User $user, int $steps): array
+    public function distanceFor(User $user, int $steps, ?int $storedDistanceM = null): array
     {
         $strideM = $this->strideLengthM($user);
+        $storedMeters = (int) ($storedDistanceM ?? 0);
+
+        if ($storedMeters > 0) {
+            return [
+                'stride_m' => round($strideM, 3),
+                'distance_m' => $storedMeters,
+                'distance_km' => round($storedMeters / 1000, 1),
+                'distance_source' => 'device',
+            ];
+        }
+
         $distanceM = max(0, $steps) * $strideM;
 
         return [
             'stride_m' => round($strideM, 3),
             'distance_m' => (int) round($distanceM),
             'distance_km' => round($distanceM / 1000, 1),
+            'distance_source' => 'estimated',
         ];
     }
 
@@ -154,7 +172,12 @@ class DailyStepService
     {
         $row = $this->forToday($user);
         $nextGoal = $this->currentGoal($user);
-        $distance = $this->distanceFor($user, (int) $row->steps);
+        $storedMeters = (int) ($row->distance_m ?? 0);
+        $distance = $this->distanceFor(
+            $user,
+            (int) $row->steps,
+            $storedMeters > 0 ? $storedMeters : null
+        );
 
         return [
             'date' => optional($row->tracking_date)->toDateString(),
@@ -170,6 +193,7 @@ class DailyStepService
             'distance_m' => $distance['distance_m'],
             'distance_km' => $distance['distance_km'],
             'stride_m' => $distance['stride_m'],
+            'distance_source' => $distance['distance_source'],
             'is_tracking' => (bool) $row->is_tracking,
             'tracking_started_at' => optional($row->tracking_started_at)?->toIso8601String(),
             'tracking_stopped_at' => optional($row->tracking_stopped_at)?->toIso8601String(),
@@ -197,7 +221,10 @@ class DailyStepService
             ->limit($days)
             ->get()
             ->map(function (DailyStep $row) use ($strideM): array {
-                $distanceM = max(0, (int) $row->steps) * $strideM;
+                $storedMeters = (int) ($row->distance_m ?? 0);
+                $distanceM = $storedMeters > 0
+                    ? $storedMeters
+                    : max(0, (int) $row->steps) * $strideM;
 
                 return [
                     'date' => optional($row->tracking_date)->toDateString(),
@@ -212,6 +239,7 @@ class DailyStepService
                     'stride_m' => round($strideM, 3),
                     'distance_m' => (int) round($distanceM),
                     'distance_km' => round($distanceM / 1000, 1),
+                    'distance_source' => $storedMeters > 0 ? 'device' : 'estimated',
                     'last_synced_at' => optional($row->last_synced_at)?->toIso8601String(),
                 ];
             })

@@ -69,13 +69,18 @@ class DailyStepController extends Controller
     {
         $validated = $request->validate([
             'steps' => ['required','integer','min:0','max:1000000'],
+            'distance_m' => ['nullable','integer','min:0','max:1000000'],
         ]);
 
         // Laravel owns the progressive target. Flutter only sends the latest
-        // observed daily step total.
+        // observed daily step total (and its measured distance in metres when
+        // the device can report it).
         $this->steps->recordSteps(
             $request->user(),
-            (int) $validated['steps']
+            (int) $validated['steps'],
+            isset($validated['distance_m'])
+                ? (int) $validated['distance_m']
+                : null
         );
 
         return response()->json([
