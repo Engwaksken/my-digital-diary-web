@@ -43,6 +43,9 @@ class DailyStepController extends Controller
                 'goal_achieved' => false,
                 'progress_percent' => 0,
                 'remaining_steps' => 5000,
+                'distance_m' => 0,
+                'distance_km' => 0,
+                'stride_m' => \App\Services\DailyStepService::DEFAULT_STRIDE_M,
                 'is_tracking' => false,
                 'last_synced_at' => null,
             ];
