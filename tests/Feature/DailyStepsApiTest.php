@@ -33,7 +33,8 @@ class DailyStepsApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.steps', 125)
             ->assertJsonPath('data.distance_km', 0.1)
-            ->assertJsonPath('data.distance_m', 95);
+            ->assertJsonPath('data.distance_m', 95)
+            ->assertJsonPath('data.distance_source', 'estimated');
 
         $this->postJson('/api/wellbeing/steps/stop')
             ->assertOk()
@@ -59,7 +60,32 @@ class DailyStepsApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.distance_m', 706)
             ->assertJsonPath('data.distance_km', 0.7)
-            ->assertJsonPath('data.stride_m', 0.706);
+            ->assertJsonPath('data.stride_m', 0.706)
+            ->assertJsonPath('data.distance_source', 'estimated');
+    }
+
+    public function test_sync_accepts_device_measured_distance_in_metres(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/wellbeing/steps/sync', [
+                'steps' => 1000,
+                'distance_m' => 850,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.steps', 1000)
+            ->assertJsonPath('data.distance_m', 850)
+            ->assertJsonPath('data.distance_km', 0.9)
+            ->assertJsonPath('data.distance_source', 'device');
+
+        $this->getJson('/api/wellbeing/steps/history?days=7')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.steps', 1000)
+            ->assertJsonPath('data.0.distance_m', 850)
+            ->assertJsonPath('data.0.distance_km', 0.9)
+            ->assertJsonPath('data.0.distance_source', 'device');
     }
 
     public function test_step_history_includes_distance(): void
@@ -75,6 +101,7 @@ class DailyStepsApiTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.steps', 2000)
             ->assertJsonPath('data.0.distance_m', 1524)
-            ->assertJsonPath('data.0.distance_km', 1.5);
+            ->assertJsonPath('data.0.distance_km', 1.5)
+            ->assertJsonPath('data.0.distance_source', 'estimated');
     }
 }
