@@ -4,7 +4,13 @@
     $goal = max(1, (int) ($stepData['daily_goal'] ?? 5000));
     $progress = min(100, max(0, (int) ($stepData['progress_percent'] ?? round(($steps / $goal) * 100))));
     $remaining = max(0, (int) ($stepData['remaining_steps'] ?? ($goal - $steps)));
+    $distanceM = max(0, (int) ($stepData['distance_m'] ?? 0));
     $distanceKm = max(0, (float) ($stepData['distance_km'] ?? 0));
+    $distanceLabel = $distanceM > 0
+        ? ($distanceM < 1000
+            ? number_format($distanceM).' m'
+            : number_format($distanceKm, 1).' km')
+        : null;
     $tracking = (bool) ($stepData['is_tracking'] ?? false);
 @endphp
 
@@ -24,8 +30,8 @@
                     <span id="md-step-count" class="text-3xl font-black text-slate-900">{{ number_format($steps) }}</span>
 
                     <span id="md-step-distance"
-                          class="text-sm font-black text-emerald-700 mb-1 {{ $steps > 0 && $distanceKm > 0 ? '' : 'hidden' }}">
-                        ≈ {{ number_format($distanceKm, 1) }} km
+                          class="text-sm font-black text-emerald-700 mb-1 {{ $steps > 0 && $distanceLabel ? '' : 'hidden' }}">
+                        ≈ {{ $distanceLabel }}
                     </span>
 
                     <span class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Steps today</span>

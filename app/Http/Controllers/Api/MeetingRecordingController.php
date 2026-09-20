@@ -138,6 +138,7 @@ class MeetingRecordingController extends Controller
             $raw = strtolower((string) $e->getMessage());
             $tooLarge = str_contains($raw, 'too large');
             $quotaRequired = str_contains($raw, 'requires an active subscription or valid extra recording quota');
+            $unsupportedAudio = str_contains($raw, 'clipboard') || str_contains($raw, 'image input') || str_contains($raw, 'could not transcribe') || str_contains($raw, 'unsupported audio');
 
             if ($tooLarge) {
                 $message = self::TRANSCRIPTION_TOO_LARGE_MESSAGE;
@@ -145,6 +146,9 @@ class MeetingRecordingController extends Controller
             } elseif ($quotaRequired) {
                 $message = self::TRANSCRIPTION_QUOTA_REQUIRED_MESSAGE;
                 $errorCode = 'recording_quota_required';
+            } elseif ($unsupportedAudio) {
+                $message = self::TRANSCRIPTION_FAILURE_MESSAGE;
+                $errorCode = 'unsupported_audio';
             } else {
                 $message = self::TRANSCRIPTION_FAILURE_MESSAGE;
                 $errorCode = 'transcription_failed';

@@ -19,6 +19,7 @@ class DailyStep extends Model
         'tracking_stopped_at',
         'last_synced_at',
         'device_baseline_steps',
+        'distance_m',
     ];
 
     protected $casts = [
@@ -30,6 +31,7 @@ class DailyStep extends Model
         'tracking_stopped_at' => 'datetime',
         'last_synced_at' => 'datetime',
         'device_baseline_steps' => 'integer',
+        'distance_m' => 'integer',
     ];
 
     public function user(): BelongsTo
