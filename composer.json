@@ -12,6 +12,7 @@
         "laravel/sanctum": "^4.3",
         "laravel/tinker": "^2.10.1",
         "maennchen/zipstream-php": "3.1",
+        "php-ffmpeg/php-ffmpeg": "*",
         "phpoffice/phpspreadsheet": "^5.9",
         "setasign/fpdf": "^1.9",
         "setasign/fpdi": "^2.6",

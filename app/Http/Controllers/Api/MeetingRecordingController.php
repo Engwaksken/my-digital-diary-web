@@ -10,6 +10,8 @@ use App\Models\MeetingRecordingSegment;
 use App\Models\User;
 use App\Services\MeetingSummaryService;
 use App\Services\TranscriptionService;
+use FFMpeg\FFMpeg;
+use FFMpeg\Format\Audio\Mp3;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -424,36 +426,34 @@ class MeetingRecordingController extends Controller
             }
         }
 
-        $extension = strtolower(pathinfo($sourcePath, PATHINFO_EXTENSION)) ?: 'webm';
-        $destinationPath = $temporaryDirectory . DIRECTORY_SEPARATOR . \Illuminate\Support\Str::uuid() . '.' . $extension;
+        $destinationPath = $temporaryDirectory . DIRECTORY_SEPARATOR . \Illuminate\Support\Str::uuid() . '.mp3';
 
-        $command = 'ffmpeg'
-            . ' -hide_banner'
-            . ' -loglevel error'
-            . ' -y'
-            . ' -ss ' . escapeshellarg((string) $startSeconds)
-            . ' -t ' . escapeshellarg((string) $durationSeconds)
-            . ' -i ' . escapeshellarg($absoluteSourcePath)
-            . ' -c copy'
-            . ' ' . escapeshellarg($destinationPath)
-            . ' 2>&1';
-
-        $output = [];
-        $exitCode = 1;
-
-        @exec($command, $output, $exitCode);
-
-        if ($exitCode !== 0 || ! is_file($destinationPath) || filesize($destinationPath) < 1024) {
+        try {
+            $ffmpeg = FFMpeg::create();
+            $video = $ffmpeg->open($absoluteSourcePath);
+            $format = new Mp3();
+            $format->setAudioKiloBitrate(64);
+            $format->setAdditionalParameters([
+                '-ss' => (string) $startSeconds,
+                '-t' => (string) $durationSeconds,
+                '-vn' => null,
+                '-ac' => '1',
+                '-ar' => '16000',
+            ]);
+            $video->save($format, $destinationPath);
+        } catch (\Throwable $e) {
             @unlink($destinationPath);
-
             \Illuminate\Support\Facades\Log::warning('Audio segment extraction failed.', [
                 'source' => $sourcePath,
                 'start' => $startSeconds,
                 'duration' => $durationSeconds,
-                'exit_code' => $exitCode,
-                'output' => trim(implode("\n", $output)),
+                'error' => $e->getMessage(),
             ]);
+            throw new \RuntimeException('Failed to extract audio segment: ' . $e->getMessage());
+        }
 
+        if (! is_file($destinationPath) || filesize($destinationPath) < 1024) {
+            @unlink($destinationPath);
             throw new \RuntimeException('Failed to extract audio segment. The source audio may be incomplete or corrupted.');
         }
 
