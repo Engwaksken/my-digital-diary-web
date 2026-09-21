@@ -2361,20 +2361,20 @@
 }
 
 .meeting-segments-list{
-    display:flex;
-    flex-direction:column;
-    gap:8px;
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(250px, 1fr));
+    gap:12px;
 }
 
 .meeting-segment-item{
     display:flex;
-    flex-wrap:wrap;
-    align-items:center;
+    flex-direction:column;
     gap:8px;
-    padding:10px 12px;
+    padding:12px;
     border:1px solid #e2e8f0;
     border-radius:10px;
     background:#f8fafc;
+    min-height:120px;
 }
 
 .meeting-segment-item.playing{
@@ -2384,7 +2384,7 @@
 
 .meeting-segment-info{
     flex:1;
-    min-width:150px;
+    min-width:0;
 }
 
 .meeting-segment-title{
@@ -2677,6 +2677,10 @@
 
     .meeting-waveform-container{
         height:140px.
+    }
+
+    .meeting-segments-list{
+        grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));
     }
 }
 

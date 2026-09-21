@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\SiteSetting;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /**
@@ -155,10 +156,21 @@ PROMPT;
      */
     private function parseResponse(string $raw): array
     {
-        $cleaned = trim(preg_replace('/^```(?:json)?|```$/m', '', trim($raw)));
+        $cleaned = trim($raw);
+
+        $cleaned = preg_replace('/^```(?:json)?\s*/', '', $cleaned);
+        $cleaned = preg_replace('/\s*```$/', '', $cleaned);
+        $cleaned = trim($cleaned);
+
+        if (str_starts_with($cleaned, '{') && str_ends_with($cleaned, '}')) {
+        } elseif (preg_match('/\{.*\}/s', $cleaned, $matches)) {
+            $cleaned = $matches[0];
+        }
+
         $decoded = json_decode($cleaned, true);
 
         if (! is_array($decoded)) {
+            Log::warning('Failed to parse AI summary response', ['raw' => $raw, 'cleaned' => $cleaned]);
             throw new RuntimeException('The AI provider returned a response that could not be parsed as a summary. Try again.');
         }
 
