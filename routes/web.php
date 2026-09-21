@@ -430,6 +430,7 @@ Route::middleware(['auth', 'verified', \App\Http\Middleware\EnsureSubscribedOrOr
     Route::patch('meeting-recordings/{recording}/status', [MeetingRecordingController::class, 'updateStatus'])->name('meeting-recordings.status');
     Route::post('meeting-recordings/{recording}/stop', [MeetingRecordingController::class, 'stop'])->name('meeting-recordings.stop');
     Route::post('meeting-recordings/{recording}/transcribe', [MeetingRecordingController::class, 'transcribe'])->name('meeting-recordings.transcribe');
+    Route::post('meeting-recordings/{recording}/check-capacity', [MeetingRecordingController::class, 'checkTranscriptionCapacity'])->name('meeting-recordings.check-capacity');
     Route::post('meeting-recordings/{recording}/process', [MeetingRecordingController::class, 'transcribeAndSummarize'])->name('meeting-recordings.process');
     Route::put('meeting-recordings/{recording}/transcript', [MeetingRecordingController::class, 'updateTranscript'])->name('meeting-recordings.transcript.update');
     Route::post('meeting-recordings/{recording}/summarize', [MeetingRecordingController::class, 'generateSummary'])->name('meeting-recordings.summarize');

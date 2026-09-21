@@ -633,10 +633,12 @@
                                     </a>
 
 
-                                    <form
+<form
                                         method="POST"
                                         action="{{ route('meeting-recordings.process', $recording) }}"
-                                        class="flex flex-wrap items-center gap-2"
+                                        class="flex flex-wrap items-center gap-2 transcribe-form"
+                                        data-recording-id="{{ $recording->id }}"
+                                        data-check-capacity-url="{{ route('meeting-recordings.check-capacity', $recording) }}"
                                     >
                                         @csrf
 
@@ -665,10 +667,10 @@
 
                                         <button
                                             type="submit"
-                                            class="btn-primary rounded-xl px-3 py-2 text-xs font-bold text-white"
+                                            class="btn-primary rounded-xl px-3 py-2 text-xs font-bold text-white transcribe-submit-btn"
                                         >
                                             <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>
-                                            Transcribe &amp; Summarise
+                                            Transcribe & Summarise
                                         </button>
 
                                     </form>
@@ -5315,6 +5317,135 @@ document.addEventListener(
                 drawWaveform();
             }
         });
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Transcription Capacity Check (pre-check before submit)
+        |--------------------------------------------------------------------------
+        */
+
+        document.querySelectorAll('.transcribe-form').forEach(function(form) {
+            form.addEventListener('submit', async function(event) {
+                const submitBtn = form.querySelector('.transcribe-submit-btn');
+                const checkUrl = form.dataset.checkCapacityUrl;
+
+                if (!checkUrl) return;
+
+                event.preventDefault();
+
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Checking...';
+
+                try {
+                    const response = await fetch(checkUrl, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({}),
+                    });
+
+                    const data = await response.json();
+
+                    if (data.can_transcribe) {
+                        submitBtn.disabled = true;
+                        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Transcribing...';
+                        form.submit();
+                    } else {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Transcribe & Summarise';
+
+                        let title = 'Cannot Transcribe';
+                        switch (data.reason) {
+                            case 'quota_exceeded':
+                                title = 'Quota Exceeded';
+                                break;
+                            case 'file_too_large':
+                                title = 'File Too Large';
+                                break;
+                            case 'openai_not_configured':
+                                title = 'Service Unavailable';
+                                break;
+                            case 'no_audio':
+                                title = 'No Audio';
+                                break;
+                        }
+
+                        showTranscriptionCapacityModal(title, data.message, data);
+                    }
+                } catch (e) {
+                    console.error('Capacity check failed:', e);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Transcribe & Summarise';
+                    alert('Failed to check transcription capacity. Please try again.');
+                }
+            });
+        });
+
+        function showTranscriptionCapacityModal(title, message, data) {
+            const existingModal = document.getElementById('transcription-capacity-modal');
+            if (existingModal) existingModal.remove();
+
+            let detailsHtml = '';
+            if (data.file_size_mb !== undefined) {
+                detailsHtml += `<p class="text-sm text-slate-600">File size: ${data.file_size_mb} MB</p>`;
+            }
+            if (data.has_active_access !== undefined) {
+                detailsHtml += `<p class="text-sm text-slate-600">Active subscription: ${data.has_active_access ? 'Yes' : 'No'}</p>`;
+            }
+            if (data.extra_minutes_remaining !== undefined) {
+                detailsHtml += `<p class="text-sm text-slate-600">Extra minutes remaining: ${data.extra_minutes_remaining}</p>`;
+            }
+
+            const modalHtml = `
+                <dialog id="transcription-capacity-modal" class="meeting-simple-dialog">
+                    <div class="meeting-simple-dialog-card">
+                        <header class="meeting-dialog-header">
+                            <div>
+                                <h3 class="text-lg font-black text-slate-900">${title}</h3>
+                                <p class="mt-1 text-xs text-slate-500">${message}</p>
+                            </div>
+                            <button type="button" data-close-capacity-modal class="meeting-dialog-close" aria-label="Close">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </header>
+                        <div class="meeting-dialog-body">
+                            ${detailsHtml ? `<div class="mb-4 p-3 bg-slate-50 rounded-xl">${detailsHtml}</div>` : ''}
+                            <div class="text-sm text-slate-600">
+                                <p>To transcribe recordings, you need either:</p>
+                                <ul class="list-disc pl-5 mt-2 space-y-1">
+                                    <li>An active subscription</li>
+                                    <li>Extra recording quota minutes (top-up)</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <footer class="meeting-dialog-footer">
+                            <button type="button" data-close-capacity-modal class="apple-btn rounded-xl px-4 py-2.5 text-sm font-bold">OK</button>
+                            ${data.reason === 'quota_exceeded' || data.reason === 'file_too_large' ? `
+                                <a href="{{ route('subscription.plans') }}" class="btn-primary rounded-xl px-5 py-2.5 text-sm font-bold text-white">
+                                    <i class="fa-solid fa-plus mr-1"></i> Get More Minutes
+                                </a>
+                            ` : ''}
+                        </footer>
+                    </div>
+                </dialog>
+            `;
+
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            const modal = document.getElementById('transcription-capacity-modal');
+            modal.showModal();
+
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal || e.target.closest('[data-close-capacity-modal]')) {
+                    modal.close();
+                    modal.remove();
+                }
+            });
+        }
 
     }
 );

@@ -358,6 +358,85 @@ class MeetingRecordingController extends Controller
 
     /*
     |--------------------------------------------------------------------------
+    | Transcription Capacity Check
+    |--------------------------------------------------------------------------
+    */
+
+    public function checkTranscriptionCapacity(
+        Request $request,
+        MeetingRecording $recording
+    ): JsonResponse {
+        $this->authorizeRecording($request, $recording);
+
+        if (! $recording->audio_path) {
+            return response()->json([
+                'can_transcribe' => false,
+                'reason' => 'no_audio',
+                'message' => 'No audio file to transcribe.',
+            ]);
+        }
+
+        $user = $request->user();
+        $hasActive = $user->hasActiveAccess();
+        $extraMinutes = (int) ($user->extra_recording_quota_minutes ?? 0);
+        $extraExpires = $user->extra_quota_expires_at;
+        $hasExtraQuota = $extraMinutes > 0 && (is_null($extraExpires) || $extraExpires->isFuture());
+        $canTranscribe = $hasActive || $hasExtraQuota;
+
+        $disk = Storage::disk('public');
+        $fileSizeBytes = 0;
+        if ($recording->audio_path && $disk->exists($recording->audio_path)) {
+            $fileSizeBytes = $disk->size($recording->audio_path) ?? 0;
+        }
+        $fileSizeMb = round($fileSizeBytes / (1024 * 1024), 1);
+
+        $apiKey = $this->resolveOpenAiApiKey($user);
+        $openAiConfigured = $apiKey !== '';
+
+        if (! $openAiConfigured) {
+            return response()->json([
+                'can_transcribe' => false,
+                'reason' => 'openai_not_configured',
+                'message' => 'OpenAI transcription is not available. Please ask the administrator to configure OpenAI under AI Settings.',
+                'has_active_access' => $hasActive,
+                'extra_minutes_remaining' => $extraMinutes,
+                'file_size_mb' => $fileSizeMb,
+            ]);
+        }
+
+        if (! $canTranscribe) {
+            return response()->json([
+                'can_transcribe' => false,
+                'reason' => 'quota_exceeded',
+                'message' => 'Transcription requires an active subscription or extra recording quota minutes.',
+                'has_active_access' => $hasActive,
+                'extra_minutes_remaining' => $extraMinutes,
+                'file_size_mb' => $fileSizeMb,
+            ]);
+        }
+
+        if ($fileSizeBytes > 30 * 1024 * 1024 && $extraMinutes === 0) {
+            return response()->json([
+                'can_transcribe' => false,
+                'reason' => 'file_too_large',
+                'message' => "The recording is {$fileSizeMb} MB, which exceeds the 30 MB limit. Please top up your recording quota to transcribe larger files.",
+                'has_active_access' => $hasActive,
+                'extra_minutes_remaining' => $extraMinutes,
+                'file_size_mb' => $fileSizeMb,
+            ]);
+        }
+
+        return response()->json([
+            'can_transcribe' => true,
+            'has_active_access' => $hasActive,
+            'extra_minutes_remaining' => $extraMinutes,
+            'extra_quota_expires_at' => $extraExpires?->toIso8601String(),
+            'file_size_mb' => $fileSizeMb,
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Transcription
     |--------------------------------------------------------------------------
     */
