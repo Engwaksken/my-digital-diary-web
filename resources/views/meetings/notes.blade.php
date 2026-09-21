@@ -2819,6 +2819,16 @@ document.addEventListener(
                         + name
                     );
                 }
+
+                // Load segments when transcripts-summary tab is activated
+                if (name === 'transcripts-summary') {
+                    document.querySelectorAll('.meeting-segments-section').forEach(function(section) {
+                        const recordingId = section.dataset.recordingId;
+                        if (recordingId) {
+                            refreshSegments(recordingId);
+                        }
+                    });
+                }
             };
 
 
