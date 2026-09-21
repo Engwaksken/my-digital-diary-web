@@ -439,6 +439,15 @@ Route::middleware(['auth', 'verified', \App\Http\Middleware\EnsureSubscribedOrOr
     Route::get('meeting-recordings/{recording}/summary-download', [MeetingRecordingController::class, 'downloadSummary'])->name('meeting-recordings.summary.download');
     Route::post('meeting-recordings/{recording}/email-summary', [MeetingRecordingController::class, 'emailSummary'])->name('meeting-recordings.email-summary');
     Route::delete('meeting-recordings/{recording}', [MeetingRecordingController::class, 'destroy'])->name('meeting-recordings.destroy');
+
+    Route::post('meeting-recordings/{recording}/segments', [MeetingRecordingController::class, 'createSegment'])->name('meeting-recordings.segments.store');
+    Route::get('meeting-recordings/{recording}/segments', [MeetingRecordingController::class, 'listSegments'])->name('meeting-recordings.segments.index');
+    Route::post('meeting-recording-segments/{segment}/transcribe', [MeetingRecordingController::class, 'transcribeSegment'])->name('meeting-recording-segments.transcribe');
+    Route::post('meeting-recording-segments/{segment}/summarize', [MeetingRecordingController::class, 'generateSegmentSummary'])->name('meeting-recording-segments.summarize');
+    Route::put('meeting-recording-segments/{segment}', [MeetingRecordingController::class, 'updateSegment'])->name('meeting-recording-segments.update');
+    Route::delete('meeting-recording-segments/{segment}', [MeetingRecordingController::class, 'destroySegment'])->name('meeting-recording-segments.destroy');
+    Route::get('meeting-recording-segments/{segment}/audio/stream', [MeetingRecordingController::class, 'streamSegmentAudio'])->name('meeting-recording-segments.audio.stream');
+    Route::get('meeting-recording-segments/{segment}/audio', [MeetingRecordingController::class, 'downloadSegmentAudio'])->name('meeting-recording-segments.audio');
     Route::get('meetings/connect/{platform}', [MeetingConnectionController::class, 'connect'])->name('meetings.connect');
     Route::get('meetings/connect/{platform}/callback', [MeetingConnectionController::class, 'callback'])->name('meetings.connect.callback');
     Route::delete('meetings/connect/{platform}', [MeetingConnectionController::class, 'disconnect'])->name('meetings.disconnect');

@@ -12,9 +12,11 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use App\Models\MeetingRecordingSegment;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 
 class MeetingRecordingController extends Controller
 {
@@ -1286,6 +1288,400 @@ class MeetingRecordingController extends Controller
 
     /*
     |--------------------------------------------------------------------------
+    | Audio Segments (Cut/Trim)
+    |--------------------------------------------------------------------------
+    */
+
+    public function createSegment(
+        Request $request,
+        MeetingRecording $recording
+    ): JsonResponse {
+        $this->authorizeRecording(
+            $request,
+            $recording
+        );
+
+        if (! $recording->audio_path) {
+            return response()->json([
+                'message' => 'No audio file available to create segment.',
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'start_seconds' => ['required', 'integer', 'min:0'],
+            'end_seconds' => ['required', 'integer', 'min:1'],
+            'title' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string'],
+        ]);
+
+        if ($data['end_seconds'] <= $data['start_seconds']) {
+            return response()->json([
+                'message' => 'End time must be greater than start time.',
+            ], 422);
+        }
+
+        if ($data['end_seconds'] > $recording->duration_seconds) {
+            return response()->json([
+                'message' => 'End time cannot exceed recording duration.',
+            ], 422);
+        }
+
+        $duration = $data['end_seconds'] - $data['start_seconds'];
+
+        if ($duration < 1) {
+            return response()->json([
+                'message' => 'Segment must be at least 1 second long.',
+            ], 422);
+        }
+
+        try {
+            $segmentPath = $this->extractAudioSegment(
+                $recording->audio_path,
+                $data['start_seconds'],
+                $duration
+            );
+
+            $segment = $recording->segments()->create([
+                'created_by_user_id' => $request->user()->id,
+                'audio_path' => $segmentPath,
+                'start_seconds' => $data['start_seconds'],
+                'end_seconds' => $data['end_seconds'],
+                'duration_seconds' => $duration,
+                'title' => $data['title'] ?? null,
+                'notes' => $data['notes'] ?? null,
+                'transcription_status' => 'pending',
+                'summary_status' => 'pending',
+            ]);
+
+            MeetingAuditLog::record(
+                $recording->meeting_id,
+                $request->user()->id,
+                'created_recording_segment',
+                "Segment: {$segment->formattedStartTime()} - {$segment->formattedEndTime()}"
+            );
+
+            return response()->json([
+                'ok' => true,
+                'segment' => [
+                    'id' => $segment->id,
+                    'audio_path' => $segment->audio_path,
+                    'audio_url' => $segment->audioUrl(),
+                    'start_seconds' => $segment->start_seconds,
+                    'end_seconds' => $segment->end_seconds,
+                    'duration_seconds' => $segment->duration_seconds,
+                    'formatted_duration' => $segment->formattedDuration(),
+                    'formatted_start' => $segment->formattedStartTime(),
+                    'formatted_end' => $segment->formattedEndTime(),
+                    'title' => $segment->title,
+                    'notes' => $segment->notes,
+                    'transcription_status' => $segment->transcription_status,
+                    'summary_status' => $segment->summary_status,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'message' => 'Failed to create audio segment: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function listSegments(
+        Request $request,
+        MeetingRecording $recording
+    ): JsonResponse {
+        $this->authorizeRecording(
+            $request,
+            $recording
+        );
+
+        $segments = $recording->segments()
+            ->orderBy('start_seconds')
+            ->get()
+            ->map(function ($segment) {
+                return [
+                    'id' => $segment->id,
+                    'audio_path' => $segment->audio_path,
+                    'audio_url' => $segment->audioUrl(),
+                    'start_seconds' => $segment->start_seconds,
+                    'end_seconds' => $segment->end_seconds,
+                    'duration_seconds' => $segment->duration_seconds,
+                    'formatted_duration' => $segment->formattedDuration(),
+                    'formatted_start' => $segment->formattedStartTime(),
+                    'formatted_end' => $segment->formattedEndTime(),
+                    'title' => $segment->title,
+                    'notes' => $segment->notes,
+                    'transcript' => $segment->transcript,
+                    'transcription_status' => $segment->transcription_status,
+                    'transcription_error' => $segment->transcription_error,
+                    'summary' => $segment->summary,
+                    'summary_status' => $segment->summary_status,
+                    'summary_error' => $segment->summary_error,
+                ];
+            });
+
+        return response()->json([
+            'ok' => true,
+            'segments' => $segments,
+        ]);
+    }
+
+    public function transcribeSegment(
+        Request $request,
+        MeetingRecordingSegment $segment
+    ): RedirectResponse {
+        $segment->loadMissing('recording');
+        $this->authorizeRecording($request, $segment->recording);
+
+        if (! $segment->audio_path) {
+            return back()->withErrors([
+                'transcription' => 'No audio to transcribe.',
+            ]);
+        }
+
+        $data = $request->validate([
+            'transcription_language' => ['nullable', 'in:auto,en-GB,lg,sw'],
+        ]);
+
+        $language = $data['transcription_language'] ?? 'auto';
+
+        $segment->update([
+            'transcription_status' => 'processing',
+            'transcription_error' => null,
+        ]);
+
+        try {
+            $result = app(TranscriptionService::class)->transcribe(
+                $request->user(),
+                $segment->audio_path,
+                $language
+            );
+
+            $segment->update([
+                'transcript' => $result['transcript'],
+                'transcript_segments' => $result['segments'],
+                'transcription_status' => 'completed',
+            ]);
+
+            MeetingAuditLog::record(
+                $segment->recording->meeting_id,
+                $request->user()->id,
+                'transcribed_recording_segment',
+                "Segment #{$segment->id}"
+            );
+
+            return back()->with(
+                'success',
+                'Segment transcript ready using ' . $this->transcriptionLanguageLabel($language) . '.'
+            );
+        } catch (\Throwable $e) {
+            report($e);
+
+            $errorMessage = self::TRANSCRIPTION_FAILURE_MESSAGE;
+
+            if (
+                str_contains(
+                    strtolower((string) $e->getMessage()),
+                    'top up'
+                )
+            ) {
+                $errorMessage = 'The recording is too large. Please top up your recording quota to complete full transcription.';
+            }
+
+            $segment->update([
+                'transcription_status' => 'failed',
+                'transcription_error' => $errorMessage,
+            ]);
+
+            return back()->withErrors([
+                'transcription' => $errorMessage,
+            ]);
+        }
+    }
+
+    public function generateSegmentSummary(
+        Request $request,
+        MeetingRecordingSegment $segment
+    ): RedirectResponse {
+        $segment->loadMissing('recording');
+        $this->authorizeRecording($request, $segment->recording);
+
+        if (! $segment->transcript) {
+            return back()->withErrors([
+                'summary' => 'Transcribe the segment first.',
+            ]);
+        }
+
+        $segment->update([
+            'summary_status' => 'processing',
+            'summary_error' => null,
+        ]);
+
+        try {
+            $summary = app(MeetingSummaryService::class)->generate(
+                $request->user(),
+                $segment->transcript
+            );
+
+            $segment->update([
+                'summary' => $summary,
+                'summary_status' => 'completed',
+            ]);
+
+            MeetingAuditLog::record(
+                $segment->recording->meeting_id,
+                $request->user()->id,
+                'generated_segment_summary',
+                "Segment #{$segment->id}"
+            );
+
+            return back()->with('success', 'AI summary ready for segment.');
+        } catch (\Throwable $e) {
+            report($e);
+
+            $segment->update([
+                'summary_status' => 'failed',
+                'summary_error' => $e->getMessage(),
+            ]);
+
+            return back()->withErrors([
+                'summary' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    public function updateSegment(
+        Request $request,
+        MeetingRecordingSegment $segment
+    ): RedirectResponse {
+        $segment->loadMissing('recording');
+        $this->authorizeRecording($request, $segment->recording);
+
+        $data = $request->validate([
+            'title' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string'],
+        ]);
+
+        $segment->update($data);
+
+        MeetingAuditLog::record(
+            $segment->recording->meeting_id,
+            $request->user()->id,
+            'updated_recording_segment',
+            "Segment #{$segment->id}"
+        );
+
+        return back()->with('success', 'Segment updated.');
+    }
+
+    public function destroySegment(
+        Request $request,
+        MeetingRecordingSegment $segment
+    ): RedirectResponse {
+        $segment->loadMissing('recording');
+        $this->authorizeRecording($request, $segment->recording);
+
+        if ($segment->audio_path) {
+            Storage::disk('public')->delete($segment->audio_path);
+        }
+
+        MeetingAuditLog::record(
+            $segment->recording->meeting_id,
+            $request->user()->id,
+            'deleted_recording_segment',
+            "Segment #{$segment->id}"
+        );
+
+        $segment->delete();
+
+        return back()->with('success', 'Segment removed.');
+    }
+
+    public function streamSegmentAudio(
+        Request $request,
+        MeetingRecordingSegment $segment
+    ) {
+        $segment->loadMissing('recording');
+        $this->authorizeRecording($request, $segment->recording);
+
+        abort_unless(
+            $segment->audio_path,
+            404
+        );
+
+        $disk = Storage::disk('public');
+
+        abort_unless(
+            $disk->exists($segment->audio_path),
+            404,
+            'Segment audio file not found.'
+        );
+
+        $absolutePath = $disk->path($segment->audio_path);
+
+        $extension = strtolower(pathinfo($segment->audio_path, PATHINFO_EXTENSION));
+
+        try {
+            $mime = $disk->mimeType($segment->audio_path);
+        } catch (\Throwable $e) {
+            $mime = null;
+        }
+
+        if (! is_string($mime) || $mime === '' || $mime === 'application/octet-stream') {
+            $mime = match ($extension) {
+                'mp3', 'mpga' => 'audio/mpeg',
+                'wav', 'wave' => 'audio/wav',
+                'm4a' => 'audio/mp4',
+                'mp4', 'm4v' => 'video/mp4',
+                'webm', 'weba' => 'audio/webm',
+                'ogg', 'oga' => 'audio/ogg',
+                'opus' => 'audio/ogg; codecs=opus',
+                'aac' => 'audio/aac',
+                'flac' => 'audio/flac',
+                'mov' => 'video/quicktime',
+                'mpeg', 'mpg' => 'video/mpeg',
+                default => 'application/octet-stream',
+            };
+        }
+
+        return response()->file(
+            $absolutePath,
+            [
+                'Content-Type' => $mime,
+                'Content-Disposition' => 'inline; filename="meeting-segment-' . $segment->id . '.' . ($extension ?: 'audio') . '"',
+                'Accept-Ranges' => 'bytes',
+                'Cache-Control' => 'private, no-store, max-age=0',
+                'X-Content-Type-Options' => 'nosniff',
+            ]
+        );
+    }
+
+    public function downloadSegmentAudio(
+        Request $request,
+        MeetingRecordingSegment $segment
+    ) {
+        $segment->loadMissing('recording');
+        $this->authorizeRecording($request, $segment->recording);
+
+        abort_unless($segment->audio_path, 404);
+
+        MeetingAuditLog::record(
+            $segment->recording->meeting_id,
+            $request->user()->id,
+            'downloaded_segment_audio'
+        );
+
+        $extension = pathinfo($segment->audio_path, PATHINFO_EXTENSION) ?: 'bin';
+
+        return Storage::disk('public')->download(
+            $segment->audio_path,
+            'meeting-segment-' . $segment->id . '.' . $extension
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Helpers
     |--------------------------------------------------------------------------
     */
@@ -1593,5 +1989,70 @@ class MeetingRecordingController extends Controller
                 'The selected file is not a recognised audio or video recording.'
             );
         }
+    }
+
+    private function extractAudioSegment(
+        string $sourcePath,
+        int $startSeconds,
+        int $durationSeconds
+    ): string {
+        $disk = Storage::disk('public');
+        $absoluteSourcePath = $disk->path($sourcePath);
+
+        if (! is_file($absoluteSourcePath)) {
+            throw new \RuntimeException('Source recording file not found.');
+        }
+
+        $temporaryDirectory = storage_path('app/transcription-temp');
+
+        if (! is_dir($temporaryDirectory)) {
+            if (! mkdir($temporaryDirectory, 0755, true) && ! is_dir($temporaryDirectory)) {
+                throw new \RuntimeException('Unable to create temporary directory.');
+            }
+        }
+
+        $extension = strtolower(pathinfo($sourcePath, PATHINFO_EXTENSION)) ?: 'webm';
+        $destinationPath = $temporaryDirectory . DIRECTORY_SEPARATOR . Str::uuid() . '.' . $extension;
+
+        $command = 'ffmpeg'
+            . ' -hide_banner'
+            . ' -loglevel error'
+            . ' -y'
+            . ' -ss ' . escapeshellarg((string) $startSeconds)
+            . ' -t ' . escapeshellarg((string) $durationSeconds)
+            . ' -i ' . escapeshellarg($absoluteSourcePath)
+            . ' -c copy'
+            . ' ' . escapeshellarg($destinationPath)
+            . ' 2>&1';
+
+        $output = [];
+        $exitCode = 1;
+
+        @exec($command, $output, $exitCode);
+
+        if ($exitCode !== 0 || ! is_file($destinationPath) || filesize($destinationPath) < 1024) {
+            @unlink($destinationPath);
+
+            Log::warning('Audio segment extraction failed.', [
+                'source' => $sourcePath,
+                'start' => $startSeconds,
+                'duration' => $durationSeconds,
+                'exit_code' => $exitCode,
+                'output' => trim(implode("\n", $output)),
+            ]);
+
+            throw new \RuntimeException('Failed to extract audio segment. The source audio may be incomplete or corrupted.');
+        }
+
+        $storedPath = $disk->putFileAs(
+            'meeting-recording-segments',
+            new \Illuminate\Http\File($destinationPath),
+            basename($destinationPath),
+            'public'
+        );
+
+        @unlink($destinationPath);
+
+        return $storedPath;
     }
 }

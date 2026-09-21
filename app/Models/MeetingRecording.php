@@ -42,4 +42,9 @@ class MeetingRecording extends Model
 
         return sprintf('%d:%02d', $minutes, $seconds);
     }
+
+    public function segments()
+    {
+        return $this->hasMany(MeetingRecordingSegment::class, 'meeting_recording_id');
+    }
 }

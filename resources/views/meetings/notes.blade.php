@@ -602,6 +602,20 @@
 
                                 </div>
 
+                                {{-- Audio Editor / Waveform --}}
+                                <div class="mt-4">
+                                    <button
+                                        type="button"
+                                        class="meeting-edit-audio-button"
+                                        data-recording-id="{{ $recording->id }}"
+                                        data-audio-url="{{ route('meeting-recordings.audio.stream', $recording) }}"
+                                        data-duration="{{ $recording->duration_seconds }}"
+                                    >
+                                        <i class="fa-solid fa-waveform-lines mr-1"></i>
+                                        Edit Audio (Cut/Trim)
+                                    </button>
+                                </div>
+
                             @endif
 
 
@@ -925,6 +939,21 @@
                                 </div>
 
                             @endif
+
+                            {{-- Segments --}}
+                            <div
+                                class="meeting-segments-section"
+                                data-recording-id="{{ $recording->id }}"
+                            >
+                                <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                    <h4 class="text-sm font-black text-slate-900">
+                                        <i class="fa-solid fa-scissors mr-1 text-amber-600"></i>
+                                        Audio Segments
+                                    </h4>
+                                    <span class="text-xs text-slate-500" id="segments-count-{{ $recording->id }}">Loading...</span>
+                                </div>
+                                <div class="meeting-segments-list space-y-2" id="segments-list-{{ $recording->id }}"></div>
+                            </div>
 
                         </article>
 
@@ -1386,8 +1415,211 @@
 
 
 {{-- =============================================================
-     STYLES
+     AUDIO EDITOR MODAL (Cut/Trim like CapCut)
 ============================================================== --}}
+<dialog
+    id="audio-editor-dialog"
+    class="meeting-audio-editor-dialog"
+>
+
+    <div class="meeting-audio-editor-form">
+        {{-- Fixed Header --}}
+        <header class="meeting-audio-editor-header">
+
+            <div class="min-w-0">
+
+                <h3 class="text-lg font-black text-slate-900">
+                    <i class="fa-solid fa-waveform-lines mr-1 text-amber-600"></i>
+                    Edit Audio
+                </h3>
+
+
+                <p class="mt-1 text-xs text-slate-500">
+                    Select a portion of the audio to create a segment for transcription.
+                </p>
+
+            </div>
+
+
+            <button
+                type="button"
+                data-close-audio-editor
+                class="meeting-dialog-close shrink-0"
+                aria-label="Close audio editor"
+            >
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+
+        </header>
+
+
+        {{-- ONLY THIS SECTION SCROLLS --}}
+        <div class="meeting-audio-editor-body">
+
+            <div
+                id="audio-editor-validation"
+                class="meeting-recording-message error hidden mb-4"
+                role="alert"
+            ></div>
+
+            {{-- Waveform Visualization --}}
+            <div class="meeting-waveform-container">
+                <canvas
+                    id="audio-waveform-canvas"
+                    class="meeting-waveform-canvas"
+                ></canvas>
+                <div class="meeting-waveform-overlay">
+                    <div
+                        id="waveform-selection"
+                        class="meeting-waveform-selection hidden"
+                    ></div>
+                    <div
+                        id="waveform-playhead"
+                        class="meeting-waveform-playhead hidden"
+                    ></div>
+                </div>
+            </div>
+
+            {{-- Time Controls --}}
+            <div class="mt-4 grid gap-3 sm:grid-cols-3">
+
+                <div>
+                    <label class="meeting-label">Start Time</label>
+                    <input
+                        type="text"
+                        id="segment-start-time"
+                        class="pm-input mt-1 w-full text-center font-mono"
+                        placeholder="00:00"
+                        readonly
+                    >
+                </div>
+
+                <div>
+                    <label class="meeting-label">End Time</label>
+                    <input
+                        type="text"
+                        id="segment-end-time"
+                        class="pm-input mt-1 w-full text-center font-mono"
+                        placeholder="00:00"
+                        readonly
+                    >
+                </div>
+
+                <div>
+                    <label class="meeting-label">Duration</label>
+                    <input
+                        type="text"
+                        id="segment-duration"
+                        class="pm-input mt-1 w-full text-center font-mono"
+                        placeholder="00:00"
+                        readonly
+                    >
+                </div>
+
+            </div>
+
+            {{-- Manual Time Input --}}
+            <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                <div>
+                    <label class="meeting-label">Set Start (seconds)</label>
+                    <input
+                        type="number"
+                        id="segment-start-input"
+                        class="pm-input mt-1 w-full"
+                        min="0"
+                        step="0.1"
+                        placeholder="e.g., 30.5"
+                    >
+                </div>
+                <div>
+                    <label class="meeting-label">Set End (seconds)</label>
+                    <input
+                        type="number"
+                        id="segment-end-input"
+                        class="pm-input mt-1 w-full"
+                        min="0.1"
+                        step="0.1"
+                        placeholder="e.g., 60.0"
+                    >
+                </div>
+            </div>
+
+            {{-- Segment Metadata --}}
+            <div class="mt-4 space-y-3">
+                <div>
+                    <label
+                        for="segment-title"
+                        class="meeting-label"
+                    >
+                        Segment Title (Optional)
+                    </label>
+                    <input
+                        type="text"
+                        id="segment-title"
+                        class="pm-input mt-1 w-full"
+                        placeholder="e.g., Key Discussion Point"
+                        maxlength="255"
+                    >
+                </div>
+
+                <div>
+                    <label
+                        for="segment-notes"
+                        class="meeting-label"
+                    >
+                        Notes (Optional)
+                    </label>
+                    <textarea
+                        id="segment-notes"
+                        rows="3"
+                        class="pm-input mt-1 w-full"
+                        placeholder="Add context about this segment..."
+                    ></textarea>
+                </div>
+            </div>
+
+            {{-- Preview Audio --}}
+            <div class="mt-4">
+                <label class="meeting-label">Preview Selection</label>
+                <audio
+                    id="segment-preview-audio"
+                    controls
+                    preload="metadata"
+                    class="w-full hidden"
+                ></audio>
+                <p class="mt-1 text-xs text-slate-500" id="preview-hint">Select a region on the waveform to preview.</p>
+            </div>
+
+        </div>
+
+
+        {{-- Always-visible Footer --}}
+        <footer class="meeting-audio-editor-footer">
+
+            <button
+                type="button"
+                data-close-audio-editor
+                class="apple-btn rounded-xl px-4 py-2.5 text-sm font-bold"
+            >
+                Cancel
+            </button>
+
+
+            <button
+                type="button"
+                id="create-segment-button"
+                class="btn-primary rounded-xl px-5 py-2.5 text-sm font-bold text-white"
+                disabled
+            >
+                <i class="fa-solid fa-scissors mr-1"></i>
+                Create Segment
+            </button>
+
+        </footer>
+
+    </div>
+
+</dialog>
 <style>
 
 .meeting-tabs{
@@ -2099,6 +2331,351 @@
         padding:14px;
     }
 
+}
+
+.meeting-edit-audio-button{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    min-height:36px;
+    padding:8px 12px;
+    border:0;
+    border-radius:10px;
+    background:#fef3c7;
+    color:#92400e;
+    font-size:.75rem;
+    font-weight:800;
+}
+
+.meeting-edit-audio-button:hover{
+    background:#fde68a;
+}
+
+.meeting-segments-section{
+    margin-top:16px;
+    padding-top:14px;
+    border-top:1px solid #e2e8f0;
+}
+
+.meeting-segments-list{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+}
+
+.meeting-segment-item{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:8px;
+    padding:10px 12px;
+    border:1px solid #e2e8f0;
+    border-radius:10px;
+    background:#f8fafc;
+}
+
+.meeting-segment-item.playing{
+    border-color:#f59e0b;
+    background:#fffbeb;
+}
+
+.meeting-segment-info{
+    flex:1;
+    min-width:150px;
+}
+
+.meeting-segment-title{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:.75rem;
+    font-weight:800;
+    color:#1e293b;
+}
+
+.meeting-segment-times{
+    display:flex;
+    align-items:center;
+    gap:4px;
+    margin-top:2px;
+    font-size:.65rem;
+    color:#64748b;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+}
+
+.meeting-segment-actions{
+    display:flex;
+    flex-wrap:wrap;
+    gap:4px;
+}
+
+.meeting-segment-action{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:4px;
+    min-height:30px;
+    padding:4px 8px;
+    border:1px solid #e2e8f0;
+    border-radius:8px;
+    background:#fff;
+    color:#475569;
+    font-size:.65rem;
+    font-weight:700;
+}
+
+.meeting-segment-action:hover{
+    background:#f1f5f9;
+}
+
+.meeting-segment-action.transcribe{
+    border-color:#bfdbfe;
+    color:#1d4ed8;
+}
+
+.meeting-segment-action.transcribe:hover{
+    background:#eff6ff;
+}
+
+.meeting-segment-action.summarize{
+    border-color:#ddd6fe;
+    color:#7c3aed;
+}
+
+.meeting-segment-action.summarize:hover{
+    background:#f5f3ff;
+}
+
+.meeting-segment-action.delete{
+    border-color:#fecdd3;
+    color:#be123c;
+}
+
+.meeting-segment-action.delete:hover{
+    background:#fff1f2;
+}
+
+.meeting-segment-action.play{
+    border-color:#a7f3d0;
+    color:#047857;
+}
+
+.meeting-segment-action.play:hover{
+    background:#ecfdf5;
+}
+
+/* =============================================================
+   Audio Editor Dialog
+============================================================= */
+
+.meeting-audio-editor-dialog{
+    width:min(96vw,1000px);
+    max-width:1000px;
+    max-height:90dvh;
+
+    padding:0;
+    border:0;
+    border-radius:20px;
+
+    background:transparent;
+}
+
+.meeting-audio-editor-dialog[open]{
+    display:block;
+}
+
+.meeting-audio-editor-dialog::backdrop{
+    background:rgba(15,23,42,.65);
+    backdrop-filter:blur(3px);
+}
+
+.meeting-audio-editor-form{
+    display:grid;
+
+    grid-template-rows:
+        auto
+        minmax(0,1fr)
+        auto;
+
+    width:100%;
+    height:100%;
+    max-height:90dvh;
+
+    overflow:hidden;
+
+    border-radius:20px;
+    background:#fff;
+
+    box-shadow:
+        0 28px 80px
+        rgba(15,23,42,.35);
+}
+
+.meeting-audio-editor-header{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:1rem;
+
+    min-height:0;
+    flex-shrink:0;
+
+    padding:18px 20px;
+
+    border-bottom:1px solid #e2e8f0;
+
+    background:#fff.
+}
+
+.meeting-audio-editor-body{
+    min-height:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+
+    overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;
+
+    padding:20px;
+
+    background:#fff;
+
+    scrollbar-width:thin;
+    scrollbar-color:#94a3b8 transparent;
+}
+
+.meeting-audio-editor-body::-webkit-scrollbar{
+    width:7px;
+}
+
+.meeting-audio-editor-body::-webkit-scrollbar-track{
+    background:transparent;
+}
+
+.meeting-audio-editor-body::-webkit-scrollbar-thumb{
+    border-radius:999px;
+    background:#94a3b8.
+}
+
+.meeting-audio-editor-footer{
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    gap:10px;
+
+    min-height:0;
+    flex-shrink:0;
+
+    padding:14px 20px;
+
+    border-top:1px solid #e2e8f0;
+
+    background:#fff;
+
+    box-shadow:
+        0 -8px 18px
+        rgba(15,23,42,.04).
+}
+
+/* =============================================================
+   Waveform
+============================================================= */
+
+.meeting-waveform-container{
+    position:relative;
+    width:100%;
+    height:180px;
+    border:1px solid #e2e8f0;
+    border-radius:12px;
+    background:#f8fafc;
+    overflow:hidden;
+}
+
+.meeting-waveform-canvas{
+    display:block;
+    width:100%;
+    height:100%;
+    touch-action:none;
+}
+
+.meeting-waveform-overlay{
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+}
+
+.meeting-waveform-selection{
+    position:absolute;
+    top:0;
+    bottom:0.
+    background:rgba(249,115,22,.2);
+    border-left:2px solid #f97316;
+    border-right:2px solid #f97316.
+    pointer-events:none.
+}
+
+.meeting-waveform-selection.active{
+    pointer-events:auto.
+}
+
+.meeting-waveform-playhead{
+    position:absolute;
+    top:0;
+    bottom:0.
+    width:2px.
+    background:#f97316.
+    pointer-events:none.
+    z-index:10.
+}
+
+.meeting-waveform-time-markers{
+    display:flex.
+    justify-content:space-between.
+    padding:4px 8px.
+    font-size:.6rem.
+    color:#64748b.
+    font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace.
+}
+
+@media(max-width:640px){
+
+    .meeting-audio-editor-dialog{
+        width:98vw.
+        height:95dvh.
+        max-height:95dvh.
+        border-radius:16px.
+    }
+
+    .meeting-audio-editor-form{
+        max-height:95dvh.
+        border-radius:16px.
+    }
+
+    .meeting-audio-editor-header{
+        padding:14px 15px.
+    }
+
+    .meeting-audio-editor-body{
+        padding:15px.
+    }
+
+    .meeting-audio-editor-footer{
+        padding:
+            12px
+            15px
+            max(
+                12px,
+                env(safe-area-inset-bottom)
+            ).
+    }
+
+    .meeting-audio-editor-footer button{
+        flex:1.
+    }
+
+    .meeting-waveform-container{
+        height:140px.
+    }
 }
 
 </style>
@@ -4017,6 +4594,728 @@ document.addEventListener(
 
 
         renderRecordingTimer();
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Audio Editor (Cut/Trim like CapCut)
+        |--------------------------------------------------------------------------
+        */
+
+        const audioEditorDialog =
+            document.getElementById('audio-editor-dialog');
+        const waveformCanvas =
+            document.getElementById('audio-waveform-canvas');
+        const waveformCtx = waveformCanvas
+            ? waveformCanvas.getContext('2d')
+            : null;
+        const selectionOverlay =
+            document.getElementById('waveform-selection');
+        const playheadOverlay =
+            document.getElementById('waveform-playhead');
+        const segmentStartTimeEl =
+            document.getElementById('segment-start-time');
+        const segmentEndTimeEl =
+            document.getElementById('segment-end-time');
+        const segmentDurationEl =
+            document.getElementById('segment-duration');
+        const segmentStartInput =
+            document.getElementById('segment-start-input');
+        const segmentEndInput =
+            document.getElementById('segment-end-input');
+        const segmentTitleInput =
+            document.getElementById('segment-title');
+        const segmentNotesInput =
+            document.getElementById('segment-notes');
+        const previewAudio =
+            document.getElementById('segment-preview-audio');
+        const previewHint =
+            document.getElementById('preview-hint');
+        const createSegmentButton =
+            document.getElementById('create-segment-button');
+        const validationEl =
+            document.getElementById('audio-editor-validation');
+
+        let audioEditorState = {
+            audioUrl: '',
+            duration: 0,
+            recordingId: null,
+            audioBuffer: null,
+            peaks: null,
+            selectionStart: 0,
+            selectionEnd: 0,
+            isSelecting: false,
+            isPlaying: false,
+            previewSource: null,
+        };
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+        }
+
+        function showAudioEditorValidation(message, type = 'error') {
+            if (!validationEl) return;
+            validationEl.textContent = message;
+            validationEl.className = 'meeting-recording-message ' + type;
+        }
+
+        function clearAudioEditorValidation() {
+            if (!validationEl) return;
+            validationEl.textContent = '';
+            validationEl.className = 'hidden meeting-recording-message';
+        }
+
+        async function loadAudioForEditor(recordingId, audioUrl, duration) {
+            audioEditorState.recordingId = recordingId;
+            audioEditorState.audioUrl = audioUrl;
+            audioEditorState.duration = duration;
+            audioEditorState.selectionStart = 0;
+            audioEditorState.selectionEnd = Math.min(30, duration);
+            audioEditorState.isSelecting = false;
+            audioEditorState.isPlaying = false;
+
+            segmentStartInput.value = '';
+            segmentEndInput.value = '';
+            segmentTitleInput.value = '';
+            segmentNotesInput.value = '';
+            previewAudio.classList.add('hidden');
+            previewHint.classList.remove('hidden');
+            createSegmentButton.disabled = true;
+            clearAudioEditorValidation();
+
+            try {
+                const response = await fetch(audioUrl);
+                const arrayBuffer = await response.arrayBuffer();
+
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (!audioEditorState.audioContext) {
+                    audioEditorState.audioContext = new AudioContextClass();
+                }
+                const audioContext = audioEditorState.audioContext;
+
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+
+                audioEditorState.audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                audioEditorState.peaks = computePeaks(audioEditorState.audioBuffer, waveformCanvas.width || 800);
+
+                drawWaveform();
+
+                updateSelectionDisplay();
+                updatePreviewAudio();
+            } catch (e) {
+                console.error('Failed to load audio for editor:', e);
+                showAudioEditorValidation('Failed to load audio waveform. Please try again.');
+            }
+        }
+
+        function computePeaks(audioBuffer, width) {
+            const channelData = audioBuffer.getChannelData(0);
+            const samplesPerPixel = Math.ceil(channelData.length / width);
+            const peaks = [];
+
+            for (let i = 0; i < width; i++) {
+                const start = i * samplesPerPixel;
+                const end = Math.min(start + samplesPerPixel, channelData.length);
+                let min = 1.0;
+                let max = -1.0;
+
+                for (let j = start; j < end; j++) {
+                    const value = channelData[j];
+                    if (value < min) min = value;
+                    if (value > max) max = value;
+                }
+
+                peaks.push({ min, max });
+            }
+
+            return peaks;
+        }
+
+        function drawWaveform() {
+            if (!waveformCanvas || !waveformCtx || !audioEditorState.peaks) return;
+
+            const dpr = window.devicePixelRatio || 1;
+            const rect = waveformCanvas.getBoundingClientRect();
+            waveformCanvas.width = rect.width * dpr;
+            waveformCanvas.height = rect.height * dpr;
+            waveformCtx.scale(dpr, dpr);
+
+            const width = rect.width;
+            const height = rect.height;
+            const centerY = height / 2;
+            const maxAmplitude = centerY - 4;
+
+            waveformCtx.clearRect(0, 0, width, height);
+
+            waveformCtx.fillStyle = '#e2e8f0';
+            waveformCtx.fillRect(0, 0, width, height);
+
+            waveformCtx.strokeStyle = '#94a3b8';
+            waveformCtx.lineWidth = 1;
+            waveformCtx.beginPath();
+            waveformCtx.moveTo(0, centerY);
+            waveformCtx.lineTo(width, centerY);
+            waveformCtx.stroke();
+
+            const peaks = audioEditorState.peaks;
+            const step = width / peaks.length;
+
+            waveformCtx.strokeStyle = '#0f766e';
+            waveformCtx.lineWidth = 1.5;
+
+            waveformCtx.beginPath();
+            for (let i = 0; i < peaks.length; i++) {
+                const x = i * step;
+                const peak = peaks[i];
+                const y1 = centerY - peak.max * maxAmplitude;
+                const y2 = centerY - peak.min * maxAmplitude;
+
+                waveformCtx.moveTo(x, y1);
+                waveformCtx.lineTo(x, y2);
+            }
+            waveformCtx.stroke();
+
+            drawSelection();
+            drawPlayhead();
+        }
+
+        function drawSelection() {
+            if (!selectionOverlay || audioEditorState.duration === 0) return;
+
+            const rect = waveformCanvas.getBoundingClientRect();
+            const startX = (audioEditorState.selectionStart / audioEditorState.duration) * rect.width;
+            const endX = (audioEditorState.selectionEnd / audioEditorState.duration) * rect.width;
+
+            selectionOverlay.style.left = startX + 'px';
+            selectionOverlay.style.width = Math.max(0, endX - startX) + 'px';
+            selectionOverlay.classList.remove('hidden');
+        }
+
+        function drawPlayhead() {
+            if (!playheadOverlay || audioEditorState.duration === 0) return;
+
+            const rect = waveformCanvas.getBoundingClientRect();
+            let playheadPos = 0;
+
+            if (audioEditorState.previewSource && audioEditorState.isPlaying) {
+                const currentTime = audioEditorState.audioContext.currentTime - audioEditorState.previewStartTime;
+                playheadPos = (currentTime / audioEditorState.duration) * rect.width;
+            } else if (audioEditorState.selectionStart > 0) {
+                playheadPos = (audioEditorState.selectionStart / audioEditorState.duration) * rect.width;
+            }
+
+            playheadOverlay.style.left = playheadPos + 'px';
+            playheadOverlay.classList.remove('hidden');
+        }
+
+        function updateSelectionDisplay() {
+            if (segmentStartTimeEl) segmentStartTimeEl.value = formatTime(audioEditorState.selectionStart);
+            if (segmentEndTimeEl) segmentEndTimeEl.value = formatTime(audioEditorState.selectionEnd);
+            if (segmentDurationEl) segmentDurationEl.value = formatTime(audioEditorState.selectionEnd - audioEditorState.selectionStart);
+        }
+
+        function updatePreviewAudio() {
+            if (!previewAudio || !audioEditorState.audioBuffer) return;
+
+            const duration = audioEditorState.selectionEnd - audioEditorState.selectionStart;
+            if (duration < 0.1) {
+                previewAudio.classList.add('hidden');
+                previewHint.classList.remove('hidden');
+                previewHint.textContent = 'Select a region on the waveform to preview.';
+                createSegmentButton.disabled = true;
+                return;
+            }
+
+            createSegmentButton.disabled = false;
+            previewHint.classList.add('hidden');
+
+            const startSample = Math.floor(audioEditorState.selectionStart * audioEditorState.audioBuffer.sampleRate);
+            const endSample = Math.floor(audioEditorState.selectionEnd * audioEditorState.audioBuffer.sampleRate);
+            const length = endSample - startSample;
+
+            const offlineContext = new OfflineAudioContext(
+                audioEditorState.audioBuffer.numberOfChannels,
+                length,
+                audioEditorState.audioBuffer.sampleRate
+            );
+
+            const bufferSource = offlineContext.createBufferSource();
+            bufferSource.buffer = audioEditorState.audioBuffer;
+            bufferSource.connect(offlineContext.destination);
+            bufferSource.start(0, audioEditorState.selectionStart, duration);
+
+            offlineContext.startRendering().then(renderedBuffer => {
+                const wavBlob = bufferToWave(renderedBuffer, renderedBuffer.length);
+                const url = URL.createObjectURL(wavBlob);
+
+                if (audioEditorState.previewObjectUrl) {
+                    URL.revokeObjectURL(audioEditorState.previewObjectUrl);
+                }
+                audioEditorState.previewObjectUrl = url;
+
+                previewAudio.src = url;
+                previewAudio.classList.remove('hidden');
+            }).catch(e => {
+                console.error('Failed to render preview:', e);
+                previewHint.textContent = 'Could not generate preview.';
+                previewHint.classList.remove('hidden');
+            });
+        }
+
+        function bufferToWave(abuffer, len) {
+            const numOfChan = abuffer.numberOfChannels;
+            const length = len * numOfChan * 2 + 44;
+            const buffer = new ArrayBuffer(length);
+            const view = new DataView(buffer);
+            const channels = [];
+            let sample;
+            let offset = 0;
+            let pos = 0;
+
+            writeString(view, 'RIFF'); offset += 4;
+            view.setUint32(offset, length - 8, true); offset += 4;
+            writeString(view, 'WAVE'); offset += 4;
+            writeString(view, 'fmt '); offset += 4;
+            view.setUint32(offset, 16, true); offset += 4;
+            view.setUint16(offset, 1, true); offset += 2;
+            view.setUint16(offset, numOfChan, true); offset += 2;
+            view.setUint32(offset, abuffer.sampleRate, true); offset += 4;
+            view.setUint32(offset, abuffer.sampleRate * numOfChan * 2, true); offset += 4;
+            view.setUint16(offset, numOfChan * 2, true); offset += 2;
+            view.setUint16(offset, 16, true); offset += 4;
+            writeString(view, 'data'); offset += 4;
+            view.setUint32(offset, len * numOfChan * 2, true); offset += 4;
+
+            for (let i = 0; i < abuffer.numberOfChannels; i++) {
+                channels.push(abuffer.getChannelData(i));
+            }
+
+            while (pos < len) {
+                for (let i = 0; i < numOfChan; i++) {
+                    sample = Math.max(-1, Math.min(1, channels[i][pos]));
+                    sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+                    view.setInt16(offset, sample, true);
+                    offset += 2;
+                }
+                pos++;
+            }
+
+            return new Blob([buffer], { type: 'audio/wav' });
+        }
+
+        function writeString(view, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+            offset += string.length;
+        }
+
+        function getClickPosition(event) {
+            const rect = waveformCanvas.getBoundingClientRect();
+            const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+            return (clientX - rect.left) / rect.width;
+        }
+
+        function handleWaveformPointerDown(event) {
+            if (!audioEditorState.audioBuffer) return;
+
+            const pos = getClickPosition(event);
+            const time = Math.max(0, Math.min(audioEditorState.duration, pos * audioEditorState.duration));
+
+            audioEditorState.isSelecting = true;
+            audioEditorState.selectionStart = time;
+            audioEditorState.selectionEnd = time;
+
+            document.addEventListener('mousemove', handleWaveformPointerMove);
+            document.addEventListener('mouseup', handleWaveformPointerUp);
+            document.addEventListener('touchmove', handleWaveformPointerMove, { passive: false });
+            document.addEventListener('touchend', handleWaveformPointerUp);
+
+            event.preventDefault();
+        }
+
+        function handleWaveformPointerMove(event) {
+            if (!audioEditorState.isSelecting || !audioEditorState.audioBuffer) return;
+
+            const pos = getClickPosition(event);
+            const time = Math.max(0, Math.min(audioEditorState.duration, pos * audioEditorState.duration));
+
+            audioEditorState.selectionEnd = time;
+
+            if (audioEditorState.selectionStart > audioEditorState.selectionEnd) {
+                const temp = audioEditorState.selectionStart;
+                audioEditorState.selectionStart = audioEditorState.selectionEnd;
+                audioEditorState.selectionEnd = temp;
+            }
+
+            drawSelection();
+            updateSelectionDisplay();
+            updatePreviewAudio();
+        }
+
+        function handleWaveformPointerUp() {
+            audioEditorState.isSelecting = false;
+            document.removeEventListener('mousemove', handleWaveformPointerMove);
+            document.removeEventListener('mouseup', handleWaveformPointerUp);
+            document.removeEventListener('touchmove', handleWaveformPointerMove);
+            document.removeEventListener('touchend', handleWaveformPointerUp);
+        }
+
+        function handleStartInputChange() {
+            const value = parseFloat(segmentStartInput.value);
+            if (!isNaN(value) && value >= 0 && value < audioEditorState.duration) {
+                audioEditorState.selectionStart = value;
+                if (audioEditorState.selectionEnd <= audioEditorState.selectionStart) {
+                    audioEditorState.selectionEnd = Math.min(audioEditorState.duration, audioEditorState.selectionStart + 1);
+                }
+                drawSelection();
+                updateSelectionDisplay();
+                updatePreviewAudio();
+            }
+        }
+
+        function handleEndInputChange() {
+            const value = parseFloat(segmentEndInput.value);
+            if (!isNaN(value) && value > 0 && value <= audioEditorState.duration) {
+                audioEditorState.selectionEnd = value;
+                if (audioEditorState.selectionStart >= audioEditorState.selectionEnd) {
+                    audioEditorState.selectionStart = Math.max(0, audioEditorState.selectionEnd - 1);
+                }
+                drawSelection();
+                updateSelectionDisplay();
+                updatePreviewAudio();
+            }
+        }
+
+        async function handlePreviewPlay() {
+            if (!previewAudio.src || audioEditorState.isPlaying) return;
+
+            audioEditorState.isPlaying = true;
+
+            try {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (!audioEditorState.audioContext || audioEditorState.audioContext.state === 'closed') {
+                    audioEditorState.audioContext = new AudioContextClass();
+                }
+
+                if (audioEditorState.audioContext.state === 'suspended') {
+                    await audioEditorState.audioContext.resume();
+                }
+
+                audioEditorState.previewStartTime = audioEditorState.audioContext.currentTime - (audioEditorState.selectionStart || 0);
+
+                const source = audioEditorState.audioContext.createBufferSource();
+                source.buffer = audioEditorState.audioBuffer;
+                source.connect(audioEditorState.audioContext.destination);
+                source.start(0, audioEditorState.selectionStart, audioEditorState.selectionEnd - audioEditorState.selectionStart);
+
+                audioEditorState.previewSource = source;
+
+                const animatePlayhead = () => {
+                    if (audioEditorState.isPlaying && audioEditorState.previewSource) {
+                        drawPlayhead();
+                        requestAnimationFrame(animatePlayhead);
+                    }
+                };
+                animatePlayhead();
+
+                source.onended = () => {
+                    audioEditorState.isPlaying = false;
+                    audioEditorState.previewSource = null;
+                    drawPlayhead();
+                };
+            } catch (e) {
+                console.error('Preview play failed:', e);
+                audioEditorState.isPlaying = false;
+            }
+        }
+
+        function handlePreviewPause() {
+            if (audioEditorState.previewSource) {
+                try {
+                    audioEditorState.previewSource.stop();
+                } catch (_) {}
+                audioEditorState.previewSource = null;
+            }
+            audioEditorState.isPlaying = false;
+            drawPlayhead();
+        }
+
+        async function handleCreateSegment() {
+            if (!audioEditorState.recordingId) return;
+
+            const start = audioEditorState.selectionStart;
+            const end = audioEditorState.selectionEnd;
+
+            if (end - start < 0.5) {
+                showAudioEditorValidation('Segment must be at least 0.5 seconds long.', 'warning');
+                return;
+            }
+
+            if (start < 0 || end > audioEditorState.duration) {
+                showAudioEditorValidation('Invalid selection range.', 'error');
+                return;
+            }
+
+            createSegmentButton.disabled = true;
+            createSegmentButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Creating...';
+
+            try {
+                const response = await fetch(
+                    @json(route('meeting-recordings.segments.store', ['recording' => '__ID__'])).replace('__ID__', audioEditorState.recordingId),
+                    {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'X-CSRF-TOKEN': @json(csrf_token()),
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            start_seconds: Math.round(start),
+                            end_seconds: Math.round(end),
+                            title: segmentTitleInput.value.trim() || null,
+                            notes: segmentNotesInput.value.trim() || null,
+                        }),
+                    }
+                );
+
+                const payload = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    throw new Error(payload.message || 'Failed to create segment.');
+                }
+
+                closeDialog(audioEditorDialog);
+                showAudioEditorValidation('Segment created successfully!', 'success');
+
+                refreshSegments(audioEditorState.recordingId);
+            } catch (e) {
+                console.error('Create segment failed:', e);
+                showAudioEditorValidation(e.message || 'Failed to create segment. Please try again.', 'error');
+            } finally {
+                createSegmentButton.disabled = false;
+                createSegmentButton.innerHTML = '<i class="fa-solid fa-scissors mr-1"></i> Create Segment';
+            }
+        }
+
+        async function refreshSegments(recordingId) {
+            const listEl = document.getElementById('segments-list-' + recordingId);
+            const countEl = document.getElementById('segments-count-' + recordingId);
+
+            if (!listEl) return;
+
+            try {
+                const response = await fetch(
+                    @json(route('meeting-recordings.segments.index', ['recording' => '__ID__'])).replace('__ID__', recordingId),
+                    {
+                        credentials: 'same-origin',
+                        headers: { 'Accept': 'application/json' },
+                    }
+                );
+
+                const payload = await response.json();
+
+                if (payload.ok && payload.segments) {
+                    listEl.innerHTML = '';
+
+                    if (countEl) {
+                        countEl.textContent = payload.segments.length + ' segment' + (payload.segments.length !== 1 ? 's' : '');
+                    }
+
+                    payload.segments.forEach(segment => {
+                        const item = document.createElement('div');
+                        item.className = 'meeting-segment-item';
+                        item.dataset.segmentId = segment.id;
+
+                        item.innerHTML = `
+                            <div class="meeting-segment-info">
+                                <div class="meeting-segment-title">
+                                    <i class="fa-solid fa-waveform-lines text-amber-600"></i>
+                                    ${segment.title ? escapeHtml(segment.title) : 'Segment #' + segment.id}
+                                </div>
+                                <div class="meeting-segment-times">
+                                    ${segment.formatted_start} - ${segment.formatted_end} (${segment.formatted_duration})
+                                </div>
+                            </div>
+                            <div class="meeting-segment-actions">
+                                <button
+                                    type="button"
+                                    class="meeting-segment-action play"
+                                    data-action="play"
+                                    data-audio-url="${segment.audio_url}"
+                                >
+                                    <i class="fa-solid fa-play"></i> Play
+                                </button>
+                                ${segment.transcription_status !== 'completed' ? `
+                                    <form method="POST" action="${@json(route('meeting-recording-segments.transcribe', ['segment' => '__ID__'])).replace('__ID__', segment.id)}" class="inline">
+                                        @csrf
+                                        <button type="submit" class="meeting-segment-action transcribe">
+                                            <i class="fa-solid fa-wand-magic-sparkles"></i> Transcribe
+                                        </button>
+                                    </form>
+                                ` : `
+                                    <button
+                                        type="button"
+                                        class="meeting-segment-action transcribe"
+                                        disabled
+                                        title="Already transcribed"
+                                    >
+                                        <i class="fa-solid fa-check"></i> Transcribed
+                                    </button>
+                                `}
+                                ${segment.transcript && segment.summary_status !== 'completed' ? `
+                                    <form method="POST" action="${@json(route('meeting-recording-segments.summarize', ['segment' => '__ID__'])).replace('__ID__', segment.id)}" class="inline">
+                                        @csrf
+                                        <button type="submit" class="meeting-segment-action summarize">
+                                            <i class="fa-solid fa-wand-magic-sparkles"></i> Summarize
+                                        </button>
+                                    </form>
+                                ` : ''}
+                                <form method="POST" action="${@json(route('meeting-recording-segments.destroy', ['segment' => '__ID__'])).replace('__ID__', segment.id)}" class="inline" onsubmit="return confirm('Delete this segment?')">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="meeting-segment-action delete">
+                                        <i class="fa-solid fa-trash-can"></i> Delete
+                                    </button>
+                                </form>
+                            </div>
+                        `;
+
+                        listEl.appendChild(item);
+                    });
+
+                    listEl.querySelectorAll('[data-action="play"]').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            playSegmentAudio(this.dataset.audioUrl, this.closest('.meeting-segment-item'));
+                        });
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to load segments:', e);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function playSegmentAudio(audioUrl, itemEl) {
+            if (!audioUrl) return;
+
+            document.querySelectorAll('.meeting-segment-item.playing').forEach(el => {
+                el.classList.remove('playing');
+                const audio = el.querySelector('audio');
+                if (audio) audio.pause();
+            });
+
+            if (itemEl.classList.contains('playing')) {
+                itemEl.classList.remove('playing');
+                return;
+            }
+
+            let audioEl = itemEl.querySelector('audio');
+            if (!audioEl) {
+                audioEl = document.createElement('audio');
+                audioEl.src = audioUrl;
+                audioEl.preload = 'auto';
+                itemEl.appendChild(audioEl);
+            }
+
+            audioEl.play().then(() => {
+                itemEl.classList.add('playing');
+            }).catch(e => {
+                console.error('Play failed:', e);
+            });
+
+            audioEl.addEventListener('ended', () => {
+                itemEl.classList.remove('playing');
+            });
+            audioEl.addEventListener('pause', () => {
+                itemEl.classList.remove('playing');
+            });
+        }
+
+        document.addEventListener('click', function(event) {
+            const editButton = event.target.closest('.meeting-edit-audio-button');
+            if (editButton) {
+                event.preventDefault();
+                const recordingId = editButton.dataset.recordingId;
+                const audioUrl = editButton.dataset.audioUrl;
+                const duration = parseInt(editButton.dataset.duration, 10);
+
+                loadAudioForEditor(recordingId, audioUrl, duration);
+                openDialog(audioEditorDialog);
+                return;
+            }
+
+            if (event.target.closest('[data-close-audio-editor]')) {
+                event.preventDefault();
+                closeDialog(audioEditorDialog);
+
+                if (audioEditorState.previewObjectUrl) {
+                    URL.revokeObjectURL(audioEditorState.previewObjectUrl);
+                    audioEditorState.previewObjectUrl = null;
+                }
+                if (audioEditorState.previewSource) {
+                    try { audioEditorState.previewSource.stop(); } catch (_) {}
+                    audioEditorState.previewSource = null;
+                }
+                audioEditorState.isPlaying = false;
+                return;
+            }
+
+            if (event.target === createSegmentButton) {
+                event.preventDefault();
+                handleCreateSegment();
+            }
+
+            if (event.target === previewAudio) {
+                if (previewAudio.paused) {
+                    handlePreviewPlay();
+                } else {
+                    handlePreviewPause();
+                }
+            }
+        });
+
+        if (waveformCanvas) {
+            waveformCanvas.addEventListener('mousedown', handleWaveformPointerDown);
+            waveformCanvas.addEventListener('touchstart', handleWaveformPointerDown, { passive: false });
+        }
+
+        if (segmentStartInput) {
+            segmentStartInput.addEventListener('change', handleStartInputChange);
+        }
+
+        if (segmentEndInput) {
+            segmentEndInput.addEventListener('change', handleEndInputChange);
+        }
+
+        if (previewAudio) {
+            previewAudio.addEventListener('play', () => {
+                handlePreviewPlay();
+            });
+            previewAudio.addEventListener('pause', () => {
+                handlePreviewPause();
+            });
+            previewAudio.addEventListener('ended', () => {
+                handlePreviewPause();
+            });
+        }
+
+        window.addEventListener('resize', () => {
+            if (audioEditorState.peaks) {
+                drawWaveform();
+            }
+        });
+
     }
 );
 </script>
