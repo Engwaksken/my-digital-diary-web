@@ -335,6 +335,13 @@ Route::middleware(['auth:sanctum', 'mobile.idempotent'])->name('api.')->group(fu
     Route::post('meeting-recordings/{recording}/summarize', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'generateSummary']);
     Route::delete('meeting-recordings/{recording}', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'destroy']);
 
+    // Meeting recording segments
+    Route::get('meeting-recordings/{recording}/segments', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'listSegments']);
+    Route::post('meeting-recordings/{recording}/segments', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'createSegment']);
+    Route::post('meeting-recording-segments/{segment}/transcribe', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'transcribeSegment']);
+    Route::post('meeting-recording-segments/{segment}/summarize', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'generateSegmentSummary']);
+    Route::delete('meeting-recording-segments/{segment}', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'destroySegment']);
+
     // Organization / Team management
     Route::get('organization', [\App\Http\Controllers\Api\OrganizationController::class, 'show']);
     Route::post('organization/invite', [\App\Http\Controllers\Api\OrganizationController::class, 'invite']);

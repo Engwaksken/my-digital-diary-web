@@ -30,4 +30,11 @@ Route::middleware(['auth:sanctum'])->group(function (): void {
         ->whereNumber('socialMediaPost');
     Route::delete('social-media-planner/{socialMediaPost}', [SocialMediaPlannerController::class, 'destroy'])
         ->whereNumber('socialMediaPost');
+
+    // Meeting recording segments (Flutter)
+    Route::get('meeting-recordings/{recording}/segments', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'listSegments']);
+    Route::post('meeting-recordings/{recording}/segments', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'createSegment']);
+    Route::post('meeting-recording-segments/{segment}/transcribe', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'transcribeSegment']);
+    Route::post('meeting-recording-segments/{segment}/summarize', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'generateSegmentSummary']);
+    Route::delete('meeting-recording-segments/{segment}', [\App\Http\Controllers\Api\MeetingRecordingController::class, 'destroySegment']);
 });
