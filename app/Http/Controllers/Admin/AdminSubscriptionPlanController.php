@@ -153,11 +153,9 @@ class AdminSubscriptionPlanController extends Controller
             'additional_user_price' => $data['category'] === 'individual'
                 ? null
                 : ($data['additional_user_price'] ?? $existingPlan?->additional_user_price),
-            'included_extra_recording_minutes' => $data['category'] === 'individual'
-                ? 0
-                : ($data['included_extra_recording_minutes']
-                    ?? $existingPlan?->included_extra_recording_minutes
-                    ?? 0),
+            'included_extra_recording_minutes' => $data['included_extra_recording_minutes']
+                ?? $existingPlan?->included_extra_recording_minutes
+                ?? 0,
             'color' => strtoupper($data['color']),
             'badge' => array_key_exists('badge', $data)
                 ? $data['badge']
